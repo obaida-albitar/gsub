@@ -1,0 +1,43 @@
+1
+00:00:00,500 --> 00:00:02,000
+Welcome to the subtitle editor!
+
+2
+00:00:02,500 --> 00:00:05,000
+This is an example SRT file
+with multiple lines of text.
+
+3
+00:00:05,500 --> 00:00:08,000
+You can edit the text,
+adjust timing,
+and even have three lines!
+
+4
+00:00:08,500 --> 00:00:11,000
+Use Ctrl+N to add new subtitles.
+
+5
+00:00:11,500 --> 00:00:14,000
+Press Delete to remove them.
+
+6
+00:00:14,500 --> 00:00:17,500
+Ctrl+D duplicates the selected subtitle.
+
+7
+00:00:18,000 --> 00:00:21,000
+Ctrl+Up and Ctrl+Down move subtitles.
+
+8
+00:00:21,500 --> 00:00:24,000
+Use the Time Shift dialog for batch operations.
+
+9
+00:00:24,500 --> 00:00:27,000
+All changes can be undone with Ctrl+Z.
+
+10
+00:00:27,500 --> 00:00:30,000
+And redone with Ctrl+Shift+Z!
+
