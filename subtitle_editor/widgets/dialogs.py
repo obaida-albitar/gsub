@@ -93,7 +93,7 @@ class TimeShiftDialog(Adw.Window):
         for label, value in [("-5s", -5000), ("-1s", -1000), ("-100ms", -100),
                              ("+100ms", 100), ("+1s", 1000), ("+5s", 5000)]:
             button = Gtk.Button(label=label)
-            button.connect('clicked', lambda b, v=value: self.offset_spin.set_value(v))
+            button.connect('clicked', lambda b, v=value: self.offset_spin.set_value(self.offset_spin.get_value() + v))
             preset_box.append(button)
         
         presets_group.add(preset_box)
