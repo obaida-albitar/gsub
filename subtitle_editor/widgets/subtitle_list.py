@@ -8,7 +8,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, GObject, Pango, Gio, Gdk
+from gi.repository import Gtk, Adw, GObject, Pango, Gio, Gdk
 from subtitle_editor.models import SubtitleDocument, SubtitleEntry
 
 
@@ -31,10 +31,17 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.set_vexpand(True)
         self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         
-        # Create list box
+        # Add styling
+        self.add_css_class("background")
+        
+        # Create list box with modern styling
         self.list_box = Gtk.ListBox()
         self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
-        self.list_box.add_css_class("boxed-list")
+        self.list_box.add_css_class("navigation-sidebar")
+        self.list_box.set_margin_start(6)
+        self.list_box.set_margin_end(6)
+        self.list_box.set_margin_top(6)
+        self.list_box.set_margin_bottom(6)
         self.list_box.connect('row-selected', self._on_row_selected)
         self.list_box.connect('row-activated', self._on_row_activated)
         
@@ -46,6 +53,11 @@ class SubtitleListView(Gtk.ScrolledWindow):
         menu_section.append("Remove", "win.remove-entry")
         self.context_menu.append_section(None, menu_section)
         
+        move_section = Gio.Menu()
+        move_section.append("Move Up", "win.move-up")
+        move_section.append("Move Down", "win.move-down")
+        self.context_menu.append_section(None, move_section)
+        
         # Add right-click gesture
         right_click = Gtk.GestureClick.new()
         right_click.set_button(3)  # Right mouse button
@@ -54,12 +66,12 @@ class SubtitleListView(Gtk.ScrolledWindow):
         
         self.set_child(self.list_box)
         
-        # Placeholder
-        placeholder = Gtk.Label()
-        placeholder.set_markup("<big>No subtitles</big>\n\nPress <b>Ctrl+N</b> to add a subtitle")
-        placeholder.set_margin_top(48)
-        placeholder.set_margin_bottom(48)
-        placeholder.add_css_class("dim-label")
+        # Placeholder with better styling
+        placeholder = Adw.StatusPage()
+        placeholder.set_icon_name("text-x-generic-symbolic")
+        placeholder.set_title("No Subtitles")
+        placeholder.set_description("Press Ctrl+Shift+N to add your first subtitle")
+        placeholder.set_vexpand(True)
         self.list_box.set_placeholder(placeholder)
     
     def set_document(self, document: SubtitleDocument):
@@ -114,41 +126,41 @@ class SubtitleListView(Gtk.ScrolledWindow):
     def _create_row(self, entry: SubtitleEntry, position: int) -> Gtk.ListBoxRow:
         """Create a list box row for a subtitle entry."""
         row = Gtk.ListBoxRow()
-        row.set_margin_top(0)
-        row.set_margin_bottom(0)
         
         # Main box for the row
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         box.set_margin_start(12)
         box.set_margin_end(12)
-        box.set_margin_top(8)
-        box.set_margin_bottom(8)
+        box.set_margin_top(10)
+        box.set_margin_bottom(10)
         row.set_child(box)
         
-        # Index label
+        # Index badge
         index_label = Gtk.Label()
         index_label.set_text(str(entry.index))
-        index_label.set_width_chars(4)
-        index_label.set_xalign(1.0)
-        index_label.add_css_class("dim-label")
-        index_label.add_css_class("monospace")
+        index_label.set_width_chars(3)
+        index_label.set_xalign(0.5)
+        index_label.add_css_class("caption")
+        index_label.add_css_class("numeric")
+        index_label.set_valign(Gtk.Align.START)
+        index_label.set_margin_top(2)
         box.append(index_label)
         
         # Content box (vertical)
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         content_box.set_hexpand(True)
         box.append(content_box)
         
-        # Timing label
+        # Timing label with better formatting
         timing_label = Gtk.Label()
         timing_text = f"{entry.start_time} → {entry.end_time}"
-        timing_label.set_markup(f"<small>{timing_text}</small>")
+        timing_label.set_markup(f"<span size='small' weight='500'>{timing_text}</span>")
         timing_label.set_xalign(0.0)
-        timing_label.add_css_class("dim-label")
-        timing_label.add_css_class("monospace")
+        timing_label.add_css_class("caption")
+        timing_label.add_css_class("numeric")
         content_box.append(timing_label)
         
-        # Text label
+        # Text label with better styling
         text_label = Gtk.Label()
         text_label.set_text(entry.text)
         text_label.set_xalign(0.0)
@@ -173,7 +185,7 @@ class SubtitleListView(Gtk.ScrolledWindow):
         
         if hasattr(row, '_timing_label'):
             timing_text = f"{entry.start_time} → {entry.end_time}"
-            row._timing_label.set_markup(f"<small>{timing_text}</small>")
+            row._timing_label.set_markup(f"<span size='small' weight='500'>{timing_text}</span>")
         
         if hasattr(row, '_text_label'):
             row._text_label.set_text(entry.text)

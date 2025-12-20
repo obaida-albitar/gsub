@@ -41,90 +41,77 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     
     def _build_ui(self):
         """Construct the user interface."""
-        # Main box
-        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.set_content(main_box)
+        # Use Adw.ToolbarView for modern GNOME layout
+        toolbar_view = Adw.ToolbarView()
+        self.set_content(toolbar_view)
+        
+        # Toast overlay for user feedback
+        self.toast_overlay = Adw.ToastOverlay()
+        toolbar_view.set_content(self.toast_overlay)
         
         # Header bar
         self.header_bar = Adw.HeaderBar()
-        main_box.append(self.header_bar)
+        toolbar_view.add_top_bar(self.header_bar)
         
         # Primary menu button
         menu_button = Gtk.MenuButton()
         menu_button.set_icon_name("open-menu-symbolic")
         menu_button.set_menu_model(self._create_primary_menu())
+        menu_button.set_tooltip_text("Main Menu")
         self.header_bar.pack_end(menu_button)
         
-        # Toolbar box for edit operations
-        toolbar_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        toolbar_box.add_css_class("linked")
+        # Document title - centered
+        self.title_widget = Adw.WindowTitle()
+        self.title_widget.set_title("Subtitle Editor")
+        self.header_bar.set_title_widget(self.title_widget)
         
-        # Add subtitle button
-        add_button = Gtk.Button()
-        add_button.set_icon_name("list-add-symbolic")
-        add_button.set_tooltip_text("Add Subtitle (Ctrl+N)")
-        add_button.set_action_name("win.add-entry")
-        toolbar_box.append(add_button)
+        # Open/Save button group (start side)
+        file_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        file_box.add_css_class("linked")
         
-        # Remove subtitle button
-        remove_button = Gtk.Button()
-        remove_button.set_icon_name("list-remove-symbolic")
-        remove_button.set_tooltip_text("Remove Subtitle (Delete)")
-        remove_button.set_action_name("win.remove-entry")
-        toolbar_box.append(remove_button)
+        open_button = Gtk.Button()
+        open_button.set_icon_name("document-open-symbolic")
+        open_button.set_tooltip_text("Open File (Ctrl+O)")
+        open_button.set_action_name("win.open")
+        file_box.append(open_button)
         
-        # Duplicate subtitle button
-        duplicate_button = Gtk.Button()
-        duplicate_button.set_icon_name("edit-copy-symbolic")
-        duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
-        duplicate_button.set_action_name("win.duplicate-entry")
-        toolbar_box.append(duplicate_button)
+        self.save_button = Gtk.Button()
+        self.save_button.set_icon_name("document-save-symbolic")
+        self.save_button.set_tooltip_text("Save (Ctrl+S)")
+        self.save_button.set_action_name("win.save")
+        file_box.append(self.save_button)
         
-        self.header_bar.pack_start(toolbar_box)
-        
-        # Separator
-        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        separator.set_margin_start(6)
-        separator.set_margin_end(6)
-        self.header_bar.pack_start(separator)
+        self.header_bar.pack_start(file_box)
         
         # Undo/Redo buttons
         undo_redo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         undo_redo_box.add_css_class("linked")
         
-        undo_button = Gtk.Button()
-        undo_button.set_icon_name("edit-undo-symbolic")
-        undo_button.set_tooltip_text("Undo (Ctrl+Z)")
-        undo_button.set_action_name("win.undo")
-        undo_redo_box.append(undo_button)
+        self.undo_button = Gtk.Button()
+        self.undo_button.set_icon_name("edit-undo-symbolic")
+        self.undo_button.set_tooltip_text("Undo (Ctrl+Z)")
+        self.undo_button.set_action_name("win.undo")
+        self.undo_button.set_sensitive(False)
+        undo_redo_box.append(self.undo_button)
         
-        redo_button = Gtk.Button()
-        redo_button.set_icon_name("edit-redo-symbolic")
-        redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
-        redo_button.set_action_name("win.redo")
-        undo_redo_box.append(redo_button)
+        self.redo_button = Gtk.Button()
+        self.redo_button.set_icon_name("edit-redo-symbolic")
+        self.redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
+        self.redo_button.set_action_name("win.redo")
+        self.redo_button.set_sensitive(False)
+        undo_redo_box.append(self.redo_button)
         
         self.header_bar.pack_start(undo_redo_box)
-        
-        # Separator
-        separator2 = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        separator2.set_margin_start(6)
-        separator2.set_margin_end(6)
-        self.header_bar.pack_start(separator2)
-        
-        # Save button
-        self.save_button = Gtk.Button()
-        self.save_button.set_icon_name("document-save-symbolic")
-        self.save_button.set_tooltip_text("Save (Ctrl+S)")
-        self.save_button.set_action_name("win.save")
-        self.save_button.add_css_class("flat")
-        self.header_bar.pack_start(self.save_button)
         
         # Content area with paned layout
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.paned.set_vexpand(True)
         self.paned.set_position(400)
-        main_box.append(self.paned)
+        self.paned.set_shrink_start_child(False)
+        self.paned.set_shrink_end_child(False)
+        self.paned.set_resize_start_child(False)
+        self.paned.set_resize_end_child(True)
+        self.toast_overlay.set_child(self.paned)
         
         # Left side: Subtitle list
         self.subtitle_list = SubtitleListView()
@@ -138,15 +125,43 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
         self.paned.set_end_child(self.editor_panel)
         
-        # Status bar
+        # Bottom bar with status and actions
+        bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        bottom_bar.set_margin_start(12)
+        bottom_bar.set_margin_end(12)
+        bottom_bar.set_margin_top(6)
+        bottom_bar.set_margin_bottom(6)
+        toolbar_view.add_bottom_bar(bottom_bar)
+        
+        # Status label
         self.status_bar = Gtk.Label()
-        self.status_bar.set_margin_start(6)
-        self.status_bar.set_margin_end(6)
-        self.status_bar.set_margin_top(3)
-        self.status_bar.set_margin_bottom(3)
         self.status_bar.set_halign(Gtk.Align.START)
+        self.status_bar.set_hexpand(True)
         self.status_bar.add_css_class("dim-label")
-        main_box.append(self.status_bar)
+        bottom_bar.append(self.status_bar)
+        
+        # Action buttons in bottom bar
+        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        
+        add_button = Gtk.Button()
+        add_button.set_icon_name("list-add-symbolic")
+        add_button.set_tooltip_text("Add Subtitle (Ctrl+N)")
+        add_button.set_action_name("win.add-entry")
+        action_box.append(add_button)
+        
+        remove_button = Gtk.Button()
+        remove_button.set_icon_name("list-remove-symbolic")
+        remove_button.set_tooltip_text("Remove Subtitle (Delete)")
+        remove_button.set_action_name("win.remove-entry")
+        action_box.append(remove_button)
+        
+        duplicate_button = Gtk.Button()
+        duplicate_button.set_icon_name("edit-copy-symbolic")
+        duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
+        duplicate_button.set_action_name("win.duplicate-entry")
+        action_box.append(duplicate_button)
+        
+        bottom_bar.append(action_box)
         
         self._update_status()
     
@@ -178,15 +193,15 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _setup_actions(self):
         """Set up window actions."""
         # File actions
-        self._create_action("new", self._on_new)
-        self._create_action("open", self._on_open)
+        self._create_action("new", self._on_new, ["<Ctrl>N"])
+        self._create_action("open", self._on_open, ["<Ctrl>O"])
         self._create_action("save", self._on_save, ["<Ctrl>S"])
         self._create_action("save-as", self._on_save_as, ["<Ctrl><Shift>S"])
         
         # Edit actions
         self._create_action("undo", self._on_undo, ["<Ctrl>Z"])
         self._create_action("redo", self._on_redo, ["<Ctrl><Shift>Z"])
-        self._create_action("add-entry", self._on_add_entry, ["<Ctrl>N"])
+        self._create_action("add-entry", self._on_add_entry, ["<Ctrl><Shift>N"])
         self._create_action("remove-entry", self._on_remove_entry, ["Delete"])
         self._create_action("duplicate-entry", self._on_duplicate_entry, ["<Ctrl>D"])
         self._create_action("move-up", self._on_move_up, ["<Ctrl>Up"])
@@ -211,10 +226,14 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Update window title based on current file."""
         if self.current_file:
             filename = os.path.basename(self.current_file)
-            modified = " •" if self.document and self.document.modified else ""
-            self.set_title(f"{filename}{modified} - Subtitle Editor")
+            self.title_widget.set_title(filename)
+            if self.document and self.document.modified:
+                self.title_widget.set_subtitle("Modified")
+            else:
+                self.title_widget.set_subtitle("")
         else:
-            self.set_title("Subtitle Editor")
+            self.title_widget.set_title("Subtitle Editor")
+            self.title_widget.set_subtitle("")
     
     def _update_status(self):
         """Update status bar."""
@@ -224,6 +243,17 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.status_bar.set_text(f"{count} subtitles • {format_name} format")
         else:
             self.status_bar.set_text("No file loaded")
+    
+    def _update_undo_redo_buttons(self):
+        """Update undo/redo button sensitivity."""
+        self.undo_button.set_sensitive(self.command_manager.can_undo())
+        self.redo_button.set_sensitive(self.command_manager.can_redo())
+    
+    def _show_toast(self, message: str):
+        """Show a toast notification."""
+        toast = Adw.Toast.new(message)
+        toast.set_timeout(2)
+        self.toast_overlay.add_toast(toast)
     
     def open_file(self, gfile: Gio.File):
         """Open a subtitle file."""
@@ -256,6 +286,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.editor_panel.clear()
             self._update_title()
             self._update_status()
+            self._show_toast(f"Opened {os.path.basename(file_path)}")
             
         except Exception as e:
             self._show_error(f"Error opening file: {str(e)}")
@@ -280,6 +311,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.document.file_path = file_path
             self.current_file = file_path
             self._update_title()
+            self._show_toast(f"Saved {os.path.basename(file_path)}")
             
         except Exception as e:
             self._show_error(f"Error saving file: {str(e)}")
@@ -387,6 +419,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
+            self._update_undo_redo_buttons()
     
     def _on_redo(self, action, param):
         """Redo the last undone action."""
@@ -395,6 +428,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
+            self._update_undo_redo_buttons()
     
     def _update_editor_after_change(self):
         """Update the editor panel after undo/redo or other changes."""
@@ -433,6 +467,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.subtitle_list.select_entry(len(self.document.entries) - 1)
         self._update_title()
         self._update_status()
+        self._update_undo_redo_buttons()
+        self._show_toast("Subtitle added")
     
     def _on_remove_entry(self, action, param):
         """Remove the selected subtitle entry."""
@@ -450,6 +486,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.editor_panel.clear()
             self._update_title()
             self._update_status()
+            self._update_undo_redo_buttons()
+            self._show_toast("Subtitle removed")
     
     def _on_duplicate_entry(self, action, param):
         """Duplicate the selected subtitle entry."""
@@ -467,6 +505,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.subtitle_list.select_entry(position + 1)
             self._update_title()
             self._update_status()
+            self._update_undo_redo_buttons()
+            self._show_toast("Subtitle duplicated")
     
     def _on_move_up(self, action, param):
         """Move the selected entry up."""
@@ -514,6 +554,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.document.sort_by_time()
             self.subtitle_list.refresh()
             self._update_title()
+            self._show_toast("Subtitles sorted by time")
     
     def _on_about(self, action, param):
         """Show about dialog."""
@@ -564,6 +605,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         self.subtitle_list.refresh_entry(position)
         self._update_title()
+        self._update_undo_redo_buttons()
     
     def _on_timing_changed(self, widget, position, start_time, end_time):
         """Handle timing change in editor panel."""
@@ -577,6 +619,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         self.subtitle_list.refresh_entry(position)
         self._update_title()
+        self._update_undo_redo_buttons()
 
 
 # Keyboard shortcuts overlay UI
@@ -622,8 +665,14 @@ SHORTCUTS_UI = """
             </child>
             <child>
               <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Add Subtitle</property>
+                <property name="title" translatable="yes">New File</property>
                 <property name="accelerator">&lt;Ctrl&gt;N</property>
+              </object>
+            </child>
+            <child>
+              <object class="GtkShortcutsShortcut">
+                <property name="title" translatable="yes">Open File</property>
+                <property name="accelerator">&lt;Ctrl&gt;O</property>
               </object>
             </child>
             <child>
