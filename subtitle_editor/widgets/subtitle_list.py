@@ -17,14 +17,15 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     __gsignals__ = {
         'entry-selected': (GObject.SignalFlags.RUN_FIRST, None, (int,)),
-        'entry-activated': (GObject.SignalFlags.RUN_FIRST, None, (int,))
+        'entry-activated': (GObject.SignalFlags.RUN_FIRST, None, (int,)),
+        'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, ())
     }
     
     def __init__(self):
         super().__init__()
         
         self.document: SubtitleDocument = None
-        self._selected_position = -1
+        self._selected_positions = []  # Changed to list for multi-selection
         
         # Set up scrolled window
         self.set_hexpand(True)
@@ -35,8 +36,9 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.add_css_class("background")
         
         # Create list box with modern styling
+        # BROWSE mode allows single click selection, Ctrl+Click for multi-select
         self.list_box = Gtk.ListBox()
-        self.list_box.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        self.list_box.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
         self.list_box.add_css_class("navigation-sidebar")
         self.list_box.set_margin_start(6)
         self.list_box.set_margin_end(6)
@@ -57,6 +59,12 @@ class SubtitleListView(Gtk.ScrolledWindow):
         move_section.append("Move Up", "win.move-up")
         move_section.append("Move Down", "win.move-down")
         self.context_menu.append_section(None, move_section)
+        
+        # Add click gesture for better selection control
+        click = Gtk.GestureClick.new()
+        click.set_button(1)  # Left mouse button
+        click.connect('pressed', self._on_left_click)
+        self.list_box.add_controller(click)
         
         # Add right-click gesture
         right_click = Gtk.GestureClick.new()
@@ -79,8 +87,11 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.document = document
         self.refresh()
     
-    def refresh(self):
+    def refresh(self, preserve_selection=False):
         """Refresh the entire list."""
+        # Store current selection if requested
+        old_selection = self._selected_positions.copy() if preserve_selection else []
+        
         # Clear existing rows
         row = self.list_box.get_first_child()
         while row:
@@ -94,7 +105,16 @@ class SubtitleListView(Gtk.ScrolledWindow):
                 row = self._create_row(entry, i)
                 self.list_box.append(row)
         
-        self._selected_position = -1
+        # Restore selection if requested
+        if preserve_selection and old_selection:
+            for pos in old_selection:
+                if 0 <= pos < len(self.document.entries):
+                    row = self.list_box.get_row_at_index(pos)
+                    if row:
+                        self.list_box.select_row(row)
+            self._selected_positions = [p for p in old_selection if 0 <= p < len(self.document.entries)]
+        else:
+            self._selected_positions = []
     
     def refresh_entry(self, position: int):
         """Refresh a single entry in the list."""
@@ -107,21 +127,30 @@ class SubtitleListView(Gtk.ScrolledWindow):
             entry = self.document.entries[position]
             self._update_row(row, entry, position)
     
-    def select_entry(self, position: int):
+    def select_entry(self, position: int, clear_others=True):
         """Select an entry by position."""
         if position < 0:
             self.list_box.unselect_all()
-            self._selected_position = -1
+            self._selected_positions = []
             return
+        
+        if clear_others:
+            self.list_box.unselect_all()
+            self._selected_positions = []
         
         row = self.list_box.get_row_at_index(position)
         if row:
             self.list_box.select_row(row)
-            self._selected_position = position
+            if position not in self._selected_positions:
+                self._selected_positions.append(position)
+    
+    def get_selected_positions(self) -> list:
+        """Get all currently selected positions."""
+        return self._selected_positions.copy()
     
     def get_selected_position(self) -> int:
-        """Get the currently selected position."""
-        return self._selected_position
+        """Get the first selected position (for backward compatibility)."""
+        return self._selected_positions[0] if self._selected_positions else -1
     
     def _create_row(self, entry: SubtitleEntry, position: int) -> Gtk.ListBoxRow:
         """Create a list box row for a subtitle entry."""
@@ -191,19 +220,53 @@ class SubtitleListView(Gtk.ScrolledWindow):
             row._text_label.set_text(entry.text)
     
     def _on_row_selected(self, list_box, row):
-        """Handle row selection."""
-        if row:
-            position = row.get_index()
-            self._selected_position = position
-            self.emit('entry-selected', position)
+        """Handle row selection - update selected positions list."""
+        # Get all selected rows by iterating through valid ListBoxRow children
+        selected_rows = []
+        
+        # Iterate through all rows
+        row_iter = list_box.get_first_child()
+        while row_iter:
+            # Check if this is actually a ListBoxRow (not PopoverMenu or other widgets)
+            if isinstance(row_iter, Gtk.ListBoxRow) and row_iter.is_selected():
+                selected_rows.append(row_iter)
+            row_iter = row_iter.get_next_sibling()
+        
+        # Update selected positions
+        self._selected_positions = [r.get_index() for r in selected_rows]
+        
+        # Emit signals
+        if self._selected_positions:
+            # Emit entry-selected with first position for backward compatibility
+            self.emit('entry-selected', self._selected_positions[0])
         else:
-            self._selected_position = -1
             self.emit('entry-selected', -1)
+        
+        self.emit('selection-changed')
     
     def _on_row_activated(self, list_box, row):
         """Handle row activation (double-click or Enter)."""
         position = row.get_index()
         self.emit('entry-activated', position)
+    
+    def _on_left_click(self, gesture, n_press, x, y):
+        """Handle left click for better selection behavior."""
+        # Get the state to check for Ctrl/Shift
+        state = gesture.get_current_event_state()
+        ctrl_pressed = state & Gdk.ModifierType.CONTROL_MASK
+        shift_pressed = state & Gdk.ModifierType.SHIFT_MASK
+        
+        # Find which row was clicked
+        row = self.list_box.get_row_at_y(y)
+        if not row:
+            return
+        
+        # If no modifiers, clear all other selections
+        if not ctrl_pressed and not shift_pressed:
+            # Deselect all first, then select the clicked one
+            self.list_box.unselect_all()
+            self.list_box.select_row(row)
+            # Let the normal handler process this
     
     def _on_right_click(self, gesture, n_press, x, y):
         """Handle right-click on list."""

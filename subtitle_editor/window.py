@@ -415,7 +415,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _on_undo(self, action, param):
         """Undo the last action."""
         if self.command_manager.undo():
-            self.subtitle_list.refresh()
+            self.subtitle_list.refresh(preserve_selection=True)
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
@@ -424,7 +424,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _on_redo(self, action, param):
         """Redo the last undone action."""
         if self.command_manager.redo():
-            self.subtitle_list.refresh()
+            self.subtitle_list.refresh(preserve_selection=True)
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
@@ -471,42 +471,62 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._show_toast("Subtitle added")
     
     def _on_remove_entry(self, action, param):
-        """Remove the selected subtitle entry."""
+        """Remove the selected subtitle entries."""
         if not self.document:
             return
         
-        position = self.subtitle_list.get_selected_position()
-        if position >= 0:
-            from subtitle_editor.commands import RemoveEntryCommand
-            
+        positions = self.subtitle_list.get_selected_positions()
+        if not positions:
+            return
+        
+        from subtitle_editor.commands import RemoveEntryCommand
+        
+        # Remove in reverse order to maintain indices
+        positions_sorted = sorted(positions, reverse=True)
+        
+        for position in positions_sorted:
             cmd = RemoveEntryCommand(self.document, position)
             self.command_manager.execute(cmd)
-            
-            self.subtitle_list.refresh()
-            self.editor_panel.clear()
-            self._update_title()
-            self._update_status()
-            self._update_undo_redo_buttons()
-            self._show_toast("Subtitle removed")
+        
+        self.subtitle_list.refresh()
+        self.editor_panel.clear()
+        self._update_title()
+        self._update_status()
+        self._update_undo_redo_buttons()
+        
+        count = len(positions)
+        self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} removed")
     
     def _on_duplicate_entry(self, action, param):
-        """Duplicate the selected subtitle entry."""
+        """Duplicate the selected subtitle entries."""
         if not self.document:
             return
         
-        position = self.subtitle_list.get_selected_position()
-        if position >= 0:
-            from subtitle_editor.commands import DuplicateEntryCommand
-            
-            cmd = DuplicateEntryCommand(self.document, position)
+        positions = self.subtitle_list.get_selected_positions()
+        if not positions:
+            return
+        
+        from subtitle_editor.commands import DuplicateEntryCommand
+        
+        # Duplicate in order, adjusting positions as we go
+        positions_sorted = sorted(positions)
+        offset = 0
+        
+        for position in positions_sorted:
+            cmd = DuplicateEntryCommand(self.document, position + offset)
             self.command_manager.execute(cmd)
-            
-            self.subtitle_list.refresh()
-            self.subtitle_list.select_entry(position + 1)
-            self._update_title()
-            self._update_status()
-            self._update_undo_redo_buttons()
-            self._show_toast("Subtitle duplicated")
+            offset += 1
+        
+        self.subtitle_list.refresh()
+        # Select the last duplicated entry
+        if positions_sorted:
+            self.subtitle_list.select_entry(positions_sorted[-1] + offset)
+        self._update_title()
+        self._update_status()
+        self._update_undo_redo_buttons()
+        
+        count = len(positions)
+        self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} duplicated")
     
     def _on_move_up(self, action, param):
         """Move the selected entry up."""
@@ -552,7 +572,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Sort subtitles by start time."""
         if self.document:
             self.document.sort_by_time()
-            self.subtitle_list.refresh()
+            self.subtitle_list.refresh(preserve_selection=True)
             self._update_title()
             self._show_toast("Subtitles sorted by time")
     

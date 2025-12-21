@@ -8,7 +8,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, GObject
+from gi.repository import Gtk, Adw, GObject, GLib
 from subtitle_editor.models import SubtitleEntry, TimeCode
 
 
@@ -26,6 +26,8 @@ class EditorPanel(Gtk.Box):
         self.current_entry: SubtitleEntry = None
         self.current_position = -1
         self._updating = False  # Flag to prevent signal loops
+        self._text_change_timeout_id = None  # For debouncing text changes
+        self._pending_text = None
         
         # Add background styling
         self.add_css_class("view")
@@ -231,6 +233,14 @@ class EditorPanel(Gtk.Box):
     
     def set_entry(self, entry: SubtitleEntry, position: int):
         """Set the current entry to edit."""
+        # Flush any pending text changes before switching entries
+        if self._text_change_timeout_id is not None:
+            GLib.source_remove(self._text_change_timeout_id)
+            if self._pending_text is not None and self.current_position >= 0:
+                self.emit('text-changed', self.current_position, self._pending_text)
+            self._text_change_timeout_id = None
+            self._pending_text = None
+        
         self.current_entry = entry
         self.current_position = position
         self._updating = True
@@ -258,6 +268,12 @@ class EditorPanel(Gtk.Box):
     
     def clear(self):
         """Clear the editor."""
+        # Cancel any pending text change
+        if self._text_change_timeout_id is not None:
+            GLib.source_remove(self._text_change_timeout_id)
+            self._text_change_timeout_id = None
+        self._pending_text = None
+        
         self.current_entry = None
         self.current_position = -1
         self._updating = True
@@ -293,7 +309,7 @@ class EditorPanel(Gtk.Box):
         self.duration_row.set_subtitle(f"{duration_sec:.3f} seconds")
     
     def _on_text_buffer_changed(self, text_buffer):
-        """Handle text buffer changes."""
+        """Handle text buffer changes with debouncing."""
         if self._updating or self.current_position < 0:
             return
         
@@ -302,7 +318,24 @@ class EditorPanel(Gtk.Box):
         text = text_buffer.get_text(start, end, False)
         
         if self.current_entry and text != self.current_entry.text:
-            self.emit('text-changed', self.current_position, text)
+            # Cancel any pending timeout
+            if self._text_change_timeout_id is not None:
+                GLib.source_remove(self._text_change_timeout_id)
+            
+            # Store the pending text
+            self._pending_text = text
+            
+            # Set a new timeout (500ms delay)
+            self._text_change_timeout_id = GLib.timeout_add(500, self._emit_text_changed)
+    
+    def _emit_text_changed(self):
+        """Emit the text-changed signal after debounce delay."""
+        if self._pending_text is not None and self.current_position >= 0:
+            self.emit('text-changed', self.current_position, self._pending_text)
+            self._pending_text = None
+        
+        self._text_change_timeout_id = None
+        return False  # Don't repeat the timeout
     
     def _on_timing_changed(self, spin_button):
         """Handle timing spin button changes."""

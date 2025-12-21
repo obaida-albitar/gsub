@@ -158,19 +158,18 @@ class TimeShiftDialog(Adw.Dialog):
         positions = None
         
         if self.scope_selected.get_active():
-            # Only selected subtitle
-            selected_pos = self.parent_window.subtitle_list.get_selected_position()
-            if selected_pos >= 0:
-                positions = [selected_pos]
-            else:
+            # Only selected subtitles
+            positions = self.parent_window.subtitle_list.get_selected_positions()
+            if not positions:
                 self.close()
                 return
         
         elif self.scope_from.get_active():
-            # From selected to end
-            selected_pos = self.parent_window.subtitle_list.get_selected_position()
-            if selected_pos >= 0:
-                positions = list(range(selected_pos, len(self.document.entries)))
+            # From first selected to end
+            selected_positions = self.parent_window.subtitle_list.get_selected_positions()
+            if selected_positions:
+                first_pos = min(selected_positions)
+                positions = list(range(first_pos, len(self.document.entries)))
             else:
                 self.close()
                 return
@@ -179,8 +178,10 @@ class TimeShiftDialog(Adw.Dialog):
         cmd = TimeShiftCommand(self.document, offset_ms, positions)
         self.parent_window.command_manager.execute(cmd)
         
-        # Update UI
-        self.parent_window.subtitle_list.refresh()
+        # Update UI - preserve selection
+        self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
+        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._show_toast(f"Time shifted by {offset_ms}ms")
         
         self.close()
