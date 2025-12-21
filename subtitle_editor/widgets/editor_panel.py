@@ -9,7 +9,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GObject, GLib
-from subtitle_editor.models import SubtitleEntry, TimeCode
+from subtitle_editor.models import SubtitleEntry, TimeCode, SubtitleFormat
 
 
 class EditorPanel(Gtk.Box):
@@ -17,7 +17,8 @@ class EditorPanel(Gtk.Box):
     
     __gsignals__ = {
         'text-changed': (GObject.SignalFlags.RUN_FIRST, None, (int, str)),
-        'timing-changed': (GObject.SignalFlags.RUN_FIRST, None, (int, object, object))
+        'timing-changed': (GObject.SignalFlags.RUN_FIRST, None, (int, object, object)),
+        'style-changed': (GObject.SignalFlags.RUN_FIRST, None, (int, object)),
     }
     
     def __init__(self):
@@ -57,6 +58,15 @@ class EditorPanel(Gtk.Box):
         text_group.set_title("Subtitle Text")
         text_group.set_description("Edit the text content of the selected subtitle")
         content.append(text_group)
+
+        # Style selection (ASS/SSA only; hidden by default)
+        self.style_row = Adw.ComboRow()
+        self.style_row.set_title("Style")
+        self.style_row.set_visible(False)
+        self.style_model = Gtk.StringList.new([])
+        self.style_row.set_model(self.style_model)
+        self.style_row.connect('notify::selected', self._on_style_selected)
+        text_group.add(self.style_row)
         
         # Text editor with better styling
         self.text_buffer = Gtk.TextBuffer()
@@ -211,6 +221,10 @@ class EditorPanel(Gtk.Box):
         
         # Initially disabled
         self.set_sensitive(False)
+
+        # ASS/SSA support
+        self._format = None
+        self._styles = []
     
     def _create_spin_button(self, min_val: int, max_val: int, step: int = 1) -> Gtk.SpinButton:
         """Create a spin button for time input."""
@@ -231,6 +245,15 @@ class EditorPanel(Gtk.Box):
         
         return spin
     
+    def set_document_context(self, fmt: SubtitleFormat, style_names: list[str]):
+        """Provide document format and styles for style dropdown."""
+        self._format = fmt
+        self._styles = style_names or ['Default']
+
+        # Update style dropdown
+        self.style_model.splice(0, self.style_model.get_n_items(), self._styles)
+        self.style_row.set_visible(fmt in (SubtitleFormat.ASS, SubtitleFormat.SSA))
+
     def set_entry(self, entry: SubtitleEntry, position: int):
         """Set the current entry to edit."""
         # Flush any pending text changes before switching entries
@@ -245,6 +268,14 @@ class EditorPanel(Gtk.Box):
         self.current_position = position
         self._updating = True
         
+        # Update style (ASS/SSA)
+        if self._format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            try:
+                idx = self._styles.index(entry.style or "Default")
+            except ValueError:
+                idx = 0
+            self.style_row.set_selected(idx)
+
         # Update text
         self.text_buffer.set_text(entry.text)
         
@@ -290,6 +321,16 @@ class EditorPanel(Gtk.Box):
     def focus_text(self):
         """Focus the text editor."""
         self.text_view.grab_focus()
+
+    def _on_style_selected(self, *args):
+        if self._updating or self.current_position < 0:
+            return
+        if self._format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            return
+
+        idx = int(self.style_row.get_selected())
+        if 0 <= idx < len(self._styles):
+            self.emit('style-changed', self.current_position, self._styles[idx])
     
     def _update_duration(self):
         """Update the duration display."""

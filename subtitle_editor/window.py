@@ -16,7 +16,7 @@ from subtitle_editor.parsers import SRTParser, ASSParser
 from subtitle_editor.commands import CommandManager
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
 
 
 class SubtitleEditorWindow(Adw.ApplicationWindow):
@@ -123,6 +123,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel = EditorPanel()
         self.editor_panel.connect('text-changed', self._on_text_changed)
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
+        self.editor_panel.connect('style-changed', self._on_style_changed)
         self.paned.set_end_child(self.editor_panel)
         
         # Bottom bar with status and actions
@@ -179,6 +180,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         # Edit section
         edit_section = Gio.Menu()
         edit_section.append("Time Shift…", "win.time-shift")
+        edit_section.append("ASS/SSA Info & Styles…", "win.ass-info-styles")
+        edit_section.append("Bulk Apply Style…", "win.bulk-apply-style")
         edit_section.append("Sort by Time", "win.sort-by-time")
         menu.append_section(None, edit_section)
         
@@ -207,6 +210,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._create_action("move-up", self._on_move_up, ["<Ctrl>Up"])
         self._create_action("move-down", self._on_move_down, ["<Ctrl>Down"])
         self._create_action("time-shift", self._on_time_shift)
+        self._create_action("ass-info-styles", self._on_ass_info_styles)
+        self._create_action("bulk-apply-style", self._on_bulk_apply_style)
         self._create_action("sort-by-time", self._on_sort_by_time)
         
         # Help actions
@@ -283,6 +288,9 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             
             # Update UI
             self.subtitle_list.set_document(self.document)
+            # Provide ASS/SSA style context for per-entry style selection
+            style_names = [s.name for s in (self.document.styles or [])] if self.document else []
+            self.editor_panel.set_document_context(self.document.format, style_names)
             self.editor_panel.clear()
             self._update_title()
             self._update_status()
@@ -332,6 +340,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.command_manager.clear()
         self.subtitle_list.set_document(self.document)
+        style_names = [s.name for s in (self.document.styles or [])] if self.document else []
+        self.editor_panel.set_document_context(self.document.format, style_names)
         self.editor_panel.clear()
         self._update_title()
         self._update_status()
@@ -567,6 +577,30 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         dialog = TimeShiftDialog(self)
         dialog.present()
+
+    def _on_ass_info_styles(self, action, param):
+        """Show ASS/SSA info & styles dialog."""
+        if not self.document:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            self._show_toast("This is only available for ASS/SSA files")
+            return
+
+        dialog = ASSInfoStylesDialog(self)
+        dialog.present()
+
+    def _on_bulk_apply_style(self, action, param):
+        """Bulk apply a style to multiple subtitles (ASS/SSA)."""
+        if not self.document:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            self._show_toast("This is only available for ASS/SSA files")
+            return
+        if not self.document.entries:
+            return
+
+        dialog = BulkApplyStyleDialog(self)
+        dialog.present()
     
     def _on_sort_by_time(self, action, param):
         """Sort subtitles by start time."""
@@ -637,6 +671,22 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         cmd = EditTimingCommand(self.document, position, start_time, end_time)
         self.command_manager.execute(cmd)
         
+        self.subtitle_list.refresh_entry(position)
+        self._update_title()
+        self._update_undo_redo_buttons()
+
+    def _on_style_changed(self, widget, position, new_style):
+        """Handle style change in editor panel (ASS/SSA only)."""
+        if not self.document or position < 0:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            return
+
+        from subtitle_editor.commands import EditStyleCommand
+
+        cmd = EditStyleCommand(self.document, position, new_style)
+        self.command_manager.execute(cmd)
+
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()

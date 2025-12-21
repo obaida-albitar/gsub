@@ -53,6 +53,7 @@ class SubtitleListView(Gtk.ScrolledWindow):
         menu_section = Gio.Menu()
         menu_section.append("Duplicate", "win.duplicate-entry")
         menu_section.append("Remove", "win.remove-entry")
+        menu_section.append("Bulk Apply Style…", "win.bulk-apply-style")
         self.context_menu.append_section(None, menu_section)
         
         move_section = Gio.Menu()
@@ -199,11 +200,22 @@ class SubtitleListView(Gtk.ScrolledWindow):
         text_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
         text_label.set_max_width_chars(50)
         content_box.append(text_label)
+
+        # Style name (ASS/SSA)
+        style_label = Gtk.Label()
+        style_name = entry.style or 'Default'
+        # Make it visually distinct while staying compatible with older GTK/libadwaita.
+        style_label.set_use_markup(True)
+        style_label.set_markup(f"<span size='small'><b>Style</b>  <tt>{style_name}</tt></span>")
+        style_label.set_xalign(0.0)
+        style_label.add_css_class("dim-label")
+        content_box.append(style_label)
         
         # Store references for updates
         row._index_label = index_label
         row._timing_label = timing_label
         row._text_label = text_label
+        row._style_label = style_label
         
         return row
     
@@ -218,6 +230,11 @@ class SubtitleListView(Gtk.ScrolledWindow):
         
         if hasattr(row, '_text_label'):
             row._text_label.set_text(entry.text)
+
+        if hasattr(row, '_style_label'):
+            style_name = entry.style or 'Default'
+            row._style_label.set_use_markup(True)
+            row._style_label.set_markup(f"<span size='small'><b>Style</b>  <tt>{style_name}</tt></span>")
     
     def _on_row_selected(self, list_box, row):
         """Handle row selection - update selected positions list."""

@@ -4,9 +4,10 @@ Subtitle data models.
 This module defines the core data structures for representing subtitles.
 """
 
-from dataclasses import dataclass, field
-from typing import Optional, List
+from dataclasses import dataclass, field, replace as dc_replace
+from typing import Optional, List, Dict, Any
 from enum import Enum
+import copy
 
 
 class SubtitleFormat(Enum):
@@ -130,7 +131,7 @@ class SubtitleDocument:
     format: SubtitleFormat
     entries: List[SubtitleEntry] = field(default_factory=list)
     styles: List[ASSStyle] = field(default_factory=list)  # For ASS format
-    metadata: dict = field(default_factory=dict)  # For ASS header info
+    metadata: Dict[str, str] = field(default_factory=dict)  # For ASS/SSA header info
     modified: bool = False
     file_path: Optional[str] = None
     
@@ -164,3 +165,101 @@ class SubtitleDocument:
             if style.name == name:
                 return style
         return None
+
+    # --- ASS/SSA metadata helpers ---
+    def set_metadata(self, key: str, value: str) -> None:
+        """Set a metadata key/value (ASS/SSA Script Info).
+
+        This marks the document modified.
+        """
+        if key is None:
+            raise ValueError("metadata key must not be None")
+        key = str(key).strip()
+        if not key:
+            raise ValueError("metadata key must not be empty")
+        self.metadata[key] = "" if value is None else str(value)
+        self.modified = True
+
+    def remove_metadata(self, key: str) -> None:
+        """Remove a metadata key if present."""
+        if key in self.metadata:
+            del self.metadata[key]
+            self.modified = True
+
+    # --- ASS style helpers ---
+    def upsert_style(self, style: ASSStyle) -> Optional[ASSStyle]:
+        """Insert or update a style by name.
+
+        Returns the previous style if replaced, else None.
+        """
+        if style is None:
+            raise ValueError("style must not be None")
+        if not style.name or not str(style.name).strip():
+            raise ValueError("style.name must not be empty")
+
+        for idx, existing in enumerate(self.styles):
+            if existing.name == style.name:
+                old = copy.deepcopy(existing)
+                self.styles[idx] = copy.deepcopy(style)
+                self.modified = True
+                return old
+
+        self.styles.append(copy.deepcopy(style))
+        self.modified = True
+        return None
+
+    def rename_style(self, old_name: str, new_name: str) -> None:
+        """Rename a style and update dialogue entries referencing it."""
+        old_name = (old_name or "").strip()
+        new_name = (new_name or "").strip()
+        if not old_name or not new_name:
+            raise ValueError("style names must not be empty")
+        if old_name == new_name:
+            return
+
+        if self.get_style_by_name(new_name) is not None:
+            raise ValueError(f"style '{new_name}' already exists")
+
+        style = self.get_style_by_name(old_name)
+        if style is None:
+            raise KeyError(f"style '{old_name}' not found")
+
+        style.name = new_name
+        for entry in self.entries:
+            if entry.style == old_name:
+                entry.style = new_name
+        self.modified = True
+
+    def remove_style(self, name: str, fallback: str = "Default") -> Optional[ASSStyle]:
+        """Remove a style by name.
+
+        Any dialogue entries using the removed style are switched to `fallback`.
+        Returns the removed style, or None if not found.
+        """
+        name = (name or "").strip()
+        if not name:
+            raise ValueError("style name must not be empty")
+
+        removed = None
+        for idx, style in enumerate(list(self.styles)):
+            if style.name == name:
+                removed = self.styles.pop(idx)
+                break
+
+        if removed is None:
+            return None
+
+        # Ensure fallback exists
+        if fallback and self.get_style_by_name(fallback) is None:
+            self.styles.append(ASSStyle(name=fallback))
+
+        for entry in self.entries:
+            if entry.style == name:
+                entry.style = fallback
+
+        # Always keep at least one style
+        if not self.styles:
+            self.styles.append(ASSStyle())
+
+        self.modified = True
+        return copy.deepcopy(removed)

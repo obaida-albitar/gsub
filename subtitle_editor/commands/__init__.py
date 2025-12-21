@@ -9,7 +9,25 @@ from .subtitle_commands import (
     DuplicateEntryCommand,
     MoveEntryCommand,
     TimeShiftCommand,
-    BatchTimingCommand
+    BatchTimingCommand,
+)
+
+from .ass_commands import (
+    SetMetadataCommand,
+    RemoveMetadataCommand,
+    UpsertStyleCommand,
+    RemoveStyleCommand,
+    RenameStyleCommand,
+    ReplaceASSHeaderCommand,
+    UpdateASSHeaderCommand,
+)
+
+from .style_commands import (
+    EditStyleCommand,
+)
+
+from .bulk_style_commands import (
+    BulkEditStyleCommand,
 )
 
 __all__ = [
@@ -22,5 +40,16 @@ __all__ = [
     'DuplicateEntryCommand',
     'MoveEntryCommand',
     'TimeShiftCommand',
-    'BatchTimingCommand'
+    'BatchTimingCommand',
+
+    'SetMetadataCommand',
+    'RemoveMetadataCommand',
+    'UpsertStyleCommand',
+    'RemoveStyleCommand',
+    'RenameStyleCommand',
+    'ReplaceASSHeaderCommand',
+    'UpdateASSHeaderCommand',
+
+    'EditStyleCommand',
+    'BulkEditStyleCommand',
 ]
