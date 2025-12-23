@@ -47,19 +47,9 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.list_box.connect('row-selected', self._on_row_selected)
         self.list_box.connect('row-activated', self._on_row_activated)
         
-        # Create context menu
+        # Create context menu (rebuilt based on document format)
         self.context_menu = Gio.Menu()
-        
-        menu_section = Gio.Menu()
-        menu_section.append("Duplicate", "win.duplicate-entry")
-        menu_section.append("Remove", "win.remove-entry")
-        menu_section.append("Bulk Apply Style…", "win.bulk-apply-style")
-        self.context_menu.append_section(None, menu_section)
-        
-        move_section = Gio.Menu()
-        move_section.append("Move Up", "win.move-up")
-        move_section.append("Move Down", "win.move-down")
-        self.context_menu.append_section(None, move_section)
+        self._rebuild_context_menu()
         
         # Add click gesture for better selection control
         click = Gtk.GestureClick.new()
@@ -86,8 +76,33 @@ class SubtitleListView(Gtk.ScrolledWindow):
     def set_document(self, document: SubtitleDocument):
         """Set the subtitle document to display."""
         self.document = document
+        self._rebuild_context_menu()
         self.refresh()
     
+    def _rebuild_context_menu(self):
+        """Rebuild right-click context menu based on current document."""
+        self.context_menu.remove_all()
+
+        menu_section = Gio.Menu()
+        menu_section.append("Duplicate", "win.duplicate-entry")
+        menu_section.append("Remove", "win.remove-entry")
+
+        # Only show ASS-only items when applicable
+        try:
+            fmt = self.document.format if self.document else None
+        except Exception:
+            fmt = None
+
+        if fmt is not None and getattr(fmt, 'value', None) in ('ass', 'ssa'):
+            menu_section.append("Bulk Apply Style…", "win.bulk-apply-style")
+
+        self.context_menu.append_section(None, menu_section)
+
+        move_section = Gio.Menu()
+        move_section.append("Move Up", "win.move-up")
+        move_section.append("Move Down", "win.move-down")
+        self.context_menu.append_section(None, move_section)
+
     def refresh(self, preserve_selection=False):
         """Refresh the entire list."""
         # Store current selection if requested

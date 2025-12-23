@@ -38,6 +38,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._build_ui()
         self._setup_actions()
         self._update_title()
+        self._update_format_actions()
     
     def _build_ui(self):
         """Construct the user interface."""
@@ -223,6 +224,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         action = Gio.SimpleAction.new(name, None)
         action.connect("activate", callback)
         self.add_action(action)
+
+        # Keep references so we can enable/disable format-specific actions.
+        if not hasattr(self, '_actions'):
+            self._actions = {}
+        self._actions[name] = action
         
         if shortcuts:
             self.get_application().set_accels_for_action(f"win.{name}", shortcuts)
@@ -253,6 +259,16 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Update undo/redo button sensitivity."""
         self.undo_button.set_sensitive(self.command_manager.can_undo())
         self.redo_button.set_sensitive(self.command_manager.can_redo())
+
+    def _update_format_actions(self):
+        """Enable/disable ASS-only actions based on current document format."""
+        fmt = self.document.format if self.document else None
+        is_ass = fmt in (SubtitleFormat.ASS, SubtitleFormat.SSA)
+
+        for name in ("ass-info-styles", "bulk-apply-style"):
+            action = getattr(self, '_actions', {}).get(name)
+            if action is not None:
+                action.set_enabled(bool(is_ass))
     
     def _show_toast(self, message: str):
         """Show a toast notification."""
@@ -294,6 +310,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.editor_panel.clear()
             self._update_title()
             self._update_status()
+            self._update_format_actions()
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             
         except Exception as e:
@@ -345,6 +362,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel.clear()
         self._update_title()
         self._update_status()
+        self._update_format_actions()
     
     def _on_open(self, action, param):
         """Show file open dialog."""

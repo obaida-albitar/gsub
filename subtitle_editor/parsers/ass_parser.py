@@ -53,6 +53,9 @@ class ASSParser:
             # Parse based on current section
             if current_section == '[script info]':
                 cls._parse_script_info(line, document)
+
+            elif current_section == '[aegisub project garbage]':
+                cls._parse_aegisub_garbage(line, document)
             
             elif current_section == '[v4+ styles]' or current_section == '[v4 styles]':
                 if line.startswith('Format:'):
@@ -84,6 +87,13 @@ class ASSParser:
         if ':' in line:
             key, value = line.split(':', 1)
             document.metadata[key.strip()] = value.strip()
+
+    @classmethod
+    def _parse_aegisub_garbage(cls, line: str, document: SubtitleDocument):
+        """Parse a line from the [Aegisub Project Garbage] section."""
+        if ':' in line:
+            key, value = line.split(':', 1)
+            document.aegisub_project_garbage[key.strip()] = value.strip()
     
     @classmethod
     def _parse_style(cls, line: str, format_list: List[str]) -> ASSStyle:
@@ -248,6 +258,14 @@ class ASSParser:
             lines.append(f"{key}: {merged[key]}")
         
         lines.append('')
+
+        # [Aegisub Project Garbage] section (optional)
+        if getattr(document, 'aegisub_project_garbage', None):
+            if document.aegisub_project_garbage:
+                lines.append('[Aegisub Project Garbage]')
+                for key in sorted(document.aegisub_project_garbage.keys()):
+                    lines.append(f"{key}: {document.aegisub_project_garbage[key]}")
+                lines.append('')
         
         # [V4+ Styles] section
         lines.append('[V4+ Styles]')

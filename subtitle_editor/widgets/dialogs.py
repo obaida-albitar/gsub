@@ -7,7 +7,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Pango, PangoCairo
+from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk
 from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
 from subtitle_editor.models import ASSStyle
 import copy
@@ -361,25 +361,52 @@ class ASSInfoStylesDialog(Adw.Dialog):
             info_group.add(row)
             self._info_rows[key] = row
 
-        extra_row = Adw.ExpanderRow()
-        extra_row.set_title("Additional metadata")
-        extra_row.set_subtitle("One per line: Key: Value")
-        info_group.add(extra_row)
+        # Full Script Info editor (dynamic fields)
+        full_info_row = Adw.ExpanderRow()
+        full_info_row.set_title("All Script Info")
+        full_info_row.set_subtitle("Edit all keys including PlayResX/PlayResY")
+        full_info_row.set_expanded(True)
+        info_group.add(full_info_row)
 
-        self.extra_buffer = Gtk.TextBuffer()
-        self.extra_view = Gtk.TextView(buffer=self.extra_buffer)
-        self.extra_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.extra_view.set_monospace(True)
-        self.extra_view.set_size_request(-1, 120)
+        self._script_info_rows = []  # list of (key_entry, value_entry)
 
-        common_set = {k for k, _ in self.COMMON_KEYS}
-        extras = []
+        add_info_row = Adw.ActionRow()
+        add_info_row.set_title("Add Script Info key")
+        add_btn = Gtk.Button()
+        add_btn.set_icon_name("list-add-symbolic")
+        add_btn.add_css_class("flat")
+        add_btn.add_css_class("circular")
+        add_btn.connect('clicked', lambda b: self._add_kv_row(full_info_row, self._script_info_rows, "", ""))
+        add_info_row.add_suffix(add_btn)
+        add_info_row.set_activatable(False)
+        full_info_row.add_row(add_info_row)
+
         for k in sorted(self._metadata.keys()):
-            if k not in common_set:
-                extras.append(f"{k}: {self._metadata[k]}")
-        self.extra_buffer.set_text("\n".join(extras))
+            self._add_kv_row(full_info_row, self._script_info_rows, k, self._metadata[k])
 
-        extra_row.add_row(self.extra_view)
+        # Aegisub Project Garbage editor (dynamic fields)
+        aeg_row = Adw.ExpanderRow()
+        aeg_row.set_title("Aegisub Project Garbage")
+        aeg_row.set_subtitle("Optional section used by Aegisub")
+        aeg_row.set_expanded(False)
+        info_group.add(aeg_row)
+
+        self._aegisub_rows = []
+        self._aegisub_garbage = copy.deepcopy(getattr(self.document, 'aegisub_project_garbage', {}) or {})
+
+        add_aeg_row = Adw.ActionRow()
+        add_aeg_row.set_title("Add Aegisub key")
+        add_aeg_btn = Gtk.Button()
+        add_aeg_btn.set_icon_name("list-add-symbolic")
+        add_aeg_btn.add_css_class("flat")
+        add_aeg_btn.add_css_class("circular")
+        add_aeg_btn.connect('clicked', lambda b: self._add_kv_row(aeg_row, self._aegisub_rows, "", ""))
+        add_aeg_row.add_suffix(add_aeg_btn)
+        add_aeg_row.set_activatable(False)
+        aeg_row.add_row(add_aeg_row)
+
+        for k in sorted(self._aegisub_garbage.keys()):
+            self._add_kv_row(aeg_row, self._aegisub_rows, k, self._aegisub_garbage[k])
 
         # --- Styles ---
         styles_group = Adw.PreferencesGroup()
@@ -441,24 +468,40 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.style_fontsize.connect('notify::value', self._on_style_field_changed)
         styles_group.add(self.style_fontsize)
 
-        self.style_primary = Adw.EntryRow()
-        self.style_primary.set_title("Primary Colour")
-        # Compatibility: some libadwaita versions lack set_subtitle()/set_placeholder_text() on EntryRow.
-        self.style_primary.set_tooltip_text("ASS format e.g. &H00FFFFFF")
-        self.style_primary.connect('notify::text', self._on_style_field_changed)
-        styles_group.add(self.style_primary)
+        # Color pickers (GTK color wheel) -> stored as ASS &H... strings
+        primary_dialog = Gtk.ColorDialog()
+        outline_dialog = Gtk.ColorDialog()
+        back_dialog = Gtk.ColorDialog()
+        # Enable alpha transparency
+        primary_dialog.set_with_alpha(True)
+        outline_dialog.set_with_alpha(True)
+        back_dialog.set_with_alpha(True)
 
-        self.style_outline = Adw.EntryRow()
-        self.style_outline.set_title("Outline Colour")
-        self.style_outline.set_tooltip_text("ASS format e.g. &H00000000")
-        self.style_outline.connect('notify::text', self._on_style_field_changed)
-        styles_group.add(self.style_outline)
+        self._primary_color_btn = Gtk.ColorDialogButton.new(primary_dialog)
+        self._outline_color_btn = Gtk.ColorDialogButton.new(outline_dialog)
+        self._back_color_btn = Gtk.ColorDialogButton.new(back_dialog)
 
-        self.style_back = Adw.EntryRow()
-        self.style_back.set_title("Back Colour")
-        self.style_back.set_tooltip_text("ASS format e.g. &H00000000")
-        self.style_back.connect('notify::text', self._on_style_field_changed)
-        styles_group.add(self.style_back)
+        primary_row = Adw.ActionRow()
+        primary_row.set_title("Primary Colour")
+        primary_row.add_suffix(self._primary_color_btn)
+        primary_row.set_activatable(False)
+        styles_group.add(primary_row)
+
+        outline_row = Adw.ActionRow()
+        outline_row.set_title("Outline Colour")
+        outline_row.add_suffix(self._outline_color_btn)
+        outline_row.set_activatable(False)
+        styles_group.add(outline_row)
+
+        back_row = Adw.ActionRow()
+        back_row.set_title("Back Colour")
+        back_row.add_suffix(self._back_color_btn)
+        back_row.set_activatable(False)
+        styles_group.add(back_row)
+
+        self._primary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('primary'))
+        self._outline_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('outline'))
+        self._back_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('back'))
 
         self.style_bold = Adw.SwitchRow()
         self.style_bold.set_title("Bold")
@@ -488,19 +531,44 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.style_alignment.connect('notify::value', self._on_style_field_changed)
         styles_group.add(self.style_alignment)
 
-        # Live preview
-        preview_row = Adw.ActionRow()
-        preview_row.set_title("Preview")
-        preview_row.set_subtitle("Live sample for the selected style")
-        preview_row.set_activatable(False)
+        # Live preview (own line, larger area)
+        preview_expander = Adw.ExpanderRow()
+        preview_expander.set_title("Preview")
+        preview_expander.set_subtitle("Live sample for the selected style")
+        preview_expander.set_expanded(True)
+        styles_group.add(preview_expander)
 
+        # Larger preview area: scrolls instead of squishing other controls.
         self.preview_label = Gtk.Label(label="The quick brown fox jumps over the lazy dog 0123456789")
         self.preview_label.set_xalign(0.0)
         self.preview_label.set_wrap(True)
         self.preview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.preview_label.set_max_width_chars(40)
-        preview_row.add_suffix(self.preview_label)
-        styles_group.add(preview_row)
+        self.preview_label.set_max_width_chars(60)
+
+        # Preview container with explicit CSS class so we can style it reliably
+        self.preview_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.preview_frame.add_css_class("ass-preview-frame")
+        self.preview_frame.set_margin_top(6)
+        self.preview_frame.set_margin_bottom(6)
+        self.preview_frame.set_margin_start(6)
+        self.preview_frame.set_margin_end(6)
+
+        self.preview_label.add_css_class("ass-preview-label")
+        self.preview_frame.append(self.preview_label)
+
+        self.preview_scroller = Gtk.ScrolledWindow()
+        self.preview_scroller.set_hexpand(True)
+        self.preview_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.preview_scroller.set_min_content_height(220)
+        # Let preview take remaining space in the dialog
+        self.preview_scroller.set_vexpand(True)
+        self.preview_scroller.set_child(self.preview_frame)
+
+        preview_content_row = Adw.ActionRow()
+        preview_content_row.set_activatable(False)
+        preview_content_row.set_vexpand(True)
+        preview_content_row.add_suffix(self.preview_scroller)
+        preview_expander.add_row(preview_content_row)
 
         self._load_style_into_editor()
         self._update_preview()
@@ -542,9 +610,10 @@ class ASSInfoStylesDialog(Adw.Dialog):
                 font_idx = 0
             self.style_font.set_selected(font_idx)
             self.style_fontsize.set_value(style.fontsize)
-            self.style_primary.set_text(style.primary_color)
-            self.style_outline.set_text(style.outline_color)
-            self.style_back.set_text(style.back_color)
+            # Colors
+            self._primary_color_btn.set_rgba(self._ass_color_to_rgba(style.primary_color) or Gdk.RGBA(1, 1, 1, 1))
+            self._outline_color_btn.set_rgba(self._ass_color_to_rgba(style.outline_color) or Gdk.RGBA(0, 0, 0, 1))
+            self._back_color_btn.set_rgba(self._ass_color_to_rgba(style.back_color) or Gdk.RGBA(0.95, 0.95, 0.95, 1))
             self.style_bold.set_active(bool(style.bold))
             self.style_italic.set_active(bool(style.italic))
             self.style_outline_width.set_value(float(style.outline))
@@ -570,9 +639,6 @@ class ASSInfoStylesDialog(Adw.Dialog):
         if 0 <= font_idx < len(self._font_families):
             style.fontname = self._font_families[font_idx]
         style.fontsize = int(self.style_fontsize.get_value())
-        style.primary_color = self.style_primary.get_text().strip() or style.primary_color
-        style.outline_color = self.style_outline.get_text().strip() or style.outline_color
-        style.back_color = self.style_back.get_text().strip() or style.back_color
         style.bold = bool(self.style_bold.get_active())
         style.italic = bool(self.style_italic.get_active())
         style.outline = float(self.style_outline_width.get_value())
@@ -601,11 +667,77 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self._set_selected_style_index(max(0, idx - 1))
         self._load_style_into_editor()
 
+    def _on_color_changed(self, which: str) -> None:
+        if self._updating_style_ui:
+            return
+        style = self._styles[self._selected_style_index]
+        if which == 'primary':
+            rgba = self._primary_color_btn.get_rgba()
+            style.primary_color = self._rgba_to_ass_color(rgba)
+        elif which == 'outline':
+            rgba = self._outline_color_btn.get_rgba()
+            style.outline_color = self._rgba_to_ass_color(rgba)
+        elif which == 'back':
+            rgba = self._back_color_btn.get_rgba()
+            style.back_color = self._rgba_to_ass_color(rgba)
+        self._update_preview()
+
+    def _ass_color_to_rgba(self, ass_color: str) -> Gdk.RGBA | None:
+        """Parse ASS color string (&HAABBGGRR or &HBBGGRR) to Gdk.RGBA.
+
+        ASS uses BBGGRR order, and AA is inverted alpha (00=opaque, FF=transparent).
+        """
+        if not ass_color:
+            return None
+        s = str(ass_color).strip().upper()
+        if not s.startswith('&H'):
+            return None
+        hexpart = s[2:]
+        # strip any trailing &
+        if hexpart.endswith('&'):
+            hexpart = hexpart[:-1]
+        # pad
+        if len(hexpart) <= 6:
+            aa = 0
+            hexpart = hexpart.zfill(6)
+        else:
+            aa = int(hexpart[:-6].zfill(2)[-2:], 16)
+            hexpart = hexpart[-6:]
+
+        bb = int(hexpart[0:2], 16)
+        gg = int(hexpart[2:4], 16)
+        rr = int(hexpart[4:6], 16)
+        alpha = 1.0 - (aa / 255.0)
+
+        rgba = Gdk.RGBA()
+        rgba.red = rr / 255.0
+        rgba.green = gg / 255.0
+        rgba.blue = bb / 255.0
+        rgba.alpha = alpha
+        return rgba
+
+    def _rgba_to_css(self, rgba: Gdk.RGBA) -> str:
+        r = int(rgba.red * 255)
+        g = int(rgba.green * 255)
+        b = int(rgba.blue * 255)
+        a = rgba.alpha
+        return f"rgba({r},{g},{b},{a:.3f})"
+
+    def _rgba_to_ass_color(self, rgba: Gdk.RGBA) -> str:
+        """Convert RGBA to ASS &HAABBGGRR (AA inverted alpha)."""
+        rr = int(max(0, min(255, round(rgba.red * 255))))
+        gg = int(max(0, min(255, round(rgba.green * 255))))
+        bb = int(max(0, min(255, round(rgba.blue * 255))))
+        aa = int(max(0, min(255, round((1.0 - rgba.alpha) * 255))))
+        return f"&H{aa:02X}{bb:02X}{gg:02X}{rr:02X}"
+
     def _update_preview(self) -> None:
         if not hasattr(self, 'preview_label'):
             return
         try:
             style = self._styles[self._selected_style_index]
+
+            # Font attributes
             attrs = Pango.AttrList()
             attrs.insert(Pango.attr_family_new(style.fontname))
             attrs.insert(Pango.attr_size_new(int(style.fontsize * Pango.SCALE)))
@@ -614,33 +746,130 @@ class ASSInfoStylesDialog(Adw.Dialog):
             if style.italic:
                 attrs.insert(Pango.attr_style_new(Pango.Style.ITALIC))
             self.preview_label.set_attributes(attrs)
+
+            # Colors (best-effort)
+            fg = self._ass_color_to_rgba(getattr(style, 'primary_color', None) or '')
+            # If no bg is set, use a light gray default so shadow/outline are visible.
+            bg = self._ass_color_to_rgba(getattr(style, 'back_color', None) or '') or Gdk.RGBA(0.95, 0.95, 0.95, 1)
+            outline_col = self._ass_color_to_rgba(getattr(style, 'outline_color', None) or '') or Gdk.RGBA(0, 0, 0, 1)
+
+            css = ""
+
+            label_props = []
+            if fg is not None:
+                label_props.append(f"color: {self._rgba_to_css(fg)}")
+
+            # Approximate ASS outline + shadow using layered CSS text-shadow
+            try:
+                outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
+            except Exception:
+                outline_px = 0.0
+            try:
+                shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
+            except Exception:
+                shadow_px = 0.0
+
+            # Background behind the preview text
+            if bg is not None:
+                css += f".ass-preview-frame {{ background-color: {self._rgba_to_css(bg)}; padding: 12px; border-radius: 8px; }}\n"
+
+            shadows = []
+            ocss = self._rgba_to_css(outline_col) if outline_col is not None else None
+
+            if outline_px > 0 and ocss is not None:
+                o = outline_px
+                # 8-direction outline
+                for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
+                    shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
+
+            if shadow_px > 0 and ocss is not None:
+                # Use outline color as shadow color (common ASS usage)
+                shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
+
+            if shadows:
+                label_props.append(f"text-shadow: {', '.join(shadows)}")
+
+            if label_props:
+                # GTK4: label text styling often needs to target the 'text' node
+                props = '; '.join(label_props)
+                css += f".ass-preview-label {{ {props}; }}\n"
+                css += f".ass-preview-label > text {{ {props}; }}\n"
+
+            # Apply CSS (register provider for display so it affects our custom classes)
+            if not hasattr(self, '_preview_css_provider'):
+                self._preview_css_provider = Gtk.CssProvider()
+                Gtk.StyleContext.add_provider_for_display(
+                    Gdk.Display.get_default(),
+                    self._preview_css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+                )
+
+            self._preview_css_provider.load_from_data(css.encode('utf-8'))
+
         except Exception:
             self.preview_label.set_attributes(None)
 
-    def _parse_extra_metadata(self) -> dict:
-        start, end = self.extra_buffer.get_bounds()
-        text = self.extra_buffer.get_text(start, end, True)
+    def _add_kv_row(self, container_row: Adw.ExpanderRow, store_list: list, key: str, value: str) -> None:
+        row = Adw.ActionRow()
+        row.set_activatable(False)
+
+        key_entry = Gtk.Entry()
+        key_entry.set_hexpand(True)
+        key_entry.set_text(str(key or ""))
+        key_entry.set_placeholder_text("Key")
+        key_entry.set_width_chars(18)
+
+        value_entry = Gtk.Entry()
+        value_entry.set_hexpand(True)
+        value_entry.set_text(str(value or ""))
+        value_entry.set_placeholder_text("Value")
+        value_entry.set_width_chars(26)
+
+        del_btn = Gtk.Button()
+        del_btn.set_icon_name("user-trash-symbolic")
+        del_btn.add_css_class("flat")
+        del_btn.add_css_class("circular")
+
+        def _remove(_btn):
+            try:
+                container_row.remove(row)
+            except Exception:
+                # Fallback if remove() isn't available
+                row.set_visible(False)
+            # keep store_list consistent
+            store_list[:] = [pair for pair in store_list if pair[0] is not key_entry]
+
+        del_btn.connect('clicked', _remove)
+
+        # Put Key first, then Value
+        row.add_prefix(value_entry)
+        row.add_prefix(key_entry)
+        row.add_suffix(del_btn)
+
+        container_row.add_row(row)
+        store_list.append((key_entry, value_entry))
+
+    def _collect_kv_rows(self, rows: list) -> dict:
         out = {}
-        for line in text.splitlines():
-            line = line.strip()
-            if not line or line.startswith(';'):
-                continue
-            if ':' not in line:
-                continue
-            k, v = line.split(':', 1)
-            k = k.strip()
+        for key_entry, value_entry in rows:
+            k = key_entry.get_text().strip()
             if not k:
                 continue
-            out[k] = v.strip()
+            out[k] = value_entry.get_text().strip()
         return out
 
     def _on_apply(self, _button):
-        metadata = {}
+        # Collect Script Info from dynamic rows
+        metadata = self._collect_kv_rows(self._script_info_rows)
+
+        # Also include the common convenience fields (they override if filled)
         for key, _label in self.COMMON_KEYS:
             val = self._info_rows[key].get_text().strip()
             if val:
                 metadata[key] = val
-        metadata.update(self._parse_extra_metadata())
+
+        # Aegisub Project Garbage
+        aegisub_garbage = self._collect_kv_rows(self._aegisub_rows)
 
         names = [s.name.strip() for s in self._styles if s.name and s.name.strip()]
         if len(set(names)) != len(names):
@@ -650,6 +879,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
         cmd = ReplaceASSHeaderCommand(
             self.document,
             metadata=metadata,
+            aegisub_project_garbage=aegisub_garbage,
             styles=self._styles,
             fallback_style='Default',
         )

@@ -131,7 +131,8 @@ class SubtitleDocument:
     format: SubtitleFormat
     entries: List[SubtitleEntry] = field(default_factory=list)
     styles: List[ASSStyle] = field(default_factory=list)  # For ASS format
-    metadata: Dict[str, str] = field(default_factory=dict)  # For ASS/SSA header info
+    metadata: Dict[str, str] = field(default_factory=dict)  # [Script Info]
+    aegisub_project_garbage: Dict[str, str] = field(default_factory=dict)  # [Aegisub Project Garbage]
     modified: bool = False
     file_path: Optional[str] = None
     
@@ -184,6 +185,23 @@ class SubtitleDocument:
         """Remove a metadata key if present."""
         if key in self.metadata:
             del self.metadata[key]
+            self.modified = True
+
+    # --- Aegisub Project Garbage helpers ---
+    def set_aegisub_garbage(self, key: str, value: str) -> None:
+        """Set a key/value in [Aegisub Project Garbage]."""
+        if key is None:
+            raise ValueError("aegisub key must not be None")
+        key = str(key).strip()
+        if not key:
+            raise ValueError("aegisub key must not be empty")
+        self.aegisub_project_garbage[key] = "" if value is None else str(value)
+        self.modified = True
+
+    def remove_aegisub_garbage(self, key: str) -> None:
+        """Remove a key from [Aegisub Project Garbage] if present."""
+        if key in self.aegisub_project_garbage:
+            del self.aegisub_project_garbage[key]
             self.modified = True
 
     # --- ASS style helpers ---
