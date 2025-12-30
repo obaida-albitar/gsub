@@ -17,6 +17,7 @@ from subtitle_editor.commands import CommandManager
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
 from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
+from subtitle_editor.widgets.video_player import VideoPlayerWidget
 
 
 class SubtitleEditorWindow(Adw.ApplicationWindow):
@@ -29,9 +30,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.document: SubtitleDocument = None
         self.command_manager = CommandManager()
         self.current_file = None
+        self.current_video_file = None
+        self.video_visible = False
         
         # Set up window properties
-        self.set_default_size(1000, 700)
+        self.set_default_size(1200, 800)
         self.set_title("Subtitle Editor")
         
         # Build UI
@@ -104,7 +107,25 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         self.header_bar.pack_start(undo_redo_box)
         
-        # Content area with paned layout
+        # Video button (toggle video player)
+        self.video_button = Gtk.ToggleButton()
+        self.video_button.set_icon_name("video-display-symbolic")
+        self.video_button.set_tooltip_text("Toggle Video Player (Ctrl+V)")
+        self.video_button.connect('toggled', self._on_video_toggle)
+        self.header_bar.pack_start(self.video_button)
+        
+        # Main content - vertical split (video on top, editing below)
+        main_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        main_paned.set_vexpand(True)
+        self.toast_overlay.set_child(main_paned)
+        
+        # Video player (initially hidden)
+        self.video_player = VideoPlayerWidget()
+        self.video_player.set_visible(False)
+        self.video_player.connect('position-changed', self._on_video_position_changed)
+        main_paned.set_start_child(self.video_player)
+        
+        # Editing area - horizontal split (list + editor)
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.paned.set_vexpand(True)
         self.paned.set_position(400)
@@ -112,7 +133,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.paned.set_shrink_end_child(False)
         self.paned.set_resize_start_child(False)
         self.paned.set_resize_end_child(True)
-        self.toast_overlay.set_child(self.paned)
+        main_paned.set_end_child(self.paned)
         
         # Left side: Subtitle list
         self.subtitle_list = SubtitleListView()
@@ -126,6 +147,9 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
         self.editor_panel.connect('style-changed', self._on_style_changed)
         self.paned.set_end_child(self.editor_panel)
+        
+        # Set initial paned position for video/editing split
+        main_paned.set_position(400)
         
         # Bottom bar with status and actions
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -178,6 +202,12 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         file_section.append("Save As…", "win.save-as")
         menu.append_section(None, file_section)
         
+        # Video section
+        video_section = Gio.Menu()
+        video_section.append("Open Video…", "win.open-video")
+        video_section.append("Toggle Video Player", "win.toggle-video")
+        menu.append_section(None, video_section)
+        
         # Edit section
         edit_section = Gio.Menu()
         edit_section.append("Time Shift…", "win.time-shift")
@@ -201,6 +231,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._create_action("open", self._on_open, ["<Ctrl>O"])
         self._create_action("save", self._on_save, ["<Ctrl>S"])
         self._create_action("save-as", self._on_save_as, ["<Ctrl><Shift>S"])
+        
+        # Video actions
+        self._create_action("open-video", self._on_open_video, ["<Ctrl><Shift>O"])
+        self._create_action("toggle-video", self._on_toggle_video, ["<Ctrl>V"])
         
         # Edit actions
         self._create_action("undo", self._on_undo, ["<Ctrl>Z"])
@@ -311,6 +345,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._update_title()
             self._update_status()
             self._update_format_actions()
+            
+            # Update video player with subtitle document
+            if self.video_player:
+                self.video_player.set_document(self.document)
+            
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             
         except Exception as e:
@@ -708,6 +747,75 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()
+    
+    # Video player handlers
+    
+    def _on_open_video(self, action, param):
+        """Open a video file."""
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Open Video File")
+        
+        # Set up file filters for video files
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        
+        filter_video = Gtk.FileFilter()
+        filter_video.set_name("Video Files")
+        filter_video.add_mime_type("video/*")
+        filter_video.add_pattern("*.mp4")
+        filter_video.add_pattern("*.mkv")
+        filter_video.add_pattern("*.avi")
+        filter_video.add_pattern("*.webm")
+        filter_video.add_pattern("*.mov")
+        filter_video.add_pattern("*.wmv")
+        filter_video.add_pattern("*.flv")
+        filters.append(filter_video)
+        
+        filter_all = Gtk.FileFilter()
+        filter_all.set_name("All Files")
+        filter_all.add_pattern("*")
+        filters.append(filter_all)
+        
+        dialog.set_filters(filters)
+        dialog.set_default_filter(filter_video)
+        
+        dialog.open(self, None, self._on_open_video_response)
+    
+    def _on_open_video_response(self, dialog, result):
+        """Handle video file open dialog response."""
+        try:
+            file = dialog.open_finish(result)
+            if file:
+                file_path = file.get_path()
+                self.current_video_file = file_path
+                self.video_player.load_video(file_path)
+                
+                # Show video player if hidden
+                if not self.video_visible:
+                    self.video_visible = True
+                    self.video_player.set_visible(True)
+                    self.video_button.set_active(True)
+                
+                self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
+        except Exception as e:
+            pass  # User cancelled
+    
+    def _on_toggle_video(self, action, param):
+        """Toggle video player visibility."""
+        self.video_button.set_active(not self.video_button.get_active())
+    
+    def _on_video_toggle(self, button):
+        """Handle video player toggle button."""
+        self.video_visible = button.get_active()
+        self.video_player.set_visible(self.video_visible)
+        
+        if self.video_visible and not self.current_video_file:
+            # Prompt to open video if none loaded
+            GLib.idle_add(lambda: self._on_open_video(None, None))
+    
+    def _on_video_position_changed(self, player, position_sec):
+        """Handle video position changes to update UI."""
+        # Could be used to highlight current subtitle in the list
+        pass
 
 
 # Keyboard shortcuts overlay UI

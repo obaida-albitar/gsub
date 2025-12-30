@@ -3,5 +3,6 @@
 from .subtitle_list import SubtitleListView
 from .editor_panel import EditorPanel
 from .dialogs import TimeShiftDialog, ASSInfoStylesDialog
+from .video_player import VideoPlayerWidget
 
-__all__ = ['SubtitleListView', 'EditorPanel', 'TimeShiftDialog', 'ASSInfoStylesDialog']
+__all__ = ['SubtitleListView', 'EditorPanel', 'TimeShiftDialog', 'ASSInfoStylesDialog', 'VideoPlayerWidget']

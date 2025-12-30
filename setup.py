@@ -28,7 +28,13 @@ setup(
     python_requires=">=3.10",
     install_requires=[
         "PyGObject>=3.42",
+        "pycairo>=1.20",
     ],
+    extras_require={
+        "video": [
+            "PyGObject>=3.42",  # Includes GStreamer bindings
+        ],
+    },
     entry_points={
         "console_scripts": [
             "subtitle-editor=subtitle_editor.main:main",
