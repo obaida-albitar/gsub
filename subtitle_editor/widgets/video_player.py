@@ -446,6 +446,36 @@ class VideoPlayerWidget(Gtk.Box):
         self.volume_button.set_tooltip_text("Volume")
         self.volume_button.connect('value-changed', self._on_volume_changed)
         controls_group.append(self.volume_button)
+        
+        # Subtitle scale slider - compact row below playback controls
+        subtitle_scale_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        subtitle_scale_box.set_margin_start(12)
+        subtitle_scale_box.set_margin_end(12)
+        subtitle_scale_box.set_margin_bottom(6)
+        controls_box.append(subtitle_scale_box)
+        
+        # Label
+        scale_label = Gtk.Label(label="Subtitle Size:")
+        scale_label.add_css_class("caption")
+        subtitle_scale_box.append(scale_label)
+        
+        # Scale slider (0.5 to 1.5, default 0.75)
+        self.subtitle_scale_slider = Gtk.Scale()
+        self.subtitle_scale_slider.set_range(0.5, 1.5)
+        self.subtitle_scale_slider.set_value(0.75)
+        self.subtitle_scale_slider.set_draw_value(True)
+        self.subtitle_scale_slider.set_value_pos(Gtk.PositionType.RIGHT)
+        self.subtitle_scale_slider.set_digits(2)
+        self.subtitle_scale_slider.set_hexpand(True)
+        self.subtitle_scale_slider.connect('value-changed', self._on_subtitle_scale_changed)
+        
+        # Add marks for reference points
+        self.subtitle_scale_slider.add_mark(0.5, Gtk.PositionType.BOTTOM, None)
+        self.subtitle_scale_slider.add_mark(0.75, Gtk.PositionType.BOTTOM, "Default")
+        self.subtitle_scale_slider.add_mark(1.0, Gtk.PositionType.BOTTOM, None)
+        self.subtitle_scale_slider.add_mark(1.5, Gtk.PositionType.BOTTOM, None)
+        
+        subtitle_scale_box.append(self.subtitle_scale_slider)
     
     def _show_error_state(self):
         """Show error state when GStreamer is not available."""
@@ -728,6 +758,14 @@ class VideoPlayerWidget(Gtk.Box):
         """Handle volume change."""
         if self.player:
             self.player.set_property("volume", value)
+    
+    def _on_subtitle_scale_changed(self, scale):
+        """Handle subtitle scale change."""
+        value = scale.get_value()
+        self.subtitle_renderer.subtitle_scale = value
+        # Force redraw of current subtitle
+        self.subtitle_drawing_area.queue_draw()
+        print(f"[Subtitle Scale] Changed to {value:.2f}")
     
     def _on_gst_message(self, bus, message):
         """Handle GStreamer bus messages."""
