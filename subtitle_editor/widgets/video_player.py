@@ -27,6 +27,9 @@ class SubtitleRenderer:
     def __init__(self):
         self.current_style: Optional[ASSStyle] = None
         self.document: Optional[SubtitleDocument] = None
+        # Global subtitle scale factor (similar to mpv's --sub-scale)
+        # Default 0.75 to match common video players' comfortable reading size
+        self.subtitle_scale = 0.75
     
     def set_document(self, document: Optional[SubtitleDocument]):
         """Set the subtitle document for style lookup."""
@@ -96,12 +99,12 @@ class SubtitleRenderer:
             
             # Debug logging
             if play_res_y:
-                scale_factor = height / play_res_y if play_res_y > 0 else 1.0
+                scale_factor = height / play_res_y * self.subtitle_scale if play_res_y > 0 else self.subtitle_scale
                 final_size_pt = int(style.fontsize * scale_factor)
                 print(f"[Subtitle Render] Style={style.name}, FontSize={style.fontsize}, "
                       f"PlayResY={play_res_y} ({play_res_y_source}), "
-                      f"DisplayHeight={height}px, Scale={scale_factor:.3f}, "
-                      f"FinalSize={final_size_pt}pt")
+                      f"DisplayHeight={height}px, SubScale={self.subtitle_scale}, "
+                      f"Scale={scale_factor:.3f}, FinalSize={final_size_pt}pt")
         else:
             # Default styling with reasonable size based on display height
             font_desc = Pango.FontDescription()
@@ -179,9 +182,10 @@ class SubtitleRenderer:
         if play_res_y is None or play_res_y <= 0:
             play_res_y = 384
         
-        # Scale font: (display_height / PlayResY) * fontsize
-        # This ensures fonts appear the same size relative to video height
-        scale_factor = display_height / play_res_y
+        # Scale font: (display_height / PlayResY) * fontsize * subtitle_scale
+        # The subtitle_scale factor makes subtitles more comfortable to read
+        # (similar to mpv's --sub-scale option)
+        scale_factor = display_height / play_res_y * self.subtitle_scale
         size = int(style.fontsize * scale_factor * Pango.SCALE)
         
         font_desc.set_size(size)
@@ -673,8 +677,9 @@ class VideoPlayerWidget(Gtk.Box):
             # Translate context to video display area
             cr.translate(x_offset, y_offset)
             
-            # Render subtitle using actual video dimensions for font scaling
-            # but display dimensions for positioning
+            # IMPORTANT: Use display_height (actual video display area) for font scaling
+            # This ensures fonts scale based on how large the video is actually shown,
+            # not the entire widget area
             self.subtitle_renderer.render(
                 cr,
                 self.current_subtitle.text,
