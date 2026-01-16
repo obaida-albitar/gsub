@@ -33,8 +33,18 @@ class SubtitleRenderer:
         self.document = document
     
     def render(self, cr: cairo.Context, text: str, style_name: Optional[str], 
-               width: int, height: int):
-        """Render subtitle text with styling on a Cairo context."""
+               width: int, height: int, video_width: int = None, video_height: int = None):
+        """Render subtitle text with styling on a Cairo context.
+        
+        Args:
+            cr: Cairo context
+            text: Subtitle text to render
+            style_name: Name of style to apply
+            width: Display width for positioning
+            height: Display height for positioning
+            video_width: Actual video resolution width (for reference)
+            video_height: Actual video resolution height (for scaling calculation)
+        """
         if not text:
             return
         
@@ -52,16 +62,17 @@ class SubtitleRenderer:
         clean_text = self._strip_ass_override_codes(text)
         layout.set_text(clean_text, -1)
         
-        # Apply styling
+        # Apply styling scaled to current display size
         if style:
-            font_desc = self._create_font_description(style, height)
+            # Pass both video height and display height for proper scaling
+            font_desc = self._create_font_description(style, video_height or height, height)
             layout.set_font_description(font_desc)
         else:
-            # Default styling with reasonable size
+            # Default styling with reasonable size based on display height
             font_desc = Pango.FontDescription()
             font_desc.set_family("Sans")
-            # Use 3% of video height for default, max 24pt
-            default_size = min(int(height * 0.03 * Pango.SCALE), 24 * Pango.SCALE)
+            # Use 4% of display height for default size
+            default_size = int(height * 0.04 * Pango.SCALE)
             font_desc.set_size(default_size)
             font_desc.set_weight(Pango.Weight.BOLD)
             layout.set_font_description(font_desc)
@@ -115,15 +126,29 @@ class SubtitleRenderer:
         PangoCairo.show_layout(cr, layout)
         cr.restore()
     
-    def _create_font_description(self, style: ASSStyle, video_height: int) -> Pango.FontDescription:
-        """Create a Pango font description from ASS style."""
+    def _create_font_description(self, style: ASSStyle, video_height: int, 
+                                  display_height: int = None) -> Pango.FontDescription:
+        """Create a Pango font description from ASS style.
+        
+        Args:
+            style: ASS style object
+            video_height: Original video resolution height
+            display_height: Current display height for scaling
+        """
         font_desc = Pango.FontDescription()
         font_desc.set_family(style.fontname or "Sans")
         
-        # Scale font size relative to video height with a more reasonable multiplier
-        # Use a smaller scaling factor to prevent oversized subtitles
-        scale_factor = min(video_height / 720.0, 1.0)  # Cap at 1.0 for videos <= 720p
-        size = int(style.fontsize * scale_factor * Pango.SCALE)
+        # Scale font based on display size vs video resolution
+        # ASS fonts reference PlayResY (typically 720 or 1080)
+        # We need to scale based on how large the video is currently displayed
+        if display_height and video_height > 0:
+            # Scale the font size based on display vs original resolution
+            scale_factor = display_height / video_height
+            size = int(style.fontsize * scale_factor * Pango.SCALE)
+        else:
+            # Fallback: use font size as-is
+            size = int(style.fontsize * Pango.SCALE)
+        
         font_desc.set_size(size)
         
         if style.bold:
@@ -204,6 +229,8 @@ class VideoPlayerWidget(Gtk.Box):
         self.video_uri: Optional[str] = None
         self._is_seeking = False
         self._duration = 0
+        self._video_width = 0
+        self._video_height = 0
         
         # Create GStreamer pipeline
         self.player = Gst.ElementFactory.make("playbin", "player")
@@ -215,14 +242,44 @@ class VideoPlayerWidget(Gtk.Box):
         # Disable built-in subtitles
         self.player.set_property("flags", self.player.get_property("flags") & ~0x00000004)
         
-        # Setup video sink for GTK4
+        # Setup video sink for GTK4 with hardware acceleration
         self.gtksink = Gst.ElementFactory.make("gtk4paintablesink", "sink")
         if not self.gtksink:
             print("Warning: gtk4paintablesink not available, falling back")
             self.gtksink = Gst.ElementFactory.make("gtksink", "sink")
         
         if self.gtksink:
-            self.player.set_property("video-sink", self.gtksink)
+            # Try to use hardware-accelerated video conversion
+            try:
+                # Create a bin with glupload for hardware acceleration
+                video_bin = Gst.Bin.new("video_bin")
+                
+                # Use glupload if available for GPU acceleration
+                glupload = Gst.ElementFactory.make("glupload", "glupload")
+                glcolorconvert = Gst.ElementFactory.make("glcolorconvert", "glcolorconvert")
+                
+                if glupload and glcolorconvert:
+                    video_bin.add(glupload)
+                    video_bin.add(glcolorconvert)
+                    video_bin.add(self.gtksink)
+                    glupload.link(glcolorconvert)
+                    glcolorconvert.link(self.gtksink)
+                    
+                    # Add ghost pad
+                    pad = glupload.get_static_pad("sink")
+                    ghost_pad = Gst.GhostPad.new("sink", pad)
+                    video_bin.add_pad(ghost_pad)
+                    
+                    self.player.set_property("video-sink", video_bin)
+                    print("Using hardware-accelerated video pipeline")
+                else:
+                    # Fallback to software rendering
+                    self.player.set_property("video-sink", self.gtksink)
+                    print("Using software video rendering")
+            except Exception as e:
+                print(f"Could not setup hardware acceleration: {e}")
+                self.player.set_property("video-sink", self.gtksink)
+            
             paintable = self.gtksink.get_property("paintable")
         else:
             print("Warning: No GTK sink available")
@@ -251,10 +308,13 @@ class VideoPlayerWidget(Gtk.Box):
         self.overlay.set_child(self.video_picture)
         
         # Subtitle overlay (drawing area)
+        # Only redraw when subtitle actually changes for better performance
         self.subtitle_drawing_area = Gtk.DrawingArea()
         self.subtitle_drawing_area.set_draw_func(self._draw_subtitle)
         self.subtitle_drawing_area.set_vexpand(True)
         self.subtitle_drawing_area.set_hexpand(True)
+        # Make drawing area transparent and only visible when needed
+        self.subtitle_drawing_area.set_opacity(1.0)
         self.overlay.add_overlay(self.subtitle_drawing_area)
         
         # Control bar
@@ -534,18 +594,66 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_drawing_area.queue_draw()
     
     def _draw_subtitle(self, area, cr, width, height):
-        """Draw subtitle overlay."""
+        """Draw subtitle overlay - optimized to reduce GPU usage."""
         if not self.current_subtitle:
+            # Clear the drawing area when no subtitle
+            cr.set_operator(cairo.Operator.CLEAR)
+            cr.paint()
+            cr.set_operator(cairo.Operator.OVER)
             return
         
-        # Render the subtitle
-        self.subtitle_renderer.render(
-            cr,
-            self.current_subtitle.text,
-            self.current_subtitle.style,
-            width,
-            height
-        )
+        # Clear background - make it transparent
+        cr.set_operator(cairo.Operator.CLEAR)
+        cr.paint()
+        cr.set_operator(cairo.Operator.OVER)
+        
+        # Get actual video dimensions for proper scaling
+        video_width = self._video_width if self._video_width > 0 else width
+        video_height = self._video_height if self._video_height > 0 else height
+        
+        # Calculate the actual video display area (respecting aspect ratio)
+        if self._video_width > 0 and self._video_height > 0:
+            video_aspect = self._video_width / self._video_height
+            widget_aspect = width / height if height > 0 else 1.0
+            
+            if video_aspect > widget_aspect:
+                # Video is wider - fit to width
+                display_width = width
+                display_height = width / video_aspect
+                x_offset = 0
+                y_offset = (height - display_height) / 2
+            else:
+                # Video is taller - fit to height
+                display_width = height * video_aspect
+                display_height = height
+                x_offset = (width - display_width) / 2
+                y_offset = 0
+            
+            # Translate context to video display area
+            cr.translate(x_offset, y_offset)
+            
+            # Render subtitle using actual video dimensions for font scaling
+            # but display dimensions for positioning
+            self.subtitle_renderer.render(
+                cr,
+                self.current_subtitle.text,
+                self.current_subtitle.style,
+                int(display_width),
+                int(display_height),
+                video_width,
+                video_height
+            )
+        else:
+            # Fallback when video dimensions not available
+            self.subtitle_renderer.render(
+                cr,
+                self.current_subtitle.text,
+                self.current_subtitle.style,
+                width,
+                height,
+                width,
+                height
+            )
     
     def _format_time(self, seconds: float) -> str:
         """Format time in seconds to H:MM:SS or M:SS."""
@@ -589,4 +697,50 @@ class VideoPlayerWidget(Gtk.Box):
             self.pause()
             self.seek(0)
         
+        elif t == Gst.MessageType.STATE_CHANGED:
+            # Query video dimensions when state changes to PAUSED or PLAYING
+            if message.src == self.player:
+                old_state, new_state, pending = message.parse_state_changed()
+                if new_state in (Gst.State.PAUSED, Gst.State.PLAYING):
+                    self._query_video_dimensions()
+        
         return True
+    
+    def _query_video_dimensions(self):
+        """Query actual video dimensions from the stream."""
+        if not self.player:
+            return
+        
+        # Try to get video dimensions from the video sink pad
+        try:
+            # Get the video sink pad
+            video_sink = self.player.get_property("video-sink")
+            if video_sink:
+                pad = video_sink.get_static_pad("sink")
+                if pad:
+                    caps = pad.get_current_caps()
+                    if caps and caps.get_size() > 0:
+                        structure = caps.get_structure(0)
+                        success, width = structure.get_int("width")
+                        success2, height = structure.get_int("height")
+                        if success and success2:
+                            self._video_width = width
+                            self._video_height = height
+                            print(f"Video dimensions: {width}x{height}")
+                            return
+        except Exception as e:
+            print(f"Error querying video dimensions: {e}")
+        
+        # Fallback: try to query from paintable
+        if self.gtksink:
+            try:
+                paintable = self.gtksink.get_property("paintable")
+                if paintable:
+                    width = paintable.get_intrinsic_width()
+                    height = paintable.get_intrinsic_height()
+                    if width > 0 and height > 0:
+                        self._video_width = width
+                        self._video_height = height
+                        print(f"Video dimensions from paintable: {width}x{height}")
+            except Exception as e:
+                print(f"Error getting dimensions from paintable: {e}")
