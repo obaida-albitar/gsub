@@ -53,6 +53,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.toast_overlay = Adw.ToastOverlay()
         toolbar_view.set_content(self.toast_overlay)
         
+        # Banner for important notifications (initially hidden)
+        self.banner = Adw.Banner()
+        self.banner.set_revealed(False)
+        toolbar_view.add_top_bar(self.banner)
+        
         # Header bar
         self.header_bar = Adw.HeaderBar()
         toolbar_view.add_top_bar(self.header_bar)
@@ -114,18 +119,15 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.video_button.connect('toggled', self._on_video_toggle)
         self.header_bar.pack_start(self.video_button)
         
-        # Main content - vertical split (video on top, editing below)
-        main_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
-        main_paned.set_vexpand(True)
-        self.toast_overlay.set_child(main_paned)
+        # Main content - use Adw.ViewStack for potential future views
+        self.view_stack = Adw.ViewStack()
+        self.toast_overlay.set_child(self.view_stack)
         
-        # Video player (initially hidden)
-        self.video_player = VideoPlayerWidget()
-        self.video_player.set_visible(False)
-        self.video_player.connect('position-changed', self._on_video_position_changed)
-        main_paned.set_start_child(self.video_player)
+        # Main editing view
+        main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        main_page = self.view_stack.add_titled(main_box, "main", "Editor")
         
-        # Editing area - horizontal split (list + editor)
+        # Editing area - horizontal split (list + editor with video)
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.paned.set_vexpand(True)
         self.paned.set_position(400)
@@ -133,23 +135,50 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.paned.set_shrink_end_child(False)
         self.paned.set_resize_start_child(False)
         self.paned.set_resize_end_child(True)
-        main_paned.set_end_child(self.paned)
+        main_box.append(self.paned)
         
-        # Left side: Subtitle list
+        # Left side: Subtitle list with card container
+        list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        list_container.add_css_class("background")
         self.subtitle_list = SubtitleListView()
         self.subtitle_list.connect('entry-selected', self._on_entry_selected)
         self.subtitle_list.connect('entry-activated', self._on_entry_activated)
-        self.paned.set_start_child(self.subtitle_list)
+        list_container.append(self.subtitle_list)
+        self.paned.set_start_child(list_container)
         
-        # Right side: Editor panel
+        # Right side: Video player at top, editor panel below - use vertical paned for resizing
+        self.right_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        self.right_paned.set_vexpand(True)
+        self.right_paned.set_shrink_start_child(True)  # Allow collapsing
+        self.right_paned.set_shrink_end_child(False)
+        self.right_paned.set_resize_start_child(True)
+        self.right_paned.set_resize_end_child(True)
+        self.right_paned.set_position(0)  # Start collapsed
+        
+        # Video player at the top (initially hidden) in a container
+        video_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        video_container.add_css_class("background")
+        video_container.set_visible(False)  # Hide container by default
+        self.video_container = video_container  # Store reference
+        self.video_player = VideoPlayerWidget()
+        self.video_player.connect('position-changed', self._on_video_position_changed)
+        video_container.append(self.video_player)
+        self.right_paned.set_start_child(video_container)
+        
+        # Editor panel below video player in a scrolled window
+        editor_scroll = Gtk.ScrolledWindow()
+        editor_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        editor_scroll.set_vexpand(True)
+        editor_scroll.add_css_class("background")
+        
         self.editor_panel = EditorPanel()
         self.editor_panel.connect('text-changed', self._on_text_changed)
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
         self.editor_panel.connect('style-changed', self._on_style_changed)
-        self.paned.set_end_child(self.editor_panel)
+        editor_scroll.set_child(self.editor_panel)
+        self.right_paned.set_end_child(editor_scroll)
         
-        # Set initial paned position for video/editing split
-        main_paned.set_position(400)
+        self.paned.set_end_child(self.right_paned)
         
         # Bottom bar with status and actions
         bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
@@ -309,6 +338,23 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         toast = Adw.Toast.new(message)
         toast.set_timeout(2)
         self.toast_overlay.add_toast(toast)
+    
+    def _show_banner(self, message: str, button_label: str = None, button_action: callable = None):
+        """Show a banner notification for important messages."""
+        self.banner.set_title(message)
+        if button_label and button_action:
+            self.banner.set_button_label(button_label)
+            # Store the action to call when clicked
+            if hasattr(self, '_banner_action_handler'):
+                self.banner.disconnect(self._banner_action_handler)
+            self._banner_action_handler = self.banner.connect('button-clicked', lambda b: button_action())
+        else:
+            self.banner.set_button_label("")
+        self.banner.set_revealed(True)
+    
+    def _hide_banner(self):
+        """Hide the banner notification."""
+        self.banner.set_revealed(False)
     
     def open_file(self, gfile: Gio.File):
         """Open a subtitle file."""
@@ -792,8 +838,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                 # Show video player if hidden
                 if not self.video_visible:
                     self.video_visible = True
-                    self.video_player.set_visible(True)
+                    self.video_container.set_visible(True)
                     self.video_button.set_active(True)
+                    # Expand the paned to show video player
+                    self.right_paned.set_position(300)
                 
                 self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
         except Exception as e:
@@ -806,11 +854,19 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _on_video_toggle(self, button):
         """Handle video player toggle button."""
         self.video_visible = button.get_active()
-        self.video_player.set_visible(self.video_visible)
+        self.video_container.set_visible(self.video_visible)
         
-        if self.video_visible and not self.current_video_file:
-            # Prompt to open video if none loaded
-            GLib.idle_add(lambda: self._on_open_video(None, None))
+        if self.video_visible:
+            # Expand the paned to show video player (300px default)
+            if self.right_paned.get_position() == 0:
+                self.right_paned.set_position(300)
+            
+            if not self.current_video_file:
+                # Prompt to open video if none loaded
+                GLib.idle_add(lambda: self._on_open_video(None, None))
+        else:
+            # Collapse the paned when hiding video
+            self.right_paned.set_position(0)
     
     def _on_video_position_changed(self, player, position_sec):
         """Handle video position changes to update UI."""

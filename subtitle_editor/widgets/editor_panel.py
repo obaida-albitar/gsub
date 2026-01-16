@@ -62,157 +62,137 @@ class EditorPanel(Gtk.Box):
         # Style selection (ASS/SSA only; hidden by default)
         self.style_row = Adw.ComboRow()
         self.style_row.set_title("Style")
+        self.style_row.set_subtitle("Apply a predefined style to this subtitle")
         self.style_row.set_visible(False)
+        style_icon = Gtk.Image.new_from_icon_name("applications-graphics-symbolic")
+        self.style_row.add_prefix(style_icon)
         self.style_model = Gtk.StringList.new([])
         self.style_row.set_model(self.style_model)
         self.style_row.connect('notify::selected', self._on_style_selected)
         text_group.add(self.style_row)
         
-        # Text editor with better styling
+        # Text editor with better styling using Adw.Clamp
+        text_expander = Adw.ExpanderRow()
+        text_expander.set_title("Text Content")
+        text_expander.set_subtitle("Edit the subtitle text")
+        text_expander.set_expanded(True)
+        text_expander.set_enable_expansion(True)
+        text_icon = Gtk.Image.new_from_icon_name("text-editor-symbolic")
+        text_expander.add_prefix(text_icon)
+        text_group.add(text_expander)
+        
         self.text_buffer = Gtk.TextBuffer()
         self.text_buffer.connect('changed', self._on_text_buffer_changed)
         
         self.text_view = Gtk.TextView()
         self.text_view.set_buffer(self.text_buffer)
         self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.text_view.set_pixels_above_lines(6)
-        self.text_view.set_pixels_below_lines(6)
-        self.text_view.set_left_margin(12)
-        self.text_view.set_right_margin(12)
-        self.text_view.set_top_margin(12)
-        self.text_view.set_bottom_margin(12)
+        self.text_view.set_pixels_above_lines(8)
+        self.text_view.set_pixels_below_lines(8)
+        self.text_view.set_left_margin(16)
+        self.text_view.set_right_margin(16)
+        self.text_view.set_top_margin(16)
+        self.text_view.set_bottom_margin(16)
         
-        # Frame for text view
-        text_frame = Gtk.Frame()
-        text_frame.set_child(self.text_view)
-        
+        # Frame for text view with rounded corners
         text_scroll = Gtk.ScrolledWindow()
         text_scroll.set_min_content_height(150)
         text_scroll.set_max_content_height(300)
         text_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        text_scroll.set_child(text_frame)
+        text_scroll.set_child(self.text_view)
+        text_scroll.add_css_class("card")
+        text_scroll.set_margin_start(12)
+        text_scroll.set_margin_end(12)
+        text_scroll.set_margin_top(6)
+        text_scroll.set_margin_bottom(12)
         
-        text_group.add(text_scroll)
+        text_expander.add_row(text_scroll)
         
-        # Timing section with improved layout
+        # Timing section with improved layout using expander rows
         timing_group = Adw.PreferencesGroup()
         timing_group.set_title("Timing")
         timing_group.set_description("Adjust when the subtitle appears and disappears")
         content.append(timing_group)
         
-        # Start time - label and input on separate lines
-        start_label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        start_label_box.set_margin_start(12)
-        start_label_box.set_margin_top(12)
-        start_label_box.set_margin_bottom(6)
-        
+        # Start time - using expander row for better organization
+        start_expander = Adw.ExpanderRow()
+        start_expander.set_title("Start Time")
+        start_expander.set_subtitle("00:00:00.000")
+        start_expander.set_expanded(True)
         start_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
-        start_label_box.append(start_icon)
+        start_expander.add_prefix(start_icon)
+        timing_group.add(start_expander)
         
-        start_label_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        start_title = Gtk.Label(label="Start Time")
-        start_title.set_xalign(0)
-        start_title.add_css_class("title-4")
-        start_label_vbox.append(start_title)
+        # Start time inputs as action row
+        start_input_row = Adw.ActionRow()
+        start_input_row.set_title("Time Values")
+        start_input_row.set_activatable(False)
         
-        start_subtitle = Gtk.Label(label="When the subtitle appears")
-        start_subtitle.set_xalign(0)
-        start_subtitle.add_css_class("dim-label")
-        start_subtitle.add_css_class("caption")
-        start_label_vbox.append(start_subtitle)
-        
-        start_label_box.append(start_label_vbox)
-        timing_group.add(start_label_box)
-        
-        # Start time inputs
         start_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        start_box.set_margin_start(12)
-        start_box.set_margin_end(12)
-        start_box.set_margin_bottom(12)
-        start_box.set_halign(Gtk.Align.START)
+        start_box.set_valign(Gtk.Align.CENTER)
         
         self.start_hour = self._create_spin_button(0, 23)
         self.start_minute = self._create_spin_button(0, 59)
         self.start_second = self._create_spin_button(0, 59)
         self.start_milli = self._create_spin_button(0, 999, 1)
         
-        sep1 = Gtk.Label(label=":")
-        sep1.add_css_class("dim-label")
-        sep2 = Gtk.Label(label=":")
-        sep2.add_css_class("dim-label")
-        sep3 = Gtk.Label(label=".")
-        sep3.add_css_class("dim-label")
-        
+        start_box.append(Gtk.Label(label="H:"))
         start_box.append(self.start_hour)
-        start_box.append(sep1)
+        start_box.append(Gtk.Label(label="M:"))
         start_box.append(self.start_minute)
-        start_box.append(sep2)
+        start_box.append(Gtk.Label(label="S:"))
         start_box.append(self.start_second)
-        start_box.append(sep3)
+        start_box.append(Gtk.Label(label="ms:"))
         start_box.append(self.start_milli)
         
-        timing_group.add(start_box)
+        start_input_row.add_suffix(start_box)
+        start_expander.add_row(start_input_row)
         
-        # End time - label and input on separate lines
-        end_label_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        end_label_box.set_margin_start(12)
-        end_label_box.set_margin_top(12)
-        end_label_box.set_margin_bottom(6)
-        
+        # End time - using expander row
+        end_expander = Adw.ExpanderRow()
+        end_expander.set_title("End Time")
+        end_expander.set_subtitle("00:00:00.000")
+        end_expander.set_expanded(True)
         end_icon = Gtk.Image.new_from_icon_name("media-playback-stop-symbolic")
-        end_label_box.append(end_icon)
+        end_expander.add_prefix(end_icon)
+        timing_group.add(end_expander)
         
-        end_label_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        end_title = Gtk.Label(label="End Time")
-        end_title.set_xalign(0)
-        end_title.add_css_class("title-4")
-        end_label_vbox.append(end_title)
+        # End time inputs as action row
+        end_input_row = Adw.ActionRow()
+        end_input_row.set_title("Time Values")
+        end_input_row.set_activatable(False)
         
-        end_subtitle = Gtk.Label(label="When the subtitle disappears")
-        end_subtitle.set_xalign(0)
-        end_subtitle.add_css_class("dim-label")
-        end_subtitle.add_css_class("caption")
-        end_label_vbox.append(end_subtitle)
-        
-        end_label_box.append(end_label_vbox)
-        timing_group.add(end_label_box)
-        
-        # End time inputs
         end_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        end_box.set_margin_start(12)
-        end_box.set_margin_end(12)
-        end_box.set_margin_bottom(12)
-        end_box.set_halign(Gtk.Align.START)
+        end_box.set_valign(Gtk.Align.CENTER)
         
         self.end_hour = self._create_spin_button(0, 23)
         self.end_minute = self._create_spin_button(0, 59)
         self.end_second = self._create_spin_button(0, 59)
         self.end_milli = self._create_spin_button(0, 999, 1)
         
-        sep1 = Gtk.Label(label=":")
-        sep1.add_css_class("dim-label")
-        sep2 = Gtk.Label(label=":")
-        sep2.add_css_class("dim-label")
-        sep3 = Gtk.Label(label=".")
-        sep3.add_css_class("dim-label")
-        
+        end_box.append(Gtk.Label(label="H:"))
         end_box.append(self.end_hour)
-        end_box.append(sep1)
+        end_box.append(Gtk.Label(label="M:"))
         end_box.append(self.end_minute)
-        end_box.append(sep2)
+        end_box.append(Gtk.Label(label="S:"))
         end_box.append(self.end_second)
-        end_box.append(sep3)
+        end_box.append(Gtk.Label(label="ms:"))
         end_box.append(self.end_milli)
         
-        timing_group.add(end_box)
+        end_input_row.add_suffix(end_box)
+        end_expander.add_row(end_input_row)
         
-        # Duration display - using ActionRow since it's just display
+        # Duration display - using ActionRow with better styling
         self.duration_row = Adw.ActionRow()
         self.duration_row.set_title("Duration")
         self.duration_row.set_subtitle("0.000 seconds")
         duration_icon = Gtk.Image.new_from_icon_name("alarm-symbolic")
         self.duration_row.add_prefix(duration_icon)
         timing_group.add(self.duration_row)
+        
+        # Store expander rows for subtitle updates
+        self.start_expander = start_expander
+        self.end_expander = end_expander
         
         # Connect timing change signals
         for spin in [self.start_hour, self.start_minute, self.start_second, self.start_milli,
@@ -333,7 +313,7 @@ class EditorPanel(Gtk.Box):
             self.emit('style-changed', self.current_position, self._styles[idx])
     
     def _update_duration(self):
-        """Update the duration display."""
+        """Update the duration display and time subtitles."""
         start_ms = (self.start_hour.get_value_as_int() * 3600000 +
                    self.start_minute.get_value_as_int() * 60000 +
                    self.start_second.get_value_as_int() * 1000 +
@@ -346,6 +326,16 @@ class EditorPanel(Gtk.Box):
         
         duration_ms = max(0, end_ms - start_ms)
         duration_sec = duration_ms / 1000.0
+        
+        # Format time codes
+        start_time_str = f"{self.start_hour.get_value_as_int():02d}:{self.start_minute.get_value_as_int():02d}:{self.start_second.get_value_as_int():02d}.{self.start_milli.get_value_as_int():03d}"
+        end_time_str = f"{self.end_hour.get_value_as_int():02d}:{self.end_minute.get_value_as_int():02d}:{self.end_second.get_value_as_int():02d}.{self.end_milli.get_value_as_int():03d}"
+        
+        # Update subtitles
+        if hasattr(self, 'start_expander'):
+            self.start_expander.set_subtitle(start_time_str)
+        if hasattr(self, 'end_expander'):
+            self.end_expander.set_subtitle(end_time_str)
         
         self.duration_row.set_subtitle(f"{duration_sec:.3f} seconds")
     

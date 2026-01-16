@@ -71,43 +71,35 @@ class TimeShiftDialog(Adw.Dialog):
         presets_group.set_description("Common time shift values")
         prefs_page.add(presets_group)
         
-        # Preset buttons in a flow box for better wrapping
-        preset_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
-        preset_box.set_margin_top(12)
-        preset_box.set_margin_bottom(12)
-        preset_box.set_margin_start(12)
-        preset_box.set_margin_end(12)
+        # Preset buttons using ActionRows with buttons
+        preset_row_back = Adw.ActionRow()
+        preset_row_back.set_title("Shift Backward")
+        preset_row_back.set_activatable(False)
+        back_icon = Gtk.Image.new_from_icon_name("media-seek-backward-symbolic")
+        preset_row_back.add_prefix(back_icon)
         
-        # Row 1: Backward adjustments
         back_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        back_box.set_halign(Gtk.Align.CENTER)
-        back_label = Gtk.Label(label="Shift Backward:")
-        back_label.add_css_class("caption")
-        back_box.append(back_label)
-        
         for label, value in [("-5s", -5000), ("-1s", -1000), ("-100ms", -100)]:
             button = Gtk.Button(label=label)
             button.connect('clicked', lambda b, v=value: self.offset_row.set_value(self.offset_row.get_value() + v))
             back_box.append(button)
+        preset_row_back.add_suffix(back_box)
+        presets_group.add(preset_row_back)
         
-        preset_box.append(back_box)
+        preset_row_forward = Adw.ActionRow()
+        preset_row_forward.set_title("Shift Forward")
+        preset_row_forward.set_activatable(False)
+        forward_icon = Gtk.Image.new_from_icon_name("media-seek-forward-symbolic")
+        preset_row_forward.add_prefix(forward_icon)
         
-        # Row 2: Forward adjustments
         forward_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        forward_box.set_halign(Gtk.Align.CENTER)
-        forward_label = Gtk.Label(label="Shift Forward:")
-        forward_label.add_css_class("caption")
-        forward_box.append(forward_label)
-        
         for label, value in [("+100ms", 100), ("+1s", 1000), ("+5s", 5000)]:
             button = Gtk.Button(label=label)
             button.add_css_class("suggested-action")
             button.connect('clicked', lambda b, v=value: self.offset_row.set_value(self.offset_row.get_value() + v))
             forward_box.append(button)
-        
-        preset_box.append(forward_box)
-        
-        presets_group.add(preset_box)
+        preset_row_forward.add_suffix(forward_box)
+        presets_group.add(preset_row_forward)
         
         # Scope group with better styling
         scope_group = Adw.PreferencesGroup()
@@ -239,25 +231,38 @@ class BulkApplyStyleDialog(Adw.Dialog):
 
         scope_group = Adw.PreferencesGroup()
         scope_group.set_title("Scope")
+        scope_group.set_description("Choose which subtitles to modify")
         prefs_page.add(scope_group)
 
         self.scope_selected = Adw.ActionRow()
         self.scope_selected.set_title("Selected subtitles")
+        self.scope_selected.set_subtitle("Apply to currently selected entries only")
         self.scope_selected_check = Gtk.CheckButton()
         self.scope_selected_check.set_active(True)
         self.scope_selected.add_prefix(self.scope_selected_check)
+        self.scope_selected.set_activatable_widget(self.scope_selected_check)
+        selected_icon = Gtk.Image.new_from_icon_name("edit-select-symbolic")
+        self.scope_selected.add_prefix(selected_icon)
         scope_group.add(self.scope_selected)
 
         self.scope_all = Adw.ActionRow()
         self.scope_all.set_title("All subtitles")
+        self.scope_all.set_subtitle("Apply to every subtitle in the document")
         self.scope_all_check = Gtk.CheckButton(group=self.scope_selected_check)
         self.scope_all.add_prefix(self.scope_all_check)
+        self.scope_all.set_activatable_widget(self.scope_all_check)
+        all_icon = Gtk.Image.new_from_icon_name("view-list-symbolic")
+        self.scope_all.add_prefix(all_icon)
         scope_group.add(self.scope_all)
 
         self.scope_from = Adw.ActionRow()
         self.scope_from.set_title("From first selected to end")
+        self.scope_from.set_subtitle("Apply to selected and all following entries")
         self.scope_from_check = Gtk.CheckButton(group=self.scope_selected_check)
         self.scope_from.add_prefix(self.scope_from_check)
+        self.scope_from.set_activatable_widget(self.scope_from_check)
+        from_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
+        self.scope_from.add_prefix(from_icon)
         scope_group.add(self.scope_from)
 
     def _resolve_positions(self):

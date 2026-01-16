@@ -27,23 +27,20 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.document: SubtitleDocument = None
         self._selected_positions = []  # Changed to list for multi-selection
         
-        # Set up scrolled window
+        # Set up scrolled window with modern styling
         self.set_hexpand(True)
         self.set_vexpand(True)
         self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.set_has_frame(True)
         
-        # Add styling
-        self.add_css_class("background")
-        
-        # Create list box with modern styling
-        # BROWSE mode allows single click selection, Ctrl+Click for multi-select
+        # Create list box with modern styling using boxed-list style
         self.list_box = Gtk.ListBox()
         self.list_box.set_selection_mode(Gtk.SelectionMode.MULTIPLE)
-        self.list_box.add_css_class("navigation-sidebar")
-        self.list_box.set_margin_start(6)
-        self.list_box.set_margin_end(6)
-        self.list_box.set_margin_top(6)
-        self.list_box.set_margin_bottom(6)
+        self.list_box.add_css_class("boxed-list")
+        self.list_box.set_margin_start(12)
+        self.list_box.set_margin_end(12)
+        self.list_box.set_margin_top(12)
+        self.list_box.set_margin_bottom(12)
         self.list_box.connect('row-selected', self._on_row_selected)
         self.list_box.connect('row-activated', self._on_row_activated)
         
@@ -65,13 +62,27 @@ class SubtitleListView(Gtk.ScrolledWindow):
         
         self.set_child(self.list_box)
         
-        # Placeholder with better styling
+        # Placeholder with better styling and action button
+        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        placeholder_box.set_vexpand(True)
+        placeholder_box.set_valign(Gtk.Align.CENTER)
+        
         placeholder = Adw.StatusPage()
         placeholder.set_icon_name("text-x-generic-symbolic")
         placeholder.set_title("No Subtitles")
-        placeholder.set_description("Press Ctrl+Shift+N to add your first subtitle")
+        placeholder.set_description("Open a subtitle file or create your first subtitle entry")
         placeholder.set_vexpand(True)
-        self.list_box.set_placeholder(placeholder)
+        
+        # Add action button to placeholder
+        add_button = Gtk.Button(label="Add Subtitle")
+        add_button.add_css_class("pill")
+        add_button.add_css_class("suggested-action")
+        add_button.set_action_name("win.add-entry")
+        add_button.set_halign(Gtk.Align.CENTER)
+        placeholder.set_child(add_button)
+        
+        placeholder_box.append(placeholder)
+        self.list_box.set_placeholder(placeholder_box)
     
     def set_document(self, document: SubtitleDocument):
         """Set the subtitle document to display."""
@@ -169,87 +180,64 @@ class SubtitleListView(Gtk.ScrolledWindow):
         return self._selected_positions[0] if self._selected_positions else -1
     
     def _create_row(self, entry: SubtitleEntry, position: int) -> Gtk.ListBoxRow:
-        """Create a list box row for a subtitle entry."""
+        """Create a list box row for a subtitle entry using Adw components."""
         row = Gtk.ListBoxRow()
         
-        # Main box for the row
-        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(10)
-        box.set_margin_bottom(10)
-        row.set_child(box)
+        # Use Adw.ActionRow for better styling
+        action_row = Adw.ActionRow()
+        action_row.set_activatable(False)  # We handle activation at ListBoxRow level
+        row.set_child(action_row)
         
-        # Index badge
+        # Index badge as prefix
+        index_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        index_box.set_valign(Gtk.Align.CENTER)
         index_label = Gtk.Label()
         index_label.set_text(str(entry.index))
-        index_label.set_width_chars(3)
+        index_label.set_width_chars(4)
         index_label.set_xalign(0.5)
-        index_label.add_css_class("caption")
+        index_label.add_css_class("title-3")
         index_label.add_css_class("numeric")
-        index_label.set_valign(Gtk.Align.START)
-        index_label.set_margin_top(2)
-        box.append(index_label)
+        index_label.add_css_class("dim-label")
+        index_box.append(index_label)
+        action_row.add_prefix(index_box)
         
-        # Content box (vertical)
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        content_box.set_hexpand(True)
-        box.append(content_box)
-        
-        # Timing label with better formatting
-        timing_label = Gtk.Label()
+        # Main content - use title and subtitle
         timing_text = f"{entry.start_time} → {entry.end_time}"
-        timing_label.set_markup(f"<span size='small' weight='500'>{timing_text}</span>")
-        timing_label.set_xalign(0.0)
-        timing_label.add_css_class("caption")
-        timing_label.add_css_class("numeric")
-        content_box.append(timing_label)
+        action_row.set_title(entry.text[:80] if len(entry.text) > 80 else entry.text)
         
-        # Text label with better styling
-        text_label = Gtk.Label()
-        text_label.set_text(entry.text)
-        text_label.set_xalign(0.0)
-        text_label.set_ellipsize(Pango.EllipsizeMode.END)
-        text_label.set_lines(2)
-        text_label.set_wrap(True)
-        text_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        text_label.set_max_width_chars(50)
-        content_box.append(text_label)
-
-        # Style name (ASS/SSA)
-        style_label = Gtk.Label()
+        # Build subtitle with timing and style
         style_name = entry.style or 'Default'
-        # Make it visually distinct while staying compatible with older GTK/libadwaita.
-        style_label.set_use_markup(True)
-        style_label.set_markup(f"<span size='small'><b>Style</b>  <tt>{style_name}</tt></span>")
-        style_label.set_xalign(0.0)
-        style_label.add_css_class("dim-label")
-        content_box.append(style_label)
+        subtitle_parts = [f"<span font_features='tnum=1'>{timing_text}</span>"]
+        if entry.style:
+            subtitle_parts.append(f"<b>Style:</b> {style_name}")
+        action_row.set_subtitle(" • ".join(subtitle_parts))
+        action_row.set_subtitle_lines(2)
         
         # Store references for updates
+        row._action_row = action_row
         row._index_label = index_label
-        row._timing_label = timing_label
-        row._text_label = text_label
-        row._style_label = style_label
+        row._entry = entry
         
         return row
     
     def _update_row(self, row: Gtk.ListBoxRow, entry: SubtitleEntry, position: int):
         """Update an existing row with new entry data."""
+        if hasattr(row, '_action_row'):
+            action_row = row._action_row
+            action_row.set_title(entry.text[:80] if len(entry.text) > 80 else entry.text)
+            
+            timing_text = f"{entry.start_time} → {entry.end_time}"
+            style_name = entry.style or 'Default'
+            subtitle_parts = [f"<span font_features='tnum=1'>{timing_text}</span>"]
+            if entry.style:
+                subtitle_parts.append(f"<b>Style:</b> {style_name}")
+            action_row.set_subtitle(" • ".join(subtitle_parts))
+        
         if hasattr(row, '_index_label'):
             row._index_label.set_text(str(entry.index))
         
-        if hasattr(row, '_timing_label'):
-            timing_text = f"{entry.start_time} → {entry.end_time}"
-            row._timing_label.set_markup(f"<span size='small' weight='500'>{timing_text}</span>")
-        
-        if hasattr(row, '_text_label'):
-            row._text_label.set_text(entry.text)
-
-        if hasattr(row, '_style_label'):
-            style_name = entry.style or 'Default'
-            row._style_label.set_use_markup(True)
-            row._style_label.set_markup(f"<span size='small'><b>Style</b>  <tt>{style_name}</tt></span>")
+        if hasattr(row, '_entry'):
+            row._entry = entry
     
     def _on_row_selected(self, list_box, row):
         """Handle row selection - update selected positions list."""

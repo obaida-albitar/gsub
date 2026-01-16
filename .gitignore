@@ -39,5 +39,10 @@ env/
 .DS_Store
 Thumbs.db
 
+# Testing
+.coverage
+htmlcov/
+.pytest_cache/
+
 # Application specific
 *.pyc

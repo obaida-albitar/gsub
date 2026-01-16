@@ -265,23 +265,25 @@ class VideoPlayerWidget(Gtk.Box):
         GLib.timeout_add(100, self._update_position)
     
     def _build_controls(self):
-        """Build video control bar following GNOME HIG."""
+        """Build compact video control bar optimized for space efficiency."""
         controls_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         controls_box.add_css_class("toolbar")
+        controls_box.add_css_class("osd")
         self.append(controls_box)
         
-        # Timeline slider
-        timeline_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        # Timeline slider - full width on top for maximum usability
+        timeline_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         timeline_box.set_margin_start(12)
         timeline_box.set_margin_end(12)
         timeline_box.set_margin_top(6)
-        timeline_box.set_margin_bottom(6)
+        timeline_box.set_margin_bottom(4)
         controls_box.append(timeline_box)
         
-        # Current time label
+        # Current time label - compact
         self.time_label = Gtk.Label(label="0:00")
         self.time_label.add_css_class("numeric")
-        self.time_label.set_width_chars(8)
+        self.time_label.add_css_class("caption")
+        self.time_label.set_width_chars(5)
         timeline_box.append(self.time_label)
         
         # Timeline scale
@@ -293,54 +295,62 @@ class VideoPlayerWidget(Gtk.Box):
         self.timeline_scale.connect('change-value', self._on_timeline_seek)
         timeline_box.append(self.timeline_scale)
         
-        # Duration label
+        # Duration label - compact
         self.duration_label = Gtk.Label(label="0:00")
         self.duration_label.add_css_class("numeric")
         self.duration_label.add_css_class("dim-label")
-        self.duration_label.set_width_chars(8)
+        self.duration_label.add_css_class("caption")
+        self.duration_label.set_width_chars(5)
         timeline_box.append(self.duration_label)
         
-        # Button controls
-        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        # Compact button controls in a single row
+        button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         button_box.set_halign(Gtk.Align.CENTER)
-        button_box.set_margin_start(12)
-        button_box.set_margin_end(12)
-        button_box.set_margin_bottom(12)
+        button_box.set_margin_start(6)
+        button_box.set_margin_end(6)
+        button_box.set_margin_bottom(6)
         controls_box.append(button_box)
         
-        # Play/Pause button
-        self.play_button = Gtk.Button()
-        self.play_button.set_icon_name("media-playback-start-symbolic")
-        self.play_button.add_css_class("circular")
-        self.play_button.connect('clicked', self._on_play_pause_clicked)
-        button_box.append(self.play_button)
+        # All controls in one linked group for compactness
+        controls_group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        controls_group.add_css_class("linked")
+        button_box.append(controls_group)
         
-        # Skip backward button
+        # Skip backward button - compact
         skip_back_button = Gtk.Button()
-        skip_back_button.set_icon_name("media-skip-backward-symbolic")
+        skip_back_button.set_icon_name("media-seek-backward-symbolic")
         skip_back_button.set_tooltip_text("Skip backward 5 seconds")
         skip_back_button.connect('clicked', lambda b: self.skip(-5000))
-        button_box.append(skip_back_button)
+        controls_group.append(skip_back_button)
         
-        # Skip forward button
+        # Play/Pause button - still prominent but not oversized
+        self.play_button = Gtk.Button()
+        self.play_button.set_icon_name("media-playback-start-symbolic")
+        self.play_button.set_tooltip_text("Play/Pause (Space)")
+        self.play_button.connect('clicked', self._on_play_pause_clicked)
+        controls_group.append(self.play_button)
+        
+        # Skip forward button - compact
         skip_forward_button = Gtk.Button()
-        skip_forward_button.set_icon_name("media-skip-forward-symbolic")
+        skip_forward_button.set_icon_name("media-seek-forward-symbolic")
         skip_forward_button.set_tooltip_text("Skip forward 5 seconds")
         skip_forward_button.connect('clicked', lambda b: self.skip(5000))
-        button_box.append(skip_forward_button)
+        controls_group.append(skip_forward_button)
         
-        # Volume button
+        # Volume button integrated into the same row
         self.volume_button = Gtk.VolumeButton()
         self.volume_button.set_value(1.0)
+        self.volume_button.set_tooltip_text("Volume")
         self.volume_button.connect('value-changed', self._on_volume_changed)
-        button_box.append(self.volume_button)
+        controls_group.append(self.volume_button)
     
     def _show_error_state(self):
         """Show error state when GStreamer is not available."""
         status_page = Adw.StatusPage()
         status_page.set_icon_name("dialog-error-symbolic")
         status_page.set_title("Video Player Unavailable")
-        status_page.set_description("GStreamer is required for video playback")
+        status_page.set_description("GStreamer is required for video playback. Please install the required GStreamer packages.")
+        status_page.set_vexpand(True)
         self.append(status_page)
     
     def set_document(self, document: Optional[SubtitleDocument]):
