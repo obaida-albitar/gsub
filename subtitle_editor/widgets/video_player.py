@@ -57,10 +57,12 @@ class SubtitleRenderer:
             font_desc = self._create_font_description(style, height)
             layout.set_font_description(font_desc)
         else:
-            # Default styling
+            # Default styling with reasonable size
             font_desc = Pango.FontDescription()
             font_desc.set_family("Sans")
-            font_desc.set_size(int(height * 0.05 * Pango.SCALE))  # 5% of video height
+            # Use 3% of video height for default, max 24pt
+            default_size = min(int(height * 0.03 * Pango.SCALE), 24 * Pango.SCALE)
+            font_desc.set_size(default_size)
             font_desc.set_weight(Pango.Weight.BOLD)
             layout.set_font_description(font_desc)
         
@@ -118,8 +120,10 @@ class SubtitleRenderer:
         font_desc = Pango.FontDescription()
         font_desc.set_family(style.fontname or "Sans")
         
-        # Scale font size relative to video height
-        size = int(style.fontsize * (video_height / 480.0) * Pango.SCALE)
+        # Scale font size relative to video height with a more reasonable multiplier
+        # Use a smaller scaling factor to prevent oversized subtitles
+        scale_factor = min(video_height / 720.0, 1.0)  # Cap at 1.0 for videos <= 720p
+        size = int(style.fontsize * scale_factor * Pango.SCALE)
         font_desc.set_size(size)
         
         if style.bold:
@@ -261,8 +265,8 @@ class VideoPlayerWidget(Gtk.Box):
         bus.add_signal_watch()
         bus.connect("message", self._on_gst_message)
         
-        # Update timer
-        GLib.timeout_add(100, self._update_position)
+        # Update timer - use 250ms for better performance
+        GLib.timeout_add(250, self._update_position)
     
     def _build_controls(self):
         """Build compact video control bar optimized for space efficiency."""
@@ -416,11 +420,15 @@ class VideoPlayerWidget(Gtk.Box):
         if not self.player:
             return
         
+        # Use ACCURATE flag for precise seeking, but allow KEY_UNIT for performance
         self.player.seek_simple(
             Gst.Format.TIME,
-            Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT,
+            Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE,
             int(position_sec * Gst.SECOND)
         )
+        
+        # Update subtitle immediately after seek
+        GLib.idle_add(lambda: self._update_current_subtitle(position_sec))
     
     def skip(self, offset_ms: int):
         """Skip forward or backward by offset in milliseconds."""
@@ -473,19 +481,53 @@ class VideoPlayerWidget(Gtk.Box):
         
         position_ms = position_sec * 1000
         
-        # Find subtitle at current position
-        new_subtitle = None
-        for entry in self.document.entries:
-            start_ms = entry.start_time.total_milliseconds
-            end_ms = entry.end_time.total_milliseconds
+        # Optimize: Check current subtitle first before searching
+        if self.current_subtitle:
+            start_ms = self.current_subtitle.start_time.total_milliseconds
+            end_ms = self.current_subtitle.end_time.total_milliseconds
             if start_ms <= position_ms <= end_ms:
-                new_subtitle = entry
-                break
+                # Still showing the same subtitle
+                return
         
-        # Update if changed
+        # Find subtitle at current position using binary search for better performance
+        new_subtitle = self._find_subtitle_at_position(position_ms)
+        
+        # Update only if changed
         if new_subtitle != self.current_subtitle:
             self.current_subtitle = new_subtitle
             self.subtitle_drawing_area.queue_draw()
+    
+    def _find_subtitle_at_position(self, position_ms: float):
+        """Find subtitle at given position using binary search."""
+        if not self.document or not self.document.entries:
+            return None
+        
+        entries = self.document.entries
+        left, right = 0, len(entries) - 1
+        
+        # Binary search to find the approximate position
+        while left <= right:
+            mid = (left + right) // 2
+            entry = entries[mid]
+            start_ms = entry.start_time.total_milliseconds
+            end_ms = entry.end_time.total_milliseconds
+            
+            if start_ms <= position_ms <= end_ms:
+                return entry
+            elif position_ms < start_ms:
+                right = mid - 1
+            else:
+                left = mid + 1
+        
+        # Check nearby entries (in case of overlapping subtitles)
+        for i in range(max(0, left - 2), min(len(entries), left + 3)):
+            entry = entries[i]
+            start_ms = entry.start_time.total_milliseconds
+            end_ms = entry.end_time.total_milliseconds
+            if start_ms <= position_ms <= end_ms:
+                return entry
+        
+        return None
     
     def _update_subtitle_display(self):
         """Force subtitle display update."""
@@ -523,7 +565,7 @@ class VideoPlayerWidget(Gtk.Box):
         """Handle timeline seek."""
         if not self._is_seeking:
             self._is_seeking = True
-            GLib.timeout_add(100, lambda: setattr(self, '_is_seeking', False))
+            GLib.timeout_add(50, lambda: setattr(self, '_is_seeking', False))
         
         self.seek(value)
         return False
