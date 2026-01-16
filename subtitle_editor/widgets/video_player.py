@@ -57,11 +57,13 @@ class SubtitleRenderer:
         
         # Get PlayResY from document metadata (ASS reference resolution)
         play_res_y = None
+        play_res_y_source = "default"
         if self.document and self.document.metadata:
             play_res_y_str = self.document.metadata.get('PlayResY')
             if play_res_y_str:
                 try:
                     play_res_y = int(play_res_y_str)
+                    play_res_y_source = "metadata"
                 except ValueError:
                     pass
         
@@ -72,10 +74,13 @@ class SubtitleRenderer:
             max_fontsize = max((s.fontsize for s in self.document.styles), default=20)
             if max_fontsize >= 70:
                 play_res_y = 1080  # Assume 1080p for very large fonts
+                play_res_y_source = f"inferred from fontsize={max_fontsize}"
             elif max_fontsize >= 50:
                 play_res_y = 720   # Assume 720p for large fonts
+                play_res_y_source = f"inferred from fontsize={max_fontsize}"
             else:
                 play_res_y = 384   # Default SD resolution
+                play_res_y_source = f"inferred from fontsize={max_fontsize}"
         
         # Create Pango layout
         layout = PangoCairo.create_layout(cr)
@@ -88,6 +93,15 @@ class SubtitleRenderer:
         if style:
             font_desc = self._create_font_description(style, height, play_res_y)
             layout.set_font_description(font_desc)
+            
+            # Debug logging
+            if play_res_y:
+                scale_factor = height / play_res_y if play_res_y > 0 else 1.0
+                final_size_pt = int(style.fontsize * scale_factor)
+                print(f"[Subtitle Render] Style={style.name}, FontSize={style.fontsize}, "
+                      f"PlayResY={play_res_y} ({play_res_y_source}), "
+                      f"DisplayHeight={height}px, Scale={scale_factor:.3f}, "
+                      f"FinalSize={final_size_pt}pt")
         else:
             # Default styling with reasonable size based on display height
             font_desc = Pango.FontDescription()
@@ -632,6 +646,12 @@ class VideoPlayerWidget(Gtk.Box):
         video_width = self._video_width if self._video_width > 0 else width
         video_height = self._video_height if self._video_height > 0 else height
         
+        # Debug: Log dimensions once per subtitle change
+        if not hasattr(self, '_last_logged_subtitle') or self._last_logged_subtitle != id(self.current_subtitle):
+            print(f"[Video Display] Widget size: {width}x{height}, "
+                  f"Video resolution: {self._video_width}x{self._video_height}")
+            self._last_logged_subtitle = id(self.current_subtitle)
+        
         # Calculate the actual video display area (respecting aspect ratio)
         if self._video_width > 0 and self._video_height > 0:
             video_aspect = self._video_width / self._video_height
@@ -747,7 +767,7 @@ class VideoPlayerWidget(Gtk.Box):
                         if success and success2:
                             self._video_width = width
                             self._video_height = height
-                            print(f"Video dimensions: {width}x{height}")
+                            print(f"[Video Dimensions] Detected from stream: {width}x{height}")
                             return
         except Exception as e:
             print(f"Error querying video dimensions: {e}")
@@ -762,6 +782,6 @@ class VideoPlayerWidget(Gtk.Box):
                     if width > 0 and height > 0:
                         self._video_width = width
                         self._video_height = height
-                        print(f"Video dimensions from paintable: {width}x{height}")
+                        print(f"[Video Dimensions] Detected from paintable: {width}x{height}")
             except Exception as e:
                 print(f"Error getting dimensions from paintable: {e}")
