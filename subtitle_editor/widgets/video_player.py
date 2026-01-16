@@ -55,6 +55,28 @@ class SubtitleRenderer:
         if not style and self.document and self.document.styles:
             style = self.document.styles[0]  # Default to first style
         
+        # Get PlayResY from document metadata (ASS reference resolution)
+        play_res_y = None
+        if self.document and self.document.metadata:
+            play_res_y_str = self.document.metadata.get('PlayResY')
+            if play_res_y_str:
+                try:
+                    play_res_y = int(play_res_y_str)
+                except ValueError:
+                    pass
+        
+        # If PlayResY is not set, try to infer it from font sizes
+        # Large fonts (>50) usually indicate HD resolution (720 or 1080)
+        # Small fonts (<30) usually indicate SD resolution (384)
+        if play_res_y is None and style and self.document:
+            max_fontsize = max((s.fontsize for s in self.document.styles), default=20)
+            if max_fontsize >= 70:
+                play_res_y = 1080  # Assume 1080p for very large fonts
+            elif max_fontsize >= 50:
+                play_res_y = 720   # Assume 720p for large fonts
+            else:
+                play_res_y = 384   # Default SD resolution
+        
         # Create Pango layout
         layout = PangoCairo.create_layout(cr)
         
@@ -62,10 +84,9 @@ class SubtitleRenderer:
         clean_text = self._strip_ass_override_codes(text)
         layout.set_text(clean_text, -1)
         
-        # Apply styling scaled to current display size
+        # Apply styling scaled to current display size using PlayResY
         if style:
-            # Pass both video height and display height for proper scaling
-            font_desc = self._create_font_description(style, video_height or height, height)
+            font_desc = self._create_font_description(style, height, play_res_y)
             layout.set_font_description(font_desc)
         else:
             # Default styling with reasonable size based on display height
@@ -126,28 +147,28 @@ class SubtitleRenderer:
         PangoCairo.show_layout(cr, layout)
         cr.restore()
     
-    def _create_font_description(self, style: ASSStyle, video_height: int, 
-                                  display_height: int = None) -> Pango.FontDescription:
+    def _create_font_description(self, style: ASSStyle, display_height: int, 
+                                  play_res_y: int = None) -> Pango.FontDescription:
         """Create a Pango font description from ASS style.
         
         Args:
             style: ASS style object
-            video_height: Original video resolution height
             display_height: Current display height for scaling
+            play_res_y: ASS PlayResY value (reference resolution)
         """
         font_desc = Pango.FontDescription()
         font_desc.set_family(style.fontname or "Sans")
         
-        # Scale font based on display size vs video resolution
-        # ASS fonts reference PlayResY (typically 720 or 1080)
-        # We need to scale based on how large the video is currently displayed
-        if display_height and video_height > 0:
-            # Scale the font size based on display vs original resolution
-            scale_factor = display_height / video_height
-            size = int(style.fontsize * scale_factor * Pango.SCALE)
-        else:
-            # Fallback: use font size as-is
-            size = int(style.fontsize * Pango.SCALE)
+        # ASS fonts are designed for a specific reference resolution (PlayResY)
+        # Default PlayResY is typically 384 for SD or 720/1080 for HD
+        # If not specified, assume 384 (the ASS default)
+        if play_res_y is None or play_res_y <= 0:
+            play_res_y = 384
+        
+        # Scale font: (display_height / PlayResY) * fontsize
+        # This ensures fonts appear the same size relative to video height
+        scale_factor = display_height / play_res_y
+        size = int(style.fontsize * scale_factor * Pango.SCALE)
         
         font_desc.set_size(size)
         
