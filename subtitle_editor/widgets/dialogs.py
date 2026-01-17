@@ -7,7 +7,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk
+from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk, GObject
 from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
 from subtitle_editor.models import ASSStyle
 import copy
