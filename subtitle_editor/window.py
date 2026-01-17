@@ -865,8 +865,34 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                     self.right_paned.set_position(300)
                 
                 self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
+                
+                # Check for embedded tracks after a short delay (to allow detection to complete)
+                GLib.timeout_add(1500, lambda: self._check_and_show_track_selection())
         except Exception as e:
             pass  # User cancelled
+    
+    def _check_and_show_track_selection(self):
+        """Check for embedded tracks and show selection dialog if available."""
+        has_audio, has_subtitles = self.video_player.has_embedded_tracks()
+        
+        if has_audio or has_subtitles:
+            # Get track information
+            audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
+            
+            # Show track selection dialog
+            from subtitle_editor.widgets.dialogs import TrackSelectionDialog
+            
+            track_dialog = TrackSelectionDialog(
+                self,
+                audio_tracks,
+                subtitle_tracks,
+                self.video_player._current_audio_track,
+                self.video_player._current_subtitle_track
+            )
+            track_dialog.connect("tracks-selected", self._on_tracks_selected)
+            track_dialog.present()
+        
+        return False  # Stop timeout
     
     def _on_toggle_video(self, action, param):
         """Toggle video player visibility."""
@@ -893,6 +919,22 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Handle video position changes to update UI."""
         # Could be used to highlight current subtitle in the list
         pass
+    
+    def _on_tracks_selected(self, dialog, audio_track, subtitle_track):
+        """Handle track selection from dialog."""
+        # Set audio track
+        if audio_track >= 0:
+            self.video_player.set_audio_track(audio_track)
+            self._show_toast(f"Audio track {audio_track + 1} selected")
+        
+        # Set subtitle track
+        if subtitle_track >= 0:
+            self.video_player.set_subtitle_track(subtitle_track)
+            self._show_toast(f"Embedded subtitle track {subtitle_track + 1} selected")
+        else:
+            # Disable embedded subtitles
+            self.video_player.set_subtitle_track(-1)
+            self._show_toast("Using external subtitles")
 
 
 # Keyboard shortcuts overlay UI

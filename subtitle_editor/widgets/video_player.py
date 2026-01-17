@@ -330,6 +330,13 @@ class VideoPlayerWidget(Gtk.Box):
         self._duration = 0
         self._video_width = 0
         self._video_height = 0
+        
+        # Track management
+        self._audio_tracks = []
+        self._subtitle_tracks = []
+        self._current_audio_track = -1
+        self._current_subtitle_track = -1
+        self._embedded_subtitle_active = False
 
         # Create GStreamer pipeline
         self.player = Gst.ElementFactory.make("playbin", "player")
@@ -570,10 +577,17 @@ class VideoPlayerWidget(Gtk.Box):
         self.video_uri = f"file://{file_path}"
         self.player.set_state(Gst.State.NULL)
         self.player.set_property("uri", self.video_uri)
+        
+        # Enable text/subtitle support in playbin
+        flags = self.player.get_property("flags")
+        flags |= 0x00000004  # Enable TEXT flag
+        self.player.set_property("flags", flags)
+        
         self.player.set_state(Gst.State.PAUSED)
 
-        # Query duration after loading
+        # Query duration and tracks after loading
         GLib.timeout_add(500, self._query_duration)
+        GLib.timeout_add(1000, self._detect_tracks)
 
     def _query_duration(self):
         """Query video duration."""
@@ -670,6 +684,13 @@ class VideoPlayerWidget(Gtk.Box):
 
     def _update_current_subtitle(self, position_sec: float):
         """Update the currently displayed subtitle based on position."""
+        # Don't show external subtitles if embedded subtitles are active
+        if self._embedded_subtitle_active:
+            if self.current_subtitle is not None:
+                self.current_subtitle = None
+                self.subtitle_drawing_area.queue_draw()
+            return
+        
         if not self.document:
             if self.current_subtitle is not None:
                 self.current_subtitle = None
@@ -905,3 +926,150 @@ class VideoPlayerWidget(Gtk.Box):
                         )
             except Exception as e:
                 print(f"Error getting dimensions from paintable: {e}")
+    
+    def _detect_tracks(self):
+        """Detect available audio and subtitle tracks."""
+        if not self.player:
+            return False
+        
+        # Get number of tracks
+        n_audio = self.player.get_property("n-audio")
+        n_text = self.player.get_property("n-text")
+        
+        print(f"[Track Detection] Found {n_audio} audio tracks, {n_text} subtitle tracks")
+        
+        if n_audio == 0 and n_text == 0:
+            return True  # Try again
+        
+        # Get audio tracks
+        self._audio_tracks = []
+        for i in range(n_audio):
+            track_info = self._get_audio_track_info(i)
+            self._audio_tracks.append(track_info)
+            print(f"[Audio Track {i}] {track_info}")
+        
+        # Get subtitle tracks
+        self._subtitle_tracks = []
+        for i in range(n_text):
+            track_info = self._get_subtitle_track_info(i)
+            self._subtitle_tracks.append(track_info)
+            print(f"[Subtitle Track {i}] {track_info}")
+        
+        # Get current tracks
+        self._current_audio_track = self.player.get_property("current-audio")
+        self._current_subtitle_track = self.player.get_property("current-text")
+        
+        print(f"[Track Detection] Current audio: {self._current_audio_track}, subtitle: {self._current_subtitle_track}")
+        
+        return False  # Stop timeout
+    
+    def _get_audio_track_info(self, index):
+        """Get information about an audio track."""
+        track_info = {'index': index, 'title': None, 'language': None, 'codec': None}
+        
+        try:
+            # Get tags using emit signal
+            tags = self.player.emit("get-audio-tags", index)
+            if tags:
+                # Get language
+                success, language = tags.get_string(Gst.TAG_LANGUAGE_CODE)
+                if success:
+                    track_info['language'] = language
+                
+                # Get title
+                success, title = tags.get_string(Gst.TAG_TITLE)
+                if success:
+                    track_info['title'] = title
+                
+                # Get codec
+                success, codec = tags.get_string(Gst.TAG_AUDIO_CODEC)
+                if success:
+                    track_info['codec'] = codec
+        except Exception as e:
+            print(f"Error getting audio track {index} info: {e}")
+        
+        return track_info
+    
+    def _get_subtitle_track_info(self, index):
+        """Get information about a subtitle track."""
+        track_info = {'index': index, 'title': None, 'language': None, 'codec': None}
+        
+        try:
+            # Get tags using emit signal
+            tags = self.player.emit("get-text-tags", index)
+            if tags:
+                # Get language
+                success, language = tags.get_string(Gst.TAG_LANGUAGE_CODE)
+                if success:
+                    track_info['language'] = language
+                
+                # Get title
+                success, title = tags.get_string(Gst.TAG_TITLE)
+                if success:
+                    track_info['title'] = title
+                
+                # Get codec
+                success, codec = tags.get_string(Gst.TAG_SUBTITLE_CODEC)
+                if not success:
+                    success, codec = tags.get_string(Gst.TAG_CODEC)
+                if success:
+                    track_info['codec'] = codec
+        except Exception as e:
+            print(f"Error getting subtitle track {index} info: {e}")
+        
+        return track_info
+    
+    def get_available_tracks(self):
+        """Get list of available audio and subtitle tracks.
+        
+        Returns:
+            tuple: (audio_tracks, subtitle_tracks) - lists of track info dicts
+        """
+        return (self._audio_tracks.copy(), self._subtitle_tracks.copy())
+    
+    def set_audio_track(self, track_index):
+        """Set the current audio track.
+        
+        Args:
+            track_index: Index of audio track to select (-1 to disable)
+        """
+        if not self.player:
+            return
+        
+        print(f"[Track Switch] Setting audio track to {track_index}")
+        self.player.set_property("current-audio", track_index)
+        self._current_audio_track = track_index
+    
+    def set_subtitle_track(self, track_index):
+        """Set the current subtitle track.
+        
+        Args:
+            track_index: Index of subtitle track to select (-1 to disable)
+        """
+        if not self.player:
+            return
+        
+        print(f"[Track Switch] Setting subtitle track to {track_index}")
+        
+        if track_index >= 0:
+            # Enable embedded subtitles
+            self.player.set_property("current-text", track_index)
+            self._current_subtitle_track = track_index
+            self._embedded_subtitle_active = True
+            
+            # Disable our custom subtitle rendering when using embedded
+            self.current_subtitle = None
+            self.subtitle_drawing_area.queue_draw()
+        else:
+            # Disable embedded subtitles
+            self.player.set_property("current-text", -1)
+            self._current_subtitle_track = -1
+            self._embedded_subtitle_active = False
+    
+    def has_embedded_tracks(self):
+        """Check if video has embedded audio or subtitle tracks.
+        
+        Returns:
+            tuple: (has_audio_tracks, has_subtitle_tracks)
+        """
+        return (len(self._audio_tracks) > 0, len(self._subtitle_tracks) > 0)

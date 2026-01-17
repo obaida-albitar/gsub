@@ -900,3 +900,158 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.parent_window._show_toast("Updated ASS metadata/styles")
 
         self.close()
+
+
+class TrackSelectionDialog(Adw.Window):
+    """Dialog for selecting audio and subtitle tracks from a video file."""
+
+    __gsignals__ = {
+        "tracks-selected": (GObject.SignalFlags.RUN_FIRST, None, (int, int)),
+        # (audio_track_index, subtitle_track_index) - both can be -1 for "none"
+    }
+
+    def __init__(self, parent, audio_tracks, subtitle_tracks, current_audio=-1, current_subtitle=-1):
+        """
+        Initialize track selection dialog.
+        
+        Args:
+            parent: Parent window
+            audio_tracks: List of dicts with 'index', 'title', 'language', 'codec'
+            subtitle_tracks: List of dicts with 'index', 'title', 'language', 'codec'
+            current_audio: Currently selected audio track index
+            current_subtitle: Currently selected subtitle track index
+        """
+        super().__init__()
+        
+        self.set_transient_for(parent)
+        self.set_modal(True)
+        self.set_title("Select Audio and Subtitle Tracks")
+        self.set_default_size(500, 450)
+        
+        self.audio_tracks = audio_tracks
+        self.subtitle_tracks = subtitle_tracks
+        self.selected_audio = current_audio
+        self.selected_subtitle = current_subtitle
+        
+        # Main content
+        header = Adw.HeaderBar()
+        self.set_titlebar(header)
+        
+        # Cancel button
+        cancel_button = Gtk.Button(label="Cancel")
+        cancel_button.connect("clicked", lambda b: self.close())
+        header.pack_start(cancel_button)
+        
+        # Select button
+        select_button = Gtk.Button(label="Select")
+        select_button.add_css_class("suggested-action")
+        select_button.connect("clicked", self._on_select_clicked)
+        header.pack_end(select_button)
+        
+        # Content box
+        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.set_content(content_box)
+        
+        # Scrolled window
+        scrolled = Gtk.ScrolledWindow()
+        scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        content_box.append(scrolled)
+        
+        # Preferences page
+        prefs_page = Adw.PreferencesPage()
+        scrolled.set_child(prefs_page)
+        
+        # Audio tracks group
+        audio_group = Adw.PreferencesGroup()
+        audio_group.set_title("Audio Tracks")
+        audio_group.set_description(f"Select an audio track ({len(audio_tracks)} available)")
+        prefs_page.add(audio_group)
+        
+        # Create radio buttons for audio tracks
+        self.audio_check_group = []
+        for i, track in enumerate(audio_tracks):
+            row = Adw.ActionRow()
+            row.set_title(track.get('title', f"Track {track['index'] + 1}"))
+            
+            # Build subtitle with language and codec info
+            subtitle_parts = []
+            if track.get('language'):
+                subtitle_parts.append(track['language'])
+            if track.get('codec'):
+                subtitle_parts.append(track['codec'])
+            if subtitle_parts:
+                row.set_subtitle(", ".join(subtitle_parts))
+            
+            # Radio button
+            check = Gtk.CheckButton()
+            check.set_active(track['index'] == current_audio)
+            check.connect("toggled", self._on_audio_track_selected, track['index'])
+            
+            # Group radio buttons
+            if self.audio_check_group:
+                check.set_group(self.audio_check_group[0])
+            self.audio_check_group.append(check)
+            
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            audio_group.add(row)
+        
+        # Subtitle tracks group
+        subtitle_group = Adw.PreferencesGroup()
+        subtitle_group.set_title("Subtitle Tracks")
+        subtitle_group.set_description(f"Select a subtitle track ({len(subtitle_tracks)} available)")
+        prefs_page.add(subtitle_group)
+        
+        # "None" option for subtitles
+        none_row = Adw.ActionRow()
+        none_row.set_title("None")
+        none_row.set_subtitle("No embedded subtitles")
+        none_check = Gtk.CheckButton()
+        none_check.set_active(current_subtitle == -1)
+        none_check.connect("toggled", self._on_subtitle_track_selected, -1)
+        none_row.add_prefix(none_check)
+        none_row.set_activatable_widget(none_check)
+        subtitle_group.add(none_row)
+        
+        self.subtitle_check_group = [none_check]
+        
+        # Create radio buttons for subtitle tracks
+        for i, track in enumerate(subtitle_tracks):
+            row = Adw.ActionRow()
+            row.set_title(track.get('title', f"Track {track['index'] + 1}"))
+            
+            # Build subtitle with language and codec info
+            subtitle_parts = []
+            if track.get('language'):
+                subtitle_parts.append(track['language'])
+            if track.get('codec'):
+                subtitle_parts.append(track['codec'])
+            if subtitle_parts:
+                row.set_subtitle(", ".join(subtitle_parts))
+            
+            # Radio button
+            check = Gtk.CheckButton()
+            check.set_active(track['index'] == current_subtitle)
+            check.connect("toggled", self._on_subtitle_track_selected, track['index'])
+            check.set_group(none_check)
+            self.subtitle_check_group.append(check)
+            
+            row.add_prefix(check)
+            row.set_activatable_widget(check)
+            subtitle_group.add(row)
+    
+    def _on_audio_track_selected(self, check_button, track_index):
+        """Handle audio track selection."""
+        if check_button.get_active():
+            self.selected_audio = track_index
+    
+    def _on_subtitle_track_selected(self, check_button, track_index):
+        """Handle subtitle track selection."""
+        if check_button.get_active():
+            self.selected_subtitle = track_index
+    
+    def _on_select_clicked(self, button):
+        """Handle select button click."""
+        self.emit("tracks-selected", self.selected_audio, self.selected_subtitle)
+        self.close()
