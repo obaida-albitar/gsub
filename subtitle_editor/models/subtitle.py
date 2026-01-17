@@ -106,6 +106,10 @@ class SubtitleEntry:
     end_time: TimeCode
     text: str
     style: Optional[str] = None  # For ASS format
+    # Per-entry margin overrides (ASS format)
+    margin_l: int = 0  # Left margin override (0 = use style default)
+    margin_r: int = 0  # Right margin override (0 = use style default)
+    margin_v: int = 0  # Vertical margin override (0 = use style default)
     
     def __post_init__(self):
         """Ensure text doesn't have leading/trailing whitespace lines."""

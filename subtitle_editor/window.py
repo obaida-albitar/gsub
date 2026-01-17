@@ -175,6 +175,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel.connect('text-changed', self._on_text_changed)
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
         self.editor_panel.connect('style-changed', self._on_style_changed)
+        self.editor_panel.connect('position-changed', self._on_position_changed)
         editor_scroll.set_child(self.editor_panel)
         self.right_paned.set_end_child(editor_scroll)
         
@@ -793,6 +794,26 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()
+
+    def _on_position_changed(self, widget, position, margin_l, margin_r, margin_v):
+        """Handle position (margin) change in editor panel (ASS/SSA only)."""
+        if not self.document or position < 0:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            return
+        
+        # Update the entry directly (this is a simple property change, not undoable)
+        entry = self.document.entries[position]
+        entry.margin_l = margin_l
+        entry.margin_r = margin_r
+        entry.margin_v = margin_v
+        self.document.modified = True
+        
+        # Update video player to reflect position changes
+        if self.video_player:
+            self.video_player.subtitle_drawing_area.queue_draw()
+        
+        self._update_title()
     
     # Video player handlers
     

@@ -181,6 +181,9 @@ class ASSParser:
         end_time = None
         text = ""
         style = None
+        margin_l = 0
+        margin_r = 0
+        margin_v = 0
         
         for i, field in enumerate(format_list):
             if i >= len(parts):
@@ -199,6 +202,21 @@ class ASSParser:
                 text = text.replace('\\N', '\n').replace('\\n', '\n')
             elif field_lower == 'style':
                 style = value
+            elif field_lower == 'marginl':
+                try:
+                    margin_l = int(value)
+                except ValueError:
+                    margin_l = 0
+            elif field_lower == 'marginr':
+                try:
+                    margin_r = int(value)
+                except ValueError:
+                    margin_r = 0
+            elif field_lower == 'marginv':
+                try:
+                    margin_v = int(value)
+                except ValueError:
+                    margin_v = 0
         
         if start_time and end_time:
             return SubtitleEntry(
@@ -206,7 +224,10 @@ class ASSParser:
                 start_time=start_time,
                 end_time=end_time,
                 text=text,
-                style=style
+                style=style,
+                margin_l=margin_l,
+                margin_r=margin_r,
+                margin_v=margin_v
             )
         
         return None
@@ -287,9 +308,10 @@ class ASSParser:
             layer = 0
             style = entry.style or 'Default'
             name = ''
-            margin_l = 0
-            margin_r = 0
-            margin_v = 0
+            # Use per-entry margins if set, otherwise default to 0
+            margin_l = getattr(entry, 'margin_l', 0)
+            margin_r = getattr(entry, 'margin_r', 0)
+            margin_v = getattr(entry, 'margin_v', 0)
             effect = ''
             
             # Convert newlines in text to ASS format
