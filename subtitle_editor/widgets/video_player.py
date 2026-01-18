@@ -1073,3 +1073,125 @@ class VideoPlayerWidget(Gtk.Box):
             tuple: (has_audio_tracks, has_subtitle_tracks)
         """
         return (len(self._audio_tracks) > 0, len(self._subtitle_tracks) > 0)
+    
+    def extract_subtitle_track(self, track_index, output_path, callback=None):
+        """Extract a subtitle track from the video to a file.
+        
+        Args:
+            track_index: Index of the subtitle track to extract
+            output_path: Path where to save the extracted subtitle file
+            callback: Optional callback function(success, error_message) when done
+        """
+        if not self.player or not self.video_uri:
+            if callback:
+                callback(False, "No video loaded")
+            return
+        
+        if track_index < 0 or track_index >= len(self._subtitle_tracks):
+            if callback:
+                callback(False, "Invalid track index")
+            return
+        
+        # Extract subtitle in a background thread to avoid blocking UI
+        import threading
+        
+        def extract_thread():
+            try:
+                success = self._extract_subtitle_gstreamer(track_index, output_path)
+                if callback:
+                    GLib.idle_add(callback, success, None if success else "Extraction failed")
+            except Exception as e:
+                if callback:
+                    GLib.idle_add(callback, False, str(e))
+        
+        thread = threading.Thread(target=extract_thread, daemon=True)
+        thread.start()
+    
+    def _extract_subtitle_gstreamer(self, track_index, output_path):
+        """Extract subtitle using GStreamer pipeline.
+        
+        This uses a secondary pipeline to extract the subtitle track.
+        """
+        try:
+            # Parse the video URI to get file path
+            if self.video_uri.startswith("file://"):
+                video_path = self.video_uri[7:]  # Remove file:// prefix
+            else:
+                video_path = self.video_uri
+            
+            print(f"[Subtitle Extract] Extracting track {track_index} to {output_path}")
+            
+            # Create extraction pipeline
+            # We use decodebin and connect to the text pad for the specific track
+            pipeline_desc = f'filesrc location="{video_path}" ! decodebin name=d ! queue ! subparse ! filesink location="{output_path}"'
+            
+            extract_pipeline = Gst.parse_launch(pipeline_desc)
+            
+            # Set to PAUSED to preroll
+            extract_pipeline.set_state(Gst.State.PAUSED)
+            extract_pipeline.get_state(5 * Gst.SECOND)
+            
+            # Try to select the subtitle track
+            # Note: This is a simplified approach. In practice, subtitle extraction
+            # from containers is complex and may require using tools like ffmpeg
+            
+            # For now, we'll use a simpler approach: read subtitles using playbin
+            return self._extract_using_playbin(track_index, output_path)
+            
+        except Exception as e:
+            print(f"[Subtitle Extract] Error: {e}")
+            return False
+    
+    def _extract_using_playbin(self, track_index, output_path):
+        """Extract subtitle by reading from playbin text pad.
+        
+        This is a workaround since direct subtitle extraction from containers
+        is complex in GStreamer.
+        """
+        import subprocess
+        
+        # Use ffmpeg for reliable subtitle extraction
+        # This is more reliable than pure GStreamer for this use case
+        if self.video_uri.startswith("file://"):
+            video_path = self.video_uri[7:]
+        else:
+            video_path = self.video_uri
+        
+        try:
+            # ffmpeg command to extract subtitle track
+            # -map 0:s:track_index selects the subtitle track
+            cmd = [
+                'ffmpeg',
+                '-i', video_path,
+                '-map', f'0:s:{track_index}',
+                '-c:s', 'srt',  # Convert to SRT format
+                '-y',  # Overwrite output
+                output_path
+            ]
+            
+            print(f"[Subtitle Extract] Running: {' '.join(cmd)}")
+            
+            result = subprocess.run(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=30
+            )
+            
+            if result.returncode == 0:
+                print(f"[Subtitle Extract] Success: {output_path}")
+                return True
+            else:
+                error = result.stderr.decode('utf-8', errors='ignore')
+                print(f"[Subtitle Extract] Failed: {error}")
+                return False
+                
+        except FileNotFoundError:
+            print("[Subtitle Extract] ffmpeg not found. Please install ffmpeg.")
+            return False
+        except subprocess.TimeoutExpired:
+            print("[Subtitle Extract] Extraction timeout")
+            return False
+        except Exception as e:
+            print(f"[Subtitle Extract] Error: {e}")
+            return False

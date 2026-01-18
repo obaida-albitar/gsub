@@ -879,30 +879,94 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         print(f"[Track Check] has_audio={has_audio}, has_subtitles={has_subtitles}")
         
-        # Only show dialog if there are multiple audio tracks OR any subtitle tracks
-        # (single audio track is automatically selected, no need to bother user)
-        if (has_audio and len(self.video_player._audio_tracks) > 1) or has_subtitles:
-            # Get track information
+        # If video has subtitle tracks, ask user if they want to extract and edit
+        if has_subtitles:
             audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
             
-            print(f"[Track Check] Showing dialog: {len(audio_tracks)} audio, {len(subtitle_tracks)} subtitle tracks")
-            
-            # Show track selection dialog
-            from subtitle_editor.widgets.dialogs import TrackSelectionDialog
-            
-            track_dialog = TrackSelectionDialog(
+            # Create dialog asking what to do with embedded subtitles
+            extract_dialog = Adw.MessageDialog.new(
                 self,
-                audio_tracks,
-                subtitle_tracks,
-                self.video_player._current_audio_track,
-                self.video_player._current_subtitle_track
+                "Video Contains Subtitle Tracks",
+                f"This video has {len(subtitle_tracks)} embedded subtitle track(s). What would you like to do?"
             )
-            track_dialog.connect("tracks-selected", self._on_tracks_selected)
-            track_dialog.present()
+            extract_dialog.add_response("play", "Just Play Video")
+            extract_dialog.add_response("extract", "Extract & Edit Subtitles")
+            if len(audio_tracks) > 1:
+                extract_dialog.add_response("select", "Select Tracks")
+            
+            extract_dialog.set_response_appearance("extract", Adw.ResponseAppearance.SUGGESTED)
+            extract_dialog.set_default_response("extract")
+            extract_dialog.set_close_response("play")
+            
+            extract_dialog.connect("response", self._on_video_load_extract_response)
+            extract_dialog.present()
+        elif has_audio and len(self.video_player._audio_tracks) > 1:
+            # Multiple audio tracks but no subtitles - show track selection
+            self._show_track_selection_dialog()
         else:
             print("[Track Check] No tracks to select, skipping dialog")
         
         return False  # Stop timeout
+    
+    def _on_video_load_extract_response(self, dialog, response):
+        """Handle response to extract dialog on video load."""
+        if response == "extract":
+            # Show track selection for extraction
+            self._show_subtitle_extraction_dialog()
+        elif response == "select":
+            # Show full track selection dialog
+            self._show_track_selection_dialog()
+        # else: just play video - do nothing
+    
+    def _show_track_selection_dialog(self):
+        """Show the track selection dialog."""
+        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
+        
+        from subtitle_editor.widgets.dialogs import TrackSelectionDialog
+        
+        track_dialog = TrackSelectionDialog(
+            self,
+            audio_tracks,
+            subtitle_tracks,
+            self.video_player._current_audio_track,
+            self.video_player._current_subtitle_track
+        )
+        track_dialog.connect("tracks-selected", self._on_tracks_selected)
+        track_dialog.present()
+    
+    def _show_subtitle_extraction_dialog(self):
+        """Show dialog to select which subtitle track to extract."""
+        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
+        
+        if not subtitle_tracks:
+            self._show_toast("No subtitle tracks found")
+            return
+        
+        # Create a simple selection dialog
+        extract_dialog = Adw.MessageDialog.new(
+            self,
+            "Select Subtitle Track to Extract",
+            "Choose which subtitle track you want to extract for editing:"
+        )
+        
+        # For simplicity, if only one track, extract it directly
+        if len(subtitle_tracks) == 1:
+            self._extract_and_load_subtitle(0)
+            return
+        
+        # Otherwise show selection (we'll create a proper dialog)
+        from subtitle_editor.widgets.dialogs import TrackSelectionDialog
+        
+        # Show dialog with only subtitle selection
+        track_dialog = TrackSelectionDialog(
+            self,
+            [],  # No audio tracks in this context
+            subtitle_tracks,
+            -1,  # No audio selection
+            -1   # No subtitle pre-selected
+        )
+        track_dialog.connect("tracks-selected", self._on_extract_track_selected)
+        track_dialog.present()
     
     def _on_toggle_video(self, action, param):
         """Toggle video player visibility."""
@@ -992,12 +1056,63 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.video_player.set_subtitle_track(-1)
             self._show_toast("Using external subtitles")
     
+    def _on_extract_track_selected(self, dialog, audio_track, subtitle_track):
+        """Handle track selection for extraction."""
+        if subtitle_track >= 0:
+            self._extract_and_load_subtitle(subtitle_track)
+    
+    def _extract_and_load_subtitle(self, track_index):
+        """Extract a subtitle track and load it for editing."""
+        # Get track info
+        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
+        
+        if track_index >= len(subtitle_tracks):
+            self._show_toast("Invalid track index")
+            return
+        
+        track_info = subtitle_tracks[track_index]
+        track_name = track_info.get('title', f"Track {track_index + 1}")
+        language = track_info.get('language', 'unknown')
+        
+        # Create temp file for extraction
+        import tempfile
+        temp_fd, temp_path = tempfile.mkstemp(suffix='.srt', prefix=f'subtitle_{language}_')
+        os.close(temp_fd)
+        
+        # Show progress toast
+        self._show_toast(f"Extracting '{track_name}'...")
+        
+        # Extract subtitle
+        def on_extract_complete(success, error_msg):
+            if success:
+                # Load the extracted subtitle file
+                try:
+                    gfile = Gio.File.new_for_path(temp_path)
+                    self.open_file(gfile)
+                    self._show_toast(f"Loaded extracted subtitles: {track_name}")
+                    
+                    # Optionally clean up temp file after loading
+                    # (for now, keep it as it becomes the working file)
+                except Exception as e:
+                    self._show_toast(f"Error loading extracted subtitles: {e}")
+                    try:
+                        os.remove(temp_path)
+                    except:
+                        pass
+            else:
+                self._show_toast(f"Extraction failed: {error_msg}")
+                try:
+                    os.remove(temp_path)
+                except:
+                    pass
+        
+        # Start extraction
+        self.video_player.extract_subtitle_track(track_index, temp_path, on_extract_complete)
+    
     def _on_extract_response(self, dialog, response, subtitle_track):
-        """Handle subtitle extraction response."""
+        """Handle subtitle extraction response (from manual track selection)."""
         if response == "extract":
-            self._show_toast("Subtitle extraction not yet implemented")
-            # TODO: Implement subtitle extraction using GStreamer
-            # For now, just show the embedded subtitle
+            self._extract_and_load_subtitle(subtitle_track)
         # else: view only - subtitles already enabled in video player
 
 
