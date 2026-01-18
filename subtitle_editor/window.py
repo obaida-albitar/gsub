@@ -856,6 +856,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             if file:
                 file_path = file.get_path()
                 self.current_video_file = file_path
+                
+                # Reset extraction dialog flag for new video
+                self._extraction_dialog_shown = False
+                
                 self.video_player.load_video(file_path)
                 
                 # Show video player if hidden
@@ -868,8 +872,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                 
                 self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
                 
-                # Check for embedded tracks after a short delay (to allow detection to complete)
-                GLib.timeout_add(1500, lambda: self._check_and_show_track_selection())
+                # Check for embedded tracks after a delay to allow detection to complete
+                # Use a longer delay and check if tracks are actually detected
+                GLib.timeout_add(1500, self._check_and_show_track_selection)
+                GLib.timeout_add(2500, self._check_and_show_track_selection)  # Retry once more if needed
         except Exception as e:
             pass  # User cancelled
     
@@ -879,8 +885,13 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         print(f"[Track Check] has_audio={has_audio}, has_subtitles={has_subtitles}")
         
+        # Prevent showing dialog multiple times
+        if hasattr(self, '_extraction_dialog_shown') and self._extraction_dialog_shown:
+            return False
+        
         # If video has subtitle tracks, ask user if they want to extract and edit
         if has_subtitles:
+            self._extraction_dialog_shown = True
             audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
             
             # Create dialog asking what to do with embedded subtitles
@@ -1085,6 +1096,12 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         # Extract subtitle
         def on_extract_complete(success, error_msg):
             if success:
+                # Clean up HTML tags from the extracted subtitle file
+                try:
+                    self._clean_subtitle_html(temp_path)
+                except Exception as e:
+                    print(f"[Subtitle Clean] Warning: Failed to clean HTML: {e}")
+                
                 # Load the extracted subtitle file
                 try:
                     gfile = Gio.File.new_for_path(temp_path)
@@ -1114,6 +1131,39 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         if response == "extract":
             self._extract_and_load_subtitle(subtitle_track)
         # else: view only - subtitles already enabled in video player
+    
+    def _clean_subtitle_html(self, subtitle_path):
+        """Remove HTML/font tags from subtitle file.
+        
+        Many subtitle tracks contain HTML formatting tags like <font>, <b>, <i>
+        which cause issues when displayed in Gtk labels expecting Pango markup.
+        This function strips those tags while preserving the text content.
+        """
+        import re
+        
+        try:
+            with open(subtitle_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # Remove common HTML tags while preserving text
+            # Pattern matches: <tag attr="value">text</tag> -> text
+            content = re.sub(r'<font[^>]*>', '', content)
+            content = re.sub(r'</font>', '', content)
+            content = re.sub(r'<b>', '', content)
+            content = re.sub(r'</b>', '', content)
+            content = re.sub(r'<i>', '', content)
+            content = re.sub(r'</i>', '', content)
+            content = re.sub(r'<u>', '', content)
+            content = re.sub(r'</u>', '', content)
+            
+            # Write cleaned content back
+            with open(subtitle_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            print(f"[Subtitle Clean] Removed HTML tags from {subtitle_path}")
+        except Exception as e:
+            print(f"[Subtitle Clean] Error: {e}")
+            raise
 
 
 # Keyboard shortcuts overlay UI
