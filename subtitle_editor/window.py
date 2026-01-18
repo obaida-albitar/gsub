@@ -1090,8 +1090,9 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         temp_fd, temp_path = tempfile.mkstemp(suffix='.srt', prefix=f'subtitle_{language}_')
         os.close(temp_fd)
         
-        # Show progress toast
-        self._show_toast(f"Extracting '{track_name}'...")
+        # Show progress toast (escape ampersands for markup)
+        safe_track_name = track_name.replace('&', '&amp;')
+        self._show_toast(f"Extracting '{safe_track_name}'...")
         
         # Extract subtitle
         def on_extract_complete(success, error_msg):
@@ -1106,7 +1107,9 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                 try:
                     gfile = Gio.File.new_for_path(temp_path)
                     self.open_file(gfile)
-                    self._show_toast(f"Loaded extracted subtitles: {track_name}")
+                    # Escape ampersands for markup
+                    safe_track_name = track_name.replace('&', '&amp;')
+                    self._show_toast(f"Loaded extracted subtitles: {safe_track_name}")
                     
                     # Optionally clean up temp file after loading
                     # (for now, keep it as it becomes the working file)
@@ -1133,11 +1136,14 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         # else: view only - subtitles already enabled in video player
     
     def _clean_subtitle_html(self, subtitle_path):
-        """Remove HTML/font tags from subtitle file.
+        r"""Remove HTML/font tags and fix ASS format issues from subtitle file.
         
         Many subtitle tracks contain HTML formatting tags like <font>, <b>, <i>
         which cause issues when displayed in Gtk labels expecting Pango markup.
         This function strips those tags while preserving the text content.
+        
+        Also handles ASS format conversion issues where newlines are represented
+        as literal \N strings instead of actual newlines.
         """
         import re
         
@@ -1156,11 +1162,42 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             content = re.sub(r'<u>', '', content)
             content = re.sub(r'</u>', '', content)
             
+            # Fix ASS format newlines: backslash-N should be actual newlines in SRT
+            content = content.replace(r'\N', '\n')
+            
+            # Remove ASS drawing commands and other special codes
+            # Curly braces with backslash - ASS style overrides
+            content = re.sub(r'\{\\[^}]*\}', '', content)
+            
+            # Fix lines that have only one word (likely formatting issue)
+            # This can happen with ASS subtitles that use special positioning
+            # We'll try to merge lines that seem too short
+            lines = content.split('\n')
+            fixed_lines = []
+            i = 0
+            while i < len(lines):
+                line = lines[i]
+                # If line is a subtitle text line (not number, not timestamp, not empty)
+                if line.strip() and not line.strip().isdigit() and '-->' not in line:
+                    # Check if it's suspiciously short (single word)
+                    if len(line.strip().split()) == 1 and i + 1 < len(lines):
+                        # Look ahead to see if next line is also short text
+                        next_line = lines[i + 1]
+                        if next_line.strip() and not next_line.strip().isdigit() and '-->' not in next_line:
+                            # Merge with next line
+                            fixed_lines.append(line.rstrip() + ' ' + next_line.lstrip())
+                            i += 2
+                            continue
+                fixed_lines.append(line)
+                i += 1
+            
+            content = '\n'.join(fixed_lines)
+            
             # Write cleaned content back
             with open(subtitle_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            print(f"[Subtitle Clean] Removed HTML tags from {subtitle_path}")
+            print(f"[Subtitle Clean] Cleaned and fixed formatting in {subtitle_path}")
         except Exception as e:
             print(f"[Subtitle Clean] Error: {e}")
             raise

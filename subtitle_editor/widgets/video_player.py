@@ -1160,11 +1160,13 @@ class VideoPlayerWidget(Gtk.Box):
         try:
             # ffmpeg command to extract subtitle track
             # -map 0:s:track_index selects the subtitle track
+            # For ASS/SSA subtitles, we need special handling to preserve formatting
             cmd = [
                 'ffmpeg',
                 '-i', video_path,
                 '-map', f'0:s:{track_index}',
                 '-c:s', 'srt',  # Convert to SRT format
+                '-f', 'srt',     # Force SRT output format
                 '-y',  # Overwrite output
                 output_path
             ]

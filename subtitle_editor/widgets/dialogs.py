@@ -975,7 +975,10 @@ class TrackSelectionDialog(Adw.Window):
         self.audio_check_group = []
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
-            row.set_title(track.get('title', f"Track {track['index'] + 1}"))
+            # Escape ampersands in title to prevent markup parsing errors
+            title = track.get('title', f"Track {track['index'] + 1}")
+            title = title.replace('&', '&amp;')
+            row.set_title(title)
             
             # Build subtitle with language and codec info
             subtitle_parts = []
@@ -1022,7 +1025,10 @@ class TrackSelectionDialog(Adw.Window):
         # Create radio buttons for subtitle tracks
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
-            row.set_title(track.get('title', f"Track {track['index'] + 1}"))
+            # Escape ampersands in title to prevent markup parsing errors
+            title = track.get('title', f"Track {track['index'] + 1}")
+            title = title.replace('&', '&amp;')
+            row.set_title(title)
             
             # Build subtitle with language and codec info
             subtitle_parts = []
