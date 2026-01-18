@@ -933,9 +933,12 @@ class TrackSelectionDialog(Adw.Window):
         self.selected_audio = current_audio
         self.selected_subtitle = current_subtitle
         
-        # Main content
+        # Main content - AdwWindow uses AdwToolbarView for header
+        toolbar_view = Adw.ToolbarView()
+        self.set_content(toolbar_view)
+        
         header = Adw.HeaderBar()
-        self.set_titlebar(header)
+        toolbar_view.add_top_bar(header)
         
         # Cancel button
         cancel_button = Gtk.Button(label="Cancel")
@@ -950,7 +953,7 @@ class TrackSelectionDialog(Adw.Window):
         
         # Content box
         content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.set_content(content_box)
+        toolbar_view.set_content(content_box)
         
         # Scrolled window
         scrolled = Gtk.ScrolledWindow()
