@@ -331,6 +331,9 @@ class VideoPlayerWidget(Gtk.Box):
         self._video_width = 0
         self._video_height = 0
         
+        # Load subtitle scale preference
+        saved_scale = self._load_subtitle_scale_preference()
+        
         # Track management
         self._audio_tracks = []
         self._subtitle_tracks = []
@@ -437,6 +440,9 @@ class VideoPlayerWidget(Gtk.Box):
 
         # Update timer - use 250ms for better performance
         GLib.timeout_add(250, self._update_position)
+        
+        # Set up keyboard shortcuts for subtitle size
+        self._setup_key_controller()
 
     def _build_controls(self):
         """Build compact video control bar with timeline and controls on same level."""
@@ -524,11 +530,11 @@ class VideoPlayerWidget(Gtk.Box):
         scale_label.add_css_class("heading")
         popover_box.append(scale_label)
         
-        # Scale slider (0.1 to 1.5, default 0.75)
+        # Scale slider (0.1 to 1.5, default from preferences)
         scale_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.subtitle_scale_slider = Gtk.Scale()
         self.subtitle_scale_slider.set_range(0.1, 1.5)
-        self.subtitle_scale_slider.set_value(0.75)
+        self.subtitle_scale_slider.set_value(saved_scale)
         self.subtitle_scale_slider.set_draw_value(True)
         self.subtitle_scale_slider.set_value_pos(Gtk.PositionType.RIGHT)
         self.subtitle_scale_slider.set_digits(2)
@@ -860,6 +866,89 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_renderer.subtitle_scale = value
         # Force redraw of current subtitle
         self.subtitle_drawing_area.queue_draw()
+        # Save preference
+        self._save_subtitle_scale_preference(value)
+        print(f"[Subtitle Scale] Changed to {value:.2f}")
+    
+    def _setup_key_controller(self):
+        """Set up keyboard shortcuts for subtitle size control."""
+        key_controller = Gtk.EventControllerKey()
+        key_controller.connect('key-pressed', self._on_key_pressed)
+        self.add_controller(key_controller)
+    
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle keyboard shortcuts."""
+        # Check for + or = key (increase subtitle size)
+        if keyval in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
+            current = self.subtitle_scale_slider.get_value()
+            new_value = min(current + 0.05, 1.5)
+            self.subtitle_scale_slider.set_value(new_value)
+            return True
+        
+        # Check for - key (decrease subtitle size)
+        elif keyval in (Gdk.KEY_minus, Gdk.KEY_KP_Subtract):
+            current = self.subtitle_scale_slider.get_value()
+            new_value = max(current - 0.05, 0.5)
+            self.subtitle_scale_slider.set_value(new_value)
+            return True
+        
+        # Check for 0 key (reset to default)
+        elif keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
+            self.subtitle_scale_slider.set_value(0.75)
+            return True
+        
+        return False
+    
+    def _load_subtitle_scale_preference(self):
+        """Load subtitle scale preference from config file."""
+        try:
+            import os
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    for line in f:
+                        if line.startswith("subtitle_scale="):
+                            value = float(line.split("=")[1].strip())
+                            # Clamp to valid range
+                            return max(0.5, min(1.5, value))
+        except Exception as e:
+            print(f"[Preferences] Could not load subtitle scale: {e}")
+        
+        # Return default if loading fails
+        return 0.75
+    
+    def _save_subtitle_scale_preference(self, value: float):
+        """Save subtitle scale preference to config file."""
+        try:
+            import os
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            
+            # Create config directory if it doesn't exist
+            os.makedirs(config_dir, exist_ok=True)
+            
+            # Read existing preferences
+            prefs = {}
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    for line in f:
+                        if '=' in line:
+                            key, val = line.strip().split('=', 1)
+                            prefs[key] = val
+            
+            # Update subtitle scale
+            prefs['subtitle_scale'] = f"{value:.2f}"
+            
+            # Write back
+            with open(config_file, 'w') as f:
+                for key, val in prefs.items():
+                    f.write(f"{key}={val}\n")
+            
+            print(f"[Preferences] Saved subtitle_scale={value:.2f}")
+        except Exception as e:
+            print(f"[Preferences] Could not save subtitle scale: {e}")
 
     def _on_gst_message(self, bus, message):
         """Handle GStreamer bus messages."""
