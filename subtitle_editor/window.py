@@ -1099,9 +1099,17 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             if success:
                 # Clean up HTML tags from the extracted subtitle file
                 try:
-                    self._clean_subtitle_html(temp_path)
+                    # Use the MediaExtractor's clean method if available
+                    if hasattr(self.video_player, 'media_extractor') and self.video_player.media_extractor:
+                        self.video_player.media_extractor.clean_subtitle_file(temp_path)
+                    else:
+                        self._clean_subtitle_html(temp_path)
                 except Exception as e:
                     print(f"[Subtitle Clean] Warning: Failed to clean HTML: {e}")
+                
+                # IMPORTANT: Disable embedded subtitle track before loading external file
+                # This prevents double subtitles (embedded + external)
+                self.video_player.set_subtitle_track(-1)
                 
                 # Load the extracted subtitle file
                 try:
@@ -1133,7 +1141,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Handle subtitle extraction response (from manual track selection)."""
         if response == "extract":
             self._extract_and_load_subtitle(subtitle_track)
-        # else: view only - subtitles already enabled in video player
+        # else: view only - embedded subtitles remain enabled in video player
     
     def _clean_subtitle_html(self, subtitle_path):
         r"""Remove HTML/font tags and fix ASS format issues from subtitle file.
