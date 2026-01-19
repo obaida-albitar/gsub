@@ -331,9 +331,6 @@ class VideoPlayerWidget(Gtk.Box):
         self._video_width = 0
         self._video_height = 0
         
-        # Load subtitle scale preference
-        saved_scale = self._load_subtitle_scale_preference()
-        
         # Track management
         self._audio_tracks = []
         self._subtitle_tracks = []
@@ -534,7 +531,11 @@ class VideoPlayerWidget(Gtk.Box):
         scale_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.subtitle_scale_slider = Gtk.Scale()
         self.subtitle_scale_slider.set_range(0.1, 1.5)
+        # Load and set saved scale preference
+        saved_scale = self._load_subtitle_scale_preference()
         self.subtitle_scale_slider.set_value(saved_scale)
+        # Also set it in the renderer
+        self.subtitle_renderer.subtitle_scale = saved_scale
         self.subtitle_scale_slider.set_draw_value(True)
         self.subtitle_scale_slider.set_value_pos(Gtk.PositionType.RIGHT)
         self.subtitle_scale_slider.set_digits(2)
