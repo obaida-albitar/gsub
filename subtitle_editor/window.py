@@ -338,7 +338,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     
     def _show_toast(self, message: str):
         """Show a toast notification."""
-        toast = Adw.Toast.new(message)
+        # Escape any special characters for Pango markup (especially & which appears in filenames)
+        import html
+        safe_message = html.escape(message)
+        toast = Adw.Toast.new(safe_message)
         toast.set_timeout(2)
         self.toast_overlay.add_toast(toast)
     
@@ -1090,9 +1093,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         temp_fd, temp_path = tempfile.mkstemp(suffix='.srt', prefix=f'subtitle_{language}_')
         os.close(temp_fd)
         
-        # Show progress toast (escape ampersands for markup)
-        safe_track_name = track_name.replace('&', '&amp;')
-        self._show_toast(f"Extracting '{safe_track_name}'...")
+        # Show progress toast
+        self._show_toast(f"Extracting '{track_name}'...")
         
         # Extract subtitle
         def on_extract_complete(success, error_msg):

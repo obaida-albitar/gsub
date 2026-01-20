@@ -68,12 +68,16 @@ class SubtitleRenderer:
         if not text:
             return
 
+        print(f"[Render] Display: {width}x{height}, Video: {video_width}x{video_height}, Style: {style_name}")
+
         # Get style from document
         style = None
         if self.document and style_name:
             style = self.document.get_style_by_name(style_name)
         if not style and self.document and self.document.styles:
             style = self.document.styles[0]  # Default to first style
+        
+        print(f"[Render] Style found: {style is not None}, Document format: {self.document.format if self.document else None}")
 
         # Get PlayResY from document metadata (ASS reference resolution)
         play_res_y = None
@@ -138,7 +142,8 @@ class SubtitleRenderer:
             else:  # Center (2, 5, 8)
                 layout.set_alignment(Pango.Alignment.CENTER)
         else:
-            # For non-ASS (e.g., SRT), use 90% width constraint
+            # For non-ASS (e.g., SRT), constrain width for wrapping but use CENTER alignment
+            # This lets Pango handle centering internally, avoiding positioning issues
             layout.set_width(int(width * 0.9 * Pango.SCALE))
             layout.set_alignment(Pango.Alignment.CENTER)
         
@@ -149,15 +154,22 @@ class SubtitleRenderer:
         text_width = logical_rect.width
         text_height = logical_rect.height
 
+        print(f"[Render] Text size: {text_width}x{text_height}")
+
         # Calculate position based on alignment
         if style:
             x, y = self._calculate_position(
                 style, width, height, text_width, text_height, entry
             )
+            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Alignment: {style.alignment}, Margins: L={style.margin_l} R={style.margin_r} V={style.margin_v}")
         else:
             # Default: bottom center
-            x = (width - text_width) / 2
+            # For SRT, we set layout width to 90% and Pango.Alignment.CENTER
+            # So Pango centers the text within that layout
+            # Position the layout itself in the center with 5% margins on sides
+            x = width * 0.05  # 5% margin from left
             y = height - text_height - (height * 0.05)  # 5% margin from bottom
+            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Default bottom-center (no style)")
 
         # Draw background/shadow if needed
         if style and style.shadow > 0:
@@ -345,10 +357,12 @@ class VideoPlayerWidget(Gtk.Box):
             self._show_error_state()
             return
 
-        # Disable built-in subtitles
-        self.player.set_property(
-            "flags", self.player.get_property("flags") & ~0x00000004
-        )
+        # Disable built-in subtitles (TEXT flag = 0x00000004)
+        # We always use our custom SubtitleRenderer instead of GStreamer's built-in rendering
+        flags = self.player.get_property("flags")
+        flags &= ~0x00000004  # Clear TEXT flag
+        self.player.set_property("flags", flags)
+        print("[Init] Disabled GStreamer built-in subtitle rendering, using SubtitleRenderer only")
 
         # Setup video sink for GTK4 with hardware acceleration
         self.gtksink = Gst.ElementFactory.make("gtk4paintablesink", "sink")
@@ -381,11 +395,9 @@ class VideoPlayerWidget(Gtk.Box):
                     video_bin.add_pad(ghost_pad)
 
                     self.player.set_property("video-sink", video_bin)
-                    print("Using hardware-accelerated video pipeline")
                 else:
                     # Fallback to software rendering
                     self.player.set_property("video-sink", self.gtksink)
-                    print("Using software video rendering")
             except Exception as e:
                 print(f"Could not setup hardware acceleration: {e}")
                 self.player.set_property("video-sink", self.gtksink)
@@ -585,9 +597,10 @@ class VideoPlayerWidget(Gtk.Box):
         self.player.set_state(Gst.State.NULL)
         self.player.set_property("uri", self.video_uri)
         
-        # Enable text/subtitle support in playbin
+        # Keep TEXT flag disabled - we only use SubtitleRenderer
+        # GStreamer's built-in subtitle rendering is never used
         flags = self.player.get_property("flags")
-        flags |= 0x00000004  # Enable TEXT flag
+        flags &= ~0x00000004  # Keep TEXT flag disabled
         self.player.set_property("flags", flags)
         
         self.player.set_state(Gst.State.PAUSED)
@@ -653,14 +666,25 @@ class VideoPlayerWidget(Gtk.Box):
     def skip(self, offset_ms: int):
         """Skip forward or backward by offset in milliseconds."""
         if not self.player:
+            print(f"[Skip] Error: No player available")
             return
 
         success, position = self.player.query_position(Gst.Format.TIME)
         if success:
-            new_pos = max(0, position + (offset_ms * Gst.MSECOND))
-            self.player.seek_simple(
-                Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.KEY_UNIT, new_pos
+            # Convert milliseconds to nanoseconds (Gst.SECOND = 1 second in nanoseconds)
+            # offset_ms is in milliseconds, so divide by 1000 to get seconds
+            new_pos = max(0, position + (offset_ms * Gst.SECOND // 1000))
+            print(f"[Skip] Offset: {offset_ms}ms, Current: {position/Gst.SECOND:.2f}s, New: {new_pos/Gst.SECOND:.2f}s")
+            # Use ACCURATE flag for precise seeking, not KEY_UNIT which only seeks to keyframes
+            result = self.player.seek_simple(
+                Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE, new_pos
             )
+            print(f"[Skip] Seek result: {result}")
+            
+            # Update subtitle immediately after seek
+            GLib.idle_add(lambda: self._update_current_subtitle(new_pos / Gst.SECOND))
+        else:
+            print(f"[Skip] Error: Could not query position")
 
     def get_position(self) -> float:
         """Get current playback position in seconds."""
@@ -694,6 +718,7 @@ class VideoPlayerWidget(Gtk.Box):
         # Don't show external subtitles if embedded subtitles are active
         if self._embedded_subtitle_active:
             if self.current_subtitle is not None:
+                print(f"[Subtitle] Hiding external subtitle (embedded active)")
                 self.current_subtitle = None
                 self.subtitle_drawing_area.queue_draw()
             return
@@ -720,6 +745,8 @@ class VideoPlayerWidget(Gtk.Box):
         # Update only if changed
         if new_subtitle != self.current_subtitle:
             self.current_subtitle = new_subtitle
+            if new_subtitle:
+                print(f"[Subtitle] Showing external subtitle at {position_sec:.2f}s")
             self.subtitle_drawing_area.queue_draw()
 
     def _find_subtitle_at_position(self, position_ms: float):
@@ -776,15 +803,6 @@ class VideoPlayerWidget(Gtk.Box):
         video_width = self._video_width if self._video_width > 0 else width
         video_height = self._video_height if self._video_height > 0 else height
 
-        # Debug: Log dimensions once per subtitle change
-        if not hasattr(
-            self, "_last_logged_subtitle"
-        ) or self._last_logged_subtitle != id(self.current_subtitle):
-            print(
-                f"[Video Display] Widget size: {width}x{height}, "
-                f"Video resolution: {self._video_width}x{self._video_height}"
-            )
-            self._last_logged_subtitle = id(self.current_subtitle)
 
         # Calculate the actual video display area (respecting aspect ratio)
         if self._video_width > 0 and self._video_height > 0:
@@ -869,7 +887,6 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_drawing_area.queue_draw()
         # Save preference
         self._save_subtitle_scale_preference(value)
-        print(f"[Subtitle Scale] Changed to {value:.2f}")
     
     def _setup_key_controller(self):
         """Set up keyboard shortcuts for subtitle size control."""
@@ -946,10 +963,8 @@ class VideoPlayerWidget(Gtk.Box):
             with open(config_file, 'w') as f:
                 for key, val in prefs.items():
                     f.write(f"{key}={val}\n")
-            
-            print(f"[Preferences] Saved subtitle_scale={value:.2f}")
         except Exception as e:
-            print(f"[Preferences] Could not save subtitle scale: {e}")
+            print(f"[Preferences] Error saving subtitle scale: {e}")
 
     def _on_gst_message(self, bus, message):
         """Handle GStreamer bus messages."""
@@ -994,9 +1009,6 @@ class VideoPlayerWidget(Gtk.Box):
                         if success and success2:
                             self._video_width = width
                             self._video_height = height
-                            print(
-                                f"[Video Dimensions] Detected from stream: {width}x{height}"
-                            )
                             return
         except Exception as e:
             print(f"Error querying video dimensions: {e}")
@@ -1011,9 +1023,6 @@ class VideoPlayerWidget(Gtk.Box):
                     if width > 0 and height > 0:
                         self._video_width = width
                         self._video_height = height
-                        print(
-                            f"[Video Dimensions] Detected from paintable: {width}x{height}"
-                        )
             except Exception as e:
                 print(f"Error getting dimensions from paintable: {e}")
     
@@ -1026,8 +1035,6 @@ class VideoPlayerWidget(Gtk.Box):
         n_audio = self.player.get_property("n-audio")
         n_text = self.player.get_property("n-text")
         
-        print(f"[Track Detection] Found {n_audio} audio tracks, {n_text} subtitle tracks")
-        
         if n_audio == 0 and n_text == 0:
             return True  # Try again
         
@@ -1036,20 +1043,18 @@ class VideoPlayerWidget(Gtk.Box):
         for i in range(n_audio):
             track_info = self._get_audio_track_info(i)
             self._audio_tracks.append(track_info)
-            print(f"[Audio Track {i}] {track_info}")
         
         # Get subtitle tracks
         self._subtitle_tracks = []
         for i in range(n_text):
             track_info = self._get_subtitle_track_info(i)
             self._subtitle_tracks.append(track_info)
-            print(f"[Subtitle Track {i}] {track_info}")
         
         # Get current tracks
         self._current_audio_track = self.player.get_property("current-audio")
         self._current_subtitle_track = self.player.get_property("current-text")
         
-        print(f"[Track Detection] Current audio: {self._current_audio_track}, subtitle: {self._current_subtitle_track}")
+        print(f"[Tracks] Detected {n_audio} audio, {n_text} subtitle tracks")
         
         return False  # Stop timeout
     
@@ -1126,7 +1131,6 @@ class VideoPlayerWidget(Gtk.Box):
         if not self.player:
             return
         
-        print(f"[Track Switch] Setting audio track to {track_index}")
         self.player.set_property("current-audio", track_index)
         self._current_audio_track = track_index
     
@@ -1135,26 +1139,26 @@ class VideoPlayerWidget(Gtk.Box):
         
         Args:
             track_index: Index of subtitle track to select (-1 to disable)
+            
+        Note: GStreamer built-in rendering is NEVER used. We always use SubtitleRenderer.
+        This method only tracks which subtitle is selected for extraction purposes.
         """
         if not self.player:
             return
         
-        print(f"[Track Switch] Setting subtitle track to {track_index}")
+        print(f"[Subtitle Track] Track selection: {track_index} (was {self._current_subtitle_track})")
         
-        if track_index >= 0:
-            # Enable embedded subtitles
-            self.player.set_property("current-text", track_index)
-            self._current_subtitle_track = track_index
-            self._embedded_subtitle_active = True
-            
-            # Disable our custom subtitle rendering when using embedded
-            self.current_subtitle = None
-            self.subtitle_drawing_area.queue_draw()
-        else:
-            # Disable embedded subtitles
-            self.player.set_property("current-text", -1)
-            self._current_subtitle_track = -1
-            self._embedded_subtitle_active = False
+        # Always keep TEXT flag disabled - we never use GStreamer's rendering
+        flags = self.player.get_property("flags")
+        flags &= ~0x00000004  # TEXT flag always off
+        self.player.set_property("flags", flags)
+        
+        # Just track the selection, don't enable rendering
+        self.player.set_property("current-text", -1)  # Always -1
+        self._current_subtitle_track = track_index
+        self._embedded_subtitle_active = False  # Never use embedded rendering
+        
+        print(f"[Subtitle Track] GStreamer rendering disabled, SubtitleRenderer active")
     
     def has_embedded_tracks(self):
         """Check if video has embedded audio or subtitle tracks.
@@ -1209,7 +1213,6 @@ class VideoPlayerWidget(Gtk.Box):
             else:
                 video_path = self.video_uri
             
-            print(f"[Subtitle Extract] Extracting track {track_index} to {output_path}")
             
             # Create extraction pipeline
             # We use decodebin and connect to the text pad for the specific track
@@ -1261,7 +1264,6 @@ class VideoPlayerWidget(Gtk.Box):
                 output_path
             ]
             
-            print(f"[Subtitle Extract] Running: {' '.join(cmd)}")
             
             result = subprocess.run(
                 cmd,
@@ -1271,19 +1273,18 @@ class VideoPlayerWidget(Gtk.Box):
             )
             
             if result.returncode == 0:
-                print(f"[Subtitle Extract] Success: {output_path}")
                 return True
             else:
                 error = result.stderr.decode('utf-8', errors='ignore')
-                print(f"[Subtitle Extract] Failed: {error}")
+                print(f"[Extract] Failed: {error}")
                 return False
                 
         except FileNotFoundError:
-            print("[Subtitle Extract] ffmpeg not found. Please install ffmpeg.")
+            print("[Extract] ffmpeg not found. Please install ffmpeg.")
             return False
         except subprocess.TimeoutExpired:
-            print("[Subtitle Extract] Extraction timeout")
+            print("[Extract] Timeout extracting subtitle")
             return False
         except Exception as e:
-            print(f"[Subtitle Extract] Error: {e}")
+            print(f"[Extract] Error: {e}")
             return False

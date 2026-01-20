@@ -975,24 +975,38 @@ class TrackSelectionDialog(Adw.Window):
         self.audio_check_group = []
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
+            
+            # Handle both TrackInfo objects and dict format
+            if hasattr(track, 'to_dict'):
+                # TrackInfo object from refactored code
+                track_index = track.index
+                track_title = track.title or f"Track {track_index + 1}"
+                track_language = track.language
+                track_codec = track.codec
+            else:
+                # Dict format from old code
+                track_index = track.get('index', 0)
+                track_title = track.get('title', f"Track {track_index + 1}")
+                track_language = track.get('language')
+                track_codec = track.get('codec')
+            
             # Escape ampersands in title to prevent markup parsing errors
-            title = track.get('title', f"Track {track['index'] + 1}")
-            title = title.replace('&', '&amp;')
+            title = track_title.replace('&', '&amp;')
             row.set_title(title)
             
             # Build subtitle with language and codec info
             subtitle_parts = []
-            if track.get('language'):
-                subtitle_parts.append(track['language'])
-            if track.get('codec'):
-                subtitle_parts.append(track['codec'])
+            if track_language:
+                subtitle_parts.append(track_language)
+            if track_codec:
+                subtitle_parts.append(track_codec)
             if subtitle_parts:
                 row.set_subtitle(", ".join(subtitle_parts))
             
             # Radio button
             check = Gtk.CheckButton()
-            check.set_active(track['index'] == current_audio)
-            check.connect("toggled", self._on_audio_track_selected, track['index'])
+            check.set_active(track_index == current_audio)
+            check.connect("toggled", self._on_audio_track_selected, track_index)
             
             # Group radio buttons
             if self.audio_check_group:
@@ -1025,24 +1039,38 @@ class TrackSelectionDialog(Adw.Window):
         # Create radio buttons for subtitle tracks
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
+            
+            # Handle both TrackInfo objects and dict format
+            if hasattr(track, 'to_dict'):
+                # TrackInfo object from refactored code
+                track_index = track.index
+                track_title = track.title or f"Track {track_index + 1}"
+                track_language = track.language
+                track_codec = track.codec
+            else:
+                # Dict format from old code
+                track_index = track.get('index', 0)
+                track_title = track.get('title', f"Track {track_index + 1}")
+                track_language = track.get('language')
+                track_codec = track.get('codec')
+            
             # Escape ampersands in title to prevent markup parsing errors
-            title = track.get('title', f"Track {track['index'] + 1}")
-            title = title.replace('&', '&amp;')
+            title = track_title.replace('&', '&amp;')
             row.set_title(title)
             
             # Build subtitle with language and codec info
             subtitle_parts = []
-            if track.get('language'):
-                subtitle_parts.append(track['language'])
-            if track.get('codec'):
-                subtitle_parts.append(track['codec'])
+            if track_language:
+                subtitle_parts.append(track_language)
+            if track_codec:
+                subtitle_parts.append(track_codec)
             if subtitle_parts:
                 row.set_subtitle(", ".join(subtitle_parts))
             
             # Radio button
             check = Gtk.CheckButton()
-            check.set_active(track['index'] == current_subtitle)
-            check.connect("toggled", self._on_subtitle_track_selected, track['index'])
+            check.set_active(track_index == current_subtitle)
+            check.connect("toggled", self._on_subtitle_track_selected, track_index)
             check.set_group(none_check)
             self.subtitle_check_group.append(check)
             
