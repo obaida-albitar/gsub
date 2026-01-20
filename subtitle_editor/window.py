@@ -1061,7 +1061,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             # Multiple audio tracks but no subtitles - show track selection
             self._show_track_selection_dialog()
         else:
-            logger.debug(No tracks to select, skipping dialog)
+            logger.debug("No tracks to select, skipping dialog")
         
         return False  # Stop timeout
     
