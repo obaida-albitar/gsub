@@ -532,3 +532,252 @@ class TestSubtitleDocument:
         
         assert doc.get_style_by_name("NewFallback") is not None
         assert doc.entries[0].style == "NewFallback"
+
+
+class TestAegisubGarbage:
+    """Test Aegisub project garbage methods."""
+    
+    def test_set_aegisub_garbage(self):
+        """Test setting aegisub garbage data."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.set_aegisub_garbage("key1", "value1")
+        
+        assert "key1" in doc.aegisub_project_garbage
+        assert doc.aegisub_project_garbage["key1"] == "value1"
+        assert doc.modified is True
+    
+    def test_set_aegisub_garbage_none_key_raises(self):
+        """Test that None key raises ValueError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        with pytest.raises(ValueError, match="aegisub key must not be None"):
+            doc.set_aegisub_garbage(None, "value")
+    
+    def test_set_aegisub_garbage_empty_key_raises(self):
+        """Test that empty key raises ValueError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        with pytest.raises(ValueError, match="aegisub key must not be empty"):
+            doc.set_aegisub_garbage("", "value")
+        
+        with pytest.raises(ValueError, match="aegisub key must not be empty"):
+            doc.set_aegisub_garbage("   ", "value")
+    
+    def test_set_aegisub_garbage_none_value(self):
+        """Test that None value is converted to empty string."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.set_aegisub_garbage("key1", None)
+        
+        assert doc.aegisub_project_garbage["key1"] == ""
+    
+    def test_remove_aegisub_garbage(self):
+        """Test removing aegisub garbage data."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.set_aegisub_garbage("key1", "value1")
+        doc.modified = False
+        
+        doc.remove_aegisub_garbage("key1")
+        
+        assert "key1" not in doc.aegisub_project_garbage
+        assert doc.modified is True
+    
+    def test_remove_aegisub_garbage_nonexistent(self):
+        """Test removing non-existent key doesn't raise error."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.modified = False
+        
+        # Should not raise
+        doc.remove_aegisub_garbage("nonexistent")
+        
+        # Modified should remain False since nothing was changed
+        assert doc.modified is False
+
+
+class TestStyleRename:
+    """Test style renaming functionality."""
+    
+    def test_rename_style_basic(self):
+        """Test basic style renaming."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        style = ASSStyle(name="OldName", fontname="Arial", fontsize=20)
+        doc.styles.append(style)
+        
+        entry = SubtitleEntry(
+            index=1,
+            start_time=TimeCode(0, 0, 1, 0),
+            end_time=TimeCode(0, 0, 3, 0),
+            text="Test",
+            style="OldName"
+        )
+        doc.entries.append(entry)
+        
+        doc.rename_style("OldName", "NewName")
+        
+        assert style.name == "NewName"
+        assert entry.style == "NewName"
+        assert doc.modified is True
+    
+    def test_rename_style_same_name_does_nothing(self):
+        """Test that renaming to same name does nothing."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        style = ASSStyle(name="SameName", fontname="Arial", fontsize=20)
+        doc.styles.append(style)
+        
+        doc.modified = False
+        doc.rename_style("SameName", "SameName")
+        
+        # Should not modify document
+        assert doc.modified is False
+    
+    def test_rename_style_empty_names_raise(self):
+        """Test that empty names raise ValueError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        with pytest.raises(ValueError, match="style names must not be empty"):
+            doc.rename_style("", "NewName")
+        
+        with pytest.raises(ValueError, match="style names must not be empty"):
+            doc.rename_style("OldName", "")
+        
+        with pytest.raises(ValueError, match="style names must not be empty"):
+            doc.rename_style(None, "NewName")
+    
+    def test_rename_style_duplicate_name_raises(self):
+        """Test that renaming to existing name raises ValueError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.styles.append(ASSStyle(name="Style1", fontname="Arial", fontsize=20))
+        doc.styles.append(ASSStyle(name="Style2", fontname="Arial", fontsize=20))
+        
+        with pytest.raises(ValueError, match="style 'Style2' already exists"):
+            doc.rename_style("Style1", "Style2")
+    
+    def test_rename_style_not_found_raises(self):
+        """Test that renaming non-existent style raises KeyError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        with pytest.raises(KeyError, match="style 'NonExistent' not found"):
+            doc.rename_style("NonExistent", "NewName")
+    
+    def test_rename_style_updates_all_entries(self):
+        """Test that all entries using style are updated."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        style = ASSStyle(name="OldStyle", fontname="Arial", fontsize=20)
+        doc.styles.append(style)
+        
+        # Add multiple entries with same style
+        for i in range(5):
+            entry = SubtitleEntry(
+                index=i + 1,
+                start_time=TimeCode(0, 0, i, 0),
+                end_time=TimeCode(0, 0, i + 1, 0),
+                text=f"Text {i}",
+                style="OldStyle"
+            )
+            doc.entries.append(entry)
+        
+        doc.rename_style("OldStyle", "NewStyle")
+        
+        # All entries should be updated
+        for entry in doc.entries:
+            assert entry.style == "NewStyle"
+
+
+class TestStyleRemoval:
+    """Test style removal functionality."""
+    
+    def test_remove_style_basic(self):
+        """Test basic style removal."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.styles.append(ASSStyle(name="Default", fontname="Arial", fontsize=20))
+        doc.styles.append(ASSStyle(name="ToRemove", fontname="Arial", fontsize=20))
+        
+        removed = doc.remove_style("ToRemove")
+        
+        assert removed is not None
+        assert removed.name == "ToRemove"
+        assert doc.get_style_by_name("ToRemove") is None
+        assert doc.modified is True
+    
+    def test_remove_style_empty_name_raises(self):
+        """Test that empty name raises ValueError."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        with pytest.raises(ValueError, match="style name must not be empty"):
+            doc.remove_style("")
+        
+        with pytest.raises(ValueError, match="style name must not be empty"):
+            doc.remove_style(None)
+    
+    def test_remove_style_not_found_returns_none(self):
+        """Test that removing non-existent style returns None."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        
+        removed = doc.remove_style("NonExistent")
+        
+        assert removed is None
+    
+    def test_remove_style_creates_fallback_if_missing(self):
+        """Test that fallback style is created if it doesn't exist."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.styles.append(ASSStyle(name="ToRemove", fontname="Arial", fontsize=20))
+        
+        entry = SubtitleEntry(
+            index=1,
+            start_time=TimeCode(0, 0, 1, 0),
+            end_time=TimeCode(0, 0, 3, 0),
+            text="Test",
+            style="ToRemove"
+        )
+        doc.entries.append(entry)
+        
+        # Remove with fallback that doesn't exist
+        doc.remove_style("ToRemove", fallback="NewDefault")
+        
+        # Fallback should be created
+        assert doc.get_style_by_name("NewDefault") is not None
+        assert entry.style == "NewDefault"
+    
+    def test_remove_style_keeps_at_least_one(self):
+        """Test that at least one style is always kept."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.styles.append(ASSStyle(name="OnlyStyle", fontname="Arial", fontsize=20))
+        
+        doc.remove_style("OnlyStyle", fallback="")
+        
+        # Should still have one style
+        assert len(doc.styles) == 1
+    
+    def test_remove_style_updates_entries_to_fallback(self):
+        """Test that entries are updated to use fallback style."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        doc.styles.append(ASSStyle(name="Default", fontname="Arial", fontsize=20))
+        doc.styles.append(ASSStyle(name="ToRemove", fontname="Arial", fontsize=20))
+        
+        # Add entries with the style to be removed
+        for i in range(3):
+            entry = SubtitleEntry(
+                index=i + 1,
+                start_time=TimeCode(0, 0, i, 0),
+                end_time=TimeCode(0, 0, i + 1, 0),
+                text=f"Text {i}",
+                style="ToRemove"
+            )
+            doc.entries.append(entry)
+        
+        doc.remove_style("ToRemove", fallback="Default")
+        
+        # All entries should now use Default
+        for entry in doc.entries:
+            assert entry.style == "Default"
+    
+    def test_remove_style_returns_deep_copy(self):
+        """Test that removed style is a deep copy."""
+        doc = SubtitleDocument(format=SubtitleFormat.ASS)
+        original_style = ASSStyle(name="ToRemove", fontname="Arial", fontsize=20)
+        doc.styles.append(original_style)
+        
+        removed = doc.remove_style("ToRemove")
+        
+        # Modifying removed should not affect original
+        removed.fontsize = 100
+        assert original_style.fontsize == 20
