@@ -9,6 +9,9 @@ gi.require_version('Gst', '1.0')
 from gi.repository import Gst
 from typing import List, Dict, Optional, Tuple
 from dataclasses import dataclass
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -71,7 +74,7 @@ class TrackManager:
         n_audio = self.player.get_property("n-audio")
         n_text = self.player.get_property("n-text")
         
-        print(f"[TrackManager] Found {n_audio} audio tracks, {n_text} subtitle tracks")
+        logger.info(f"Found {n_audio} audio tracks, {n_text} subtitle tracks")
         
         if n_audio == 0 and n_text == 0:
             return False  # No tracks found yet, retry
@@ -81,20 +84,20 @@ class TrackManager:
         for i in range(n_audio):
             track_info = self._get_audio_track_info(i)
             self._audio_tracks.append(track_info)
-            print(f"[TrackManager] Audio: {track_info}")
+            logger.info(f"Audio: {track_info}")
         
         # Get subtitle tracks
         self._subtitle_tracks = []
         for i in range(n_text):
             track_info = self._get_subtitle_track_info(i)
             self._subtitle_tracks.append(track_info)
-            print(f"[TrackManager] Subtitle: {track_info}")
+            logger.info(f"Subtitle: {track_info}")
         
         # Get current tracks
         self._current_audio_track = self.player.get_property("current-audio")
         self._current_subtitle_track = self.player.get_property("current-text")
         
-        print(f"[TrackManager] Current audio: {self._current_audio_track}, "
+        logger.info(f"Current audio: {self._current_audio_track}, "
               f"subtitle: {self._current_subtitle_track}")
         
         return True
@@ -130,7 +133,7 @@ class TrackManager:
                 if success:
                     track_info.codec = codec
         except Exception as e:
-            print(f"[TrackManager] Error getting audio track {index} info: {e}")
+            logger.info(f"Error getting audio track {index} info: {e}")
         
         return track_info
     
@@ -167,7 +170,7 @@ class TrackManager:
                 if success:
                     track_info.codec = codec
         except Exception as e:
-            print(f"[TrackManager] Error getting subtitle track {index} info: {e}")
+            logger.info(f"Error getting subtitle track {index} info: {e}")
         
         return track_info
     
@@ -221,10 +224,10 @@ class TrackManager:
             return False
         
         if track_index >= len(self._audio_tracks) and track_index != -1:
-            print(f"[TrackManager] Invalid audio track index: {track_index}")
+            logger.info(f"Invalid audio track index: {track_index}")
             return False
         
-        print(f"[TrackManager] Setting audio track to {track_index}")
+        logger.info(f"Setting audio track to {track_index}")
         self.player.set_property("current-audio", track_index)
         self._current_audio_track = track_index
         return True
@@ -243,10 +246,10 @@ class TrackManager:
             return False
         
         if track_index >= len(self._subtitle_tracks) and track_index != -1:
-            print(f"[TrackManager] Invalid subtitle track index: {track_index}")
+            logger.info(f"Invalid subtitle track index: {track_index}")
             return False
         
-        print(f"[TrackManager] Setting subtitle track to {track_index}")
+        logger.info(f"Setting subtitle track to {track_index}")
         self.player.set_property("current-text", track_index)
         self._current_subtitle_track = track_index
         return True

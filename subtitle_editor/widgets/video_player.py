@@ -6,6 +6,9 @@ Follows GNOME HIG and libadwaita design principles.
 """
 
 import gi
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -68,7 +71,7 @@ class SubtitleRenderer:
         if not text:
             return
 
-        print(f"[Render] Display: {width}x{height}, Video: {video_width}x{video_height}, Style: {style_name}")
+        logger.debug(f"Display: {width}x{height}, Video: {video_width}x{video_height}, Style: {style_name}")
 
         # Get style from document
         style = None
@@ -77,7 +80,7 @@ class SubtitleRenderer:
         if not style and self.document and self.document.styles:
             style = self.document.styles[0]  # Default to first style
         
-        print(f"[Render] Style found: {style is not None}, Document format: {self.document.format if self.document else None}")
+        logger.debug(f"Style found: {style is not None}, Document format: {self.document.format if self.document else None}")
 
         # Get PlayResY from document metadata (ASS reference resolution)
         play_res_y = None
@@ -154,14 +157,14 @@ class SubtitleRenderer:
         text_width = logical_rect.width
         text_height = logical_rect.height
 
-        print(f"[Render] Text size: {text_width}x{text_height}")
+        logger.debug(f"Text size: {text_width}x{text_height}")
 
         # Calculate position based on alignment
         if style:
             x, y = self._calculate_position(
                 style, width, height, text_width, text_height, entry
             )
-            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Alignment: {style.alignment}, Margins: L={style.margin_l} R={style.margin_r} V={style.margin_v}")
+            logger.debug(f"Position: ({x:.1f}, {y:.1f}), Alignment: {style.alignment}, Margins: L={style.margin_l} R={style.margin_r} V={style.margin_v}")
         else:
             # Default: bottom center
             # For SRT, we set layout width to 90% and Pango.Alignment.CENTER
@@ -169,7 +172,7 @@ class SubtitleRenderer:
             # Position the layout itself in the center with 5% margins on sides
             x = width * 0.05  # 5% margin from left
             y = height - text_height - (height * 0.05)  # 5% margin from bottom
-            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Default bottom-center (no style)")
+            logger.debug(f"Position: ({x:.1f}, {y:.1f}), Default bottom-center (no style)")
 
         # Draw background/shadow if needed
         if style and style.shadow > 0:
@@ -353,7 +356,7 @@ class VideoPlayerWidget(Gtk.Box):
         # Create GStreamer pipeline
         self.player = Gst.ElementFactory.make("playbin", "player")
         if not self.player:
-            print("Warning: Could not create GStreamer playbin")
+            logger.warning("Could not create GStreamer playbin")
             self._show_error_state()
             return
 
@@ -362,12 +365,12 @@ class VideoPlayerWidget(Gtk.Box):
         flags = self.player.get_property("flags")
         flags &= ~0x00000004  # Clear TEXT flag
         self.player.set_property("flags", flags)
-        print("[Init] Disabled GStreamer built-in subtitle rendering, using SubtitleRenderer only")
+        logger.debug(Disabled GStreamer built-in subtitle rendering, using SubtitleRenderer only)
 
         # Setup video sink for GTK4 with hardware acceleration
         self.gtksink = Gst.ElementFactory.make("gtk4paintablesink", "sink")
         if not self.gtksink:
-            print("Warning: gtk4paintablesink not available, falling back")
+            logger.warning("gtk4paintablesink not available, falling back")
             self.gtksink = Gst.ElementFactory.make("gtksink", "sink")
 
         if self.gtksink:
@@ -399,12 +402,12 @@ class VideoPlayerWidget(Gtk.Box):
                     # Fallback to software rendering
                     self.player.set_property("video-sink", self.gtksink)
             except Exception as e:
-                print(f"Could not setup hardware acceleration: {e}")
+                logger.warning(Could not setup hardware acceleration: {e})
                 self.player.set_property("video-sink", self.gtksink)
 
             paintable = self.gtksink.get_property("paintable")
         else:
-            print("Warning: No GTK sink available")
+            logger.warning("No GTK sink available")
             paintable = None
 
         # Create subtitle renderer
@@ -666,7 +669,7 @@ class VideoPlayerWidget(Gtk.Box):
     def skip(self, offset_ms: int):
         """Skip forward or backward by offset in milliseconds."""
         if not self.player:
-            print(f"[Skip] Error: No player available")
+            logger.error(Error: No player available)
             return
 
         success, position = self.player.query_position(Gst.Format.TIME)
@@ -674,17 +677,17 @@ class VideoPlayerWidget(Gtk.Box):
             # Convert milliseconds to nanoseconds (Gst.SECOND = 1 second in nanoseconds)
             # offset_ms is in milliseconds, so divide by 1000 to get seconds
             new_pos = max(0, position + (offset_ms * Gst.SECOND // 1000))
-            print(f"[Skip] Offset: {offset_ms}ms, Current: {position/Gst.SECOND:.2f}s, New: {new_pos/Gst.SECOND:.2f}s")
+            logger.debug(Offset: {offset_ms}ms, Current: {position/Gst.SECOND:.2f}s, New: {new_pos/Gst.SECOND:.2f}s)
             # Use ACCURATE flag for precise seeking, not KEY_UNIT which only seeks to keyframes
             result = self.player.seek_simple(
                 Gst.Format.TIME, Gst.SeekFlags.FLUSH | Gst.SeekFlags.ACCURATE, new_pos
             )
-            print(f"[Skip] Seek result: {result}")
+            logger.debug(Seek result: {result})
             
             # Update subtitle immediately after seek
             GLib.idle_add(lambda: self._update_current_subtitle(new_pos / Gst.SECOND))
         else:
-            print(f"[Skip] Error: Could not query position")
+            logger.error(Error: Could not query position)
 
     def get_position(self) -> float:
         """Get current playback position in seconds."""
@@ -718,7 +721,7 @@ class VideoPlayerWidget(Gtk.Box):
         # Don't show external subtitles if embedded subtitles are active
         if self._embedded_subtitle_active:
             if self.current_subtitle is not None:
-                print(f"[Subtitle] Hiding external subtitle (embedded active)")
+                logger.debug(Hiding external subtitle (embedded active))
                 self.current_subtitle = None
                 self.subtitle_drawing_area.queue_draw()
             return
@@ -746,7 +749,7 @@ class VideoPlayerWidget(Gtk.Box):
         if new_subtitle != self.current_subtitle:
             self.current_subtitle = new_subtitle
             if new_subtitle:
-                print(f"[Subtitle] Showing external subtitle at {position_sec:.2f}s")
+                logger.debug(Showing external subtitle at {position_sec:.2f}s)
             self.subtitle_drawing_area.queue_draw()
 
     def _find_subtitle_at_position(self, position_ms: float):
@@ -932,7 +935,7 @@ class VideoPlayerWidget(Gtk.Box):
                             # Clamp to valid range
                             return max(0.5, min(1.5, value))
         except Exception as e:
-            print(f"[Preferences] Could not load subtitle scale: {e}")
+            logger.warning(Could not load subtitle scale: {e})
         
         # Return default if loading fails
         return 0.75
@@ -964,7 +967,7 @@ class VideoPlayerWidget(Gtk.Box):
                 for key, val in prefs.items():
                     f.write(f"{key}={val}\n")
         except Exception as e:
-            print(f"[Preferences] Error saving subtitle scale: {e}")
+            logger.error(Error saving subtitle scale: {e})
 
     def _on_gst_message(self, bus, message):
         """Handle GStreamer bus messages."""
@@ -972,7 +975,7 @@ class VideoPlayerWidget(Gtk.Box):
 
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            print(f"GStreamer Error: {err}, {debug}")
+            logger.error(GStreamer Error: {err}, {debug})
             self.pause()
 
         elif t == Gst.MessageType.EOS:
@@ -1011,7 +1014,7 @@ class VideoPlayerWidget(Gtk.Box):
                             self._video_height = height
                             return
         except Exception as e:
-            print(f"Error querying video dimensions: {e}")
+            logger.error(Error querying video dimensions: {e})
 
         # Fallback: try to query from paintable
         if self.gtksink:
@@ -1024,7 +1027,7 @@ class VideoPlayerWidget(Gtk.Box):
                         self._video_width = width
                         self._video_height = height
             except Exception as e:
-                print(f"Error getting dimensions from paintable: {e}")
+                logger.error(Error getting dimensions from paintable: {e})
     
     def _detect_tracks(self):
         """Detect available audio and subtitle tracks."""
@@ -1054,7 +1057,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._current_audio_track = self.player.get_property("current-audio")
         self._current_subtitle_track = self.player.get_property("current-text")
         
-        print(f"[Tracks] Detected {n_audio} audio, {n_text} subtitle tracks")
+        logger.debug(Detected {n_audio} audio, {n_text} subtitle tracks)
         
         return False  # Stop timeout
     
@@ -1081,7 +1084,7 @@ class VideoPlayerWidget(Gtk.Box):
                 if success:
                     track_info['codec'] = codec
         except Exception as e:
-            print(f"Error getting audio track {index} info: {e}")
+            logger.error(Error getting audio track {index} info: {e})
         
         return track_info
     
@@ -1110,7 +1113,7 @@ class VideoPlayerWidget(Gtk.Box):
                 if success:
                     track_info['codec'] = codec
         except Exception as e:
-            print(f"Error getting subtitle track {index} info: {e}")
+            logger.error(Error getting subtitle track {index} info: {e})
         
         return track_info
     
@@ -1146,7 +1149,7 @@ class VideoPlayerWidget(Gtk.Box):
         if not self.player:
             return
         
-        print(f"[Subtitle Track] Track selection: {track_index} (was {self._current_subtitle_track})")
+        logger.debug(Track selection: {track_index} (was {self._current_subtitle_track}))
         
         # Always keep TEXT flag disabled - we never use GStreamer's rendering
         flags = self.player.get_property("flags")
@@ -1158,7 +1161,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._current_subtitle_track = track_index
         self._embedded_subtitle_active = False  # Never use embedded rendering
         
-        print(f"[Subtitle Track] GStreamer rendering disabled, SubtitleRenderer active")
+        logger.debug(GStreamer rendering disabled, SubtitleRenderer active)
     
     def has_embedded_tracks(self):
         """Check if video has embedded audio or subtitle tracks.
@@ -1232,7 +1235,7 @@ class VideoPlayerWidget(Gtk.Box):
             return self._extract_using_playbin(track_index, output_path)
             
         except Exception as e:
-            print(f"[Subtitle Extract] Error: {e}")
+            logger.error(Error: {e})
             return False
     
     def _extract_using_playbin(self, track_index, output_path):
@@ -1276,15 +1279,15 @@ class VideoPlayerWidget(Gtk.Box):
                 return True
             else:
                 error = result.stderr.decode('utf-8', errors='ignore')
-                print(f"[Extract] Failed: {error}")
+                logger.error(Failed: {error})
                 return False
                 
         except FileNotFoundError:
-            print("[Extract] ffmpeg not found. Please install ffmpeg.")
+            logger.debug(ffmpeg not found. Please install ffmpeg.)
             return False
         except subprocess.TimeoutExpired:
-            print("[Extract] Timeout extracting subtitle")
+            logger.debug(Timeout extracting subtitle)
             return False
         except Exception as e:
-            print(f"[Extract] Error: {e}")
+            logger.error(Error: {e})
             return False

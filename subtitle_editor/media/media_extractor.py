@@ -10,6 +10,9 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Callable, List, Dict
 import re
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ExtractionError(Exception):
@@ -110,7 +113,7 @@ class MediaExtractor:
             output_path
         ])
         
-        print(f"[MediaExtractor] Running: {' '.join(cmd)}")
+        logger.info(f"Running: {' '.join(cmd)}")
         
         try:
             result = subprocess.run(
@@ -123,7 +126,7 @@ class MediaExtractor:
             if result.returncode == 0:
                 # Verify output file was created and has content
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    print(f"[MediaExtractor] Successfully extracted to: {output_path}")
+                    logger.info(f"Successfully extracted to: {output_path}")
                     return True
                 else:
                     raise ExtractionError("Output file was not created or is empty")
@@ -186,7 +189,7 @@ class MediaExtractor:
             output_path
         ])
         
-        print(f"[MediaExtractor] Running: {' '.join(cmd)}")
+        logger.info(f"Running: {' '.join(cmd)}")
         
         try:
             result = subprocess.run(
@@ -198,7 +201,7 @@ class MediaExtractor:
             
             if result.returncode == 0:
                 if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-                    print(f"[MediaExtractor] Successfully extracted to: {output_path}")
+                    logger.info(f"Successfully extracted to: {output_path}")
                     return True
                 else:
                     raise ExtractionError("Output file was not created or is empty")
@@ -271,7 +274,7 @@ class MediaExtractor:
             with open(subtitle_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            print(f"[MediaExtractor] Cleaned subtitle file: {subtitle_path}")
+            logger.info(f"Cleaned subtitle file: {subtitle_path}")
             
         except Exception as e:
             raise ExtractionError(f"Failed to clean subtitle file: {str(e)}")

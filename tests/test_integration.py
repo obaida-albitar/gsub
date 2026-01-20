@@ -415,3 +415,104 @@ class TestConcurrentOperations:
 
 # Import statements for integration tests
 from subtitle_editor.commands import RemoveEntryCommand, DuplicateEntryCommand
+
+
+class TestFormatConversionIntegration:
+    """Integration tests for format conversion workflows."""
+    
+    def test_srt_to_ass_conversion_workflow(self):
+        """Test complete workflow of converting SRT to ASS."""
+        from subtitle_editor.converters import FormatConverter
+        
+        # Create SRT document
+        srt_content = """1
+00:00:01,000 --> 00:00:03,000
+First subtitle
+
+2
+00:00:05,000 --> 00:00:07,000
+Second subtitle
+"""
+        
+        srt_doc = SRTParser.parse(srt_content)
+        assert srt_doc.format == SubtitleFormat.SRT
+        assert len(srt_doc.entries) == 2
+        
+        # Convert to ASS
+        ass_doc = FormatConverter.convert(srt_doc, SubtitleFormat.ASS)
+        assert ass_doc.format == SubtitleFormat.ASS
+        assert len(ass_doc.entries) == 2
+        assert len(ass_doc.styles) > 0
+        
+        # Serialize and verify it's valid ASS
+        ass_content = ASSParser.serialize(ass_doc)
+        assert "[Script Info]" in ass_content
+        assert "[V4+ Styles]" in ass_content
+        assert "[Events]" in ass_content
+        
+        # Re-parse to verify integrity
+        reparsed = ASSParser.parse(ass_content)
+        assert len(reparsed.entries) == 2
+        assert reparsed.entries[0].text == "First subtitle"
+    
+    def test_ass_to_srt_conversion_workflow(self):
+        """Test complete workflow of converting ASS to SRT."""
+        from subtitle_editor.converters import FormatConverter
+        
+        # Create ASS document with styling
+        ass_content = """[Script Info]
+Title: Test
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,20,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,0,2,10,10,10,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\i1}Styled text{\\i0}
+"""
+        
+        ass_doc = ASSParser.parse(ass_content)
+        assert ass_doc.format == SubtitleFormat.ASS
+        
+        # Convert to SRT
+        srt_doc = FormatConverter.convert(ass_doc, SubtitleFormat.SRT)
+        assert srt_doc.format == SubtitleFormat.SRT
+        assert len(srt_doc.entries) == 1
+        
+        # Verify style tags are stripped
+        assert srt_doc.entries[0].text == "Styled text"
+        
+        # Serialize and verify it's valid SRT
+        srt_content = SRTParser.serialize(srt_doc)
+        assert "00:00:01,000 --> 00:00:03,000" in srt_content
+        assert "Styled text" in srt_content
+    
+    def test_roundtrip_conversion_preserves_content(self):
+        """Test that content is preserved through format conversions."""
+        from subtitle_editor.converters import FormatConverter
+        
+        # Start with SRT
+        original_srt = """1
+00:00:01,000 --> 00:00:03,000
+Test subtitle one
+
+2
+00:00:05,500 --> 00:00:08,750
+Test subtitle two
+"""
+        
+        doc1 = SRTParser.parse(original_srt)
+        
+        # Convert to ASS
+        doc2 = FormatConverter.convert(doc1, SubtitleFormat.ASS)
+        
+        # Convert back to SRT
+        doc3 = FormatConverter.convert(doc2, SubtitleFormat.SRT)
+        
+        # Verify content is preserved
+        assert len(doc3.entries) == 2
+        assert doc3.entries[0].text == "Test subtitle one"
+        assert doc3.entries[1].text == "Test subtitle two"
+        assert doc3.entries[0].start_time.total_milliseconds == 1000
+        assert doc3.entries[1].end_time.total_milliseconds == 8750

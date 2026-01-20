@@ -11,6 +11,9 @@ This is a refactored version that uses separate modules for:
 """
 
 import gi
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -55,7 +58,7 @@ class VideoPlayerWidget(Gtk.Box):
         # Create GStreamer pipeline
         self.player = Gst.ElementFactory.make("playbin", "player")
         if not self.player:
-            print("Warning: Could not create GStreamer playbin")
+            logger.warning("Could not create GStreamer playbin")
             self._show_error_state()
             return
 
@@ -89,7 +92,7 @@ class VideoPlayerWidget(Gtk.Box):
         """Setup video sink with hardware acceleration if available."""
         self.gtksink = Gst.ElementFactory.make("gtk4paintablesink", "sink")
         if not self.gtksink:
-            print("Warning: gtk4paintablesink not available, falling back")
+            logger.warning("gtk4paintablesink not available, falling back")
             self.gtksink = Gst.ElementFactory.make("gtksink", "sink")
 
         if self.gtksink:
@@ -111,15 +114,15 @@ class VideoPlayerWidget(Gtk.Box):
                     video_bin.add_pad(ghost_pad)
 
                     self.player.set_property("video-sink", video_bin)
-                    print("[VideoPlayer] Using hardware-accelerated video pipeline")
+                    logger.info("Using hardware-accelerated video pipeline")
                 else:
                     self.player.set_property("video-sink", self.gtksink)
-                    print("[VideoPlayer] Using software video rendering")
+                    logger.info("Using software video rendering")
             except Exception as e:
-                print(f"[VideoPlayer] Could not setup hardware acceleration: {e}")
+                logger.info(f"Could not setup hardware acceleration: {e}")
                 self.player.set_property("video-sink", self.gtksink)
         else:
-            print("Warning: No GTK sink available")
+            logger.warning("No GTK sink available")
 
     def _build_ui(self):
         """Construct the user interface."""
@@ -624,7 +627,7 @@ class VideoPlayerWidget(Gtk.Box):
 
         if t == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
-            print(f"[VideoPlayer] GStreamer Error: {err}, {debug}")
+            logger.info(f"GStreamer Error: {err}, {debug}")
             self.pause()
 
         elif t == Gst.MessageType.EOS:
@@ -657,10 +660,10 @@ class VideoPlayerWidget(Gtk.Box):
                         if success and success2:
                             self._video_width = width
                             self._video_height = height
-                            print(f"[VideoPlayer] Video dimensions: {width}x{height}")
+                            logger.info(f"Video dimensions: {width}x{height}")
                             return
         except Exception as e:
-            print(f"[VideoPlayer] Error querying video dimensions: {e}")
+            logger.info(f"Error querying video dimensions: {e}")
 
         # Fallback: try paintable
         if self.gtksink:
@@ -672,9 +675,9 @@ class VideoPlayerWidget(Gtk.Box):
                     if width > 0 and height > 0:
                         self._video_width = width
                         self._video_height = height
-                        print(f"[VideoPlayer] Video dimensions from paintable: {width}x{height}")
+                        logger.info(f"Video dimensions from paintable: {width}x{height}")
             except Exception as e:
-                print(f"[VideoPlayer] Error getting dimensions from paintable: {e}")
+                logger.info(f"Error getting dimensions from paintable: {e}")
 
     def _format_time(self, seconds: float) -> str:
         """Format time in seconds to H:MM:SS or M:SS."""

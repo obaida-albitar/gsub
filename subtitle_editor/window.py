@@ -5,6 +5,9 @@ Following GNOME HIG, uses libadwaita widgets for a modern, native look.
 """
 
 import gi
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
@@ -230,6 +233,13 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         file_section.append("New", "win.new")
         file_section.append("Open…", "win.open")
         file_section.append("Save As…", "win.save-as")
+        
+        # Conversion submenu
+        convert_menu = Gio.Menu()
+        convert_menu.append("Convert to SRT", "win.convert-to-srt")
+        convert_menu.append("Convert to ASS", "win.convert-to-ass")
+        file_section.append_submenu("Convert Format", convert_menu)
+        
         menu.append_section(None, file_section)
         
         # Video section
@@ -262,6 +272,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._create_action("open", self._on_open, ["<Ctrl>O"])
         self._create_action("save", self._on_save, ["<Ctrl>S"])
         self._create_action("save-as", self._on_save_as, ["<Ctrl><Shift>S"])
+        self._create_action("convert-to-srt", self._on_convert_to_srt)
+        self._create_action("convert-to-ass", self._on_convert_to_ass)
         
         # Video actions
         self._create_action("open-video", self._on_open_video, ["<Ctrl><Shift>O"])
@@ -506,12 +518,40 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._on_save_as(action, param)
     
     def _on_save_as(self, action, param):
-        """Show save as dialog."""
+        """Show save as dialog with format selection."""
         if not self.document:
             return
         
         dialog = Gtk.FileDialog()
         dialog.set_title("Save Subtitle File")
+        
+        # Set up file filters for different formats
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        
+        filter_srt = Gtk.FileFilter()
+        filter_srt.set_name("SRT Files (*.srt)")
+        filter_srt.add_pattern("*.srt")
+        filters.append(filter_srt)
+        
+        filter_ass = Gtk.FileFilter()
+        filter_ass.set_name("ASS Files (*.ass)")
+        filter_ass.add_pattern("*.ass")
+        filters.append(filter_ass)
+        
+        filter_ssa = Gtk.FileFilter()
+        filter_ssa.set_name("SSA Files (*.ssa)")
+        filter_ssa.add_pattern("*.ssa")
+        filters.append(filter_ssa)
+        
+        dialog.set_filters(filters)
+        
+        # Set default filter based on current format
+        if self.document.format == SubtitleFormat.SRT:
+            dialog.set_default_filter(filter_srt)
+        elif self.document.format == SubtitleFormat.SSA:
+            dialog.set_default_filter(filter_ssa)
+        else:
+            dialog.set_default_filter(filter_ass)
         
         # Set initial name
         if self.current_file:
@@ -527,7 +567,30 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         try:
             file = dialog.save_finish(result)
             if file:
-                self._save_document(file.get_path())
+                file_path = file.get_path()
+                
+                # Check if format conversion is needed based on extension
+                ext = os.path.splitext(file_path)[1].lower()
+                target_format = None
+                
+                if ext == '.srt':
+                    target_format = SubtitleFormat.SRT
+                elif ext == '.ass':
+                    target_format = SubtitleFormat.ASS
+                elif ext == '.ssa':
+                    target_format = SubtitleFormat.SSA
+                
+                # Convert format if needed
+                if target_format and target_format != self.document.format:
+                    from subtitle_editor.converters import FormatConverter
+                    self.document = FormatConverter.convert(self.document, target_format)
+                    self.subtitle_list.set_document(self.document)
+                    style_names = [s.name for s in (self.document.styles or [])] if self.document else []
+                    self.editor_panel.set_document_context(self.document.format, style_names)
+                    self._update_format_actions()
+                    self._show_toast(f"Converted to {target_format.value.upper()}")
+                
+                self._save_document(file_path)
         except Exception as e:
             pass  # User cancelled
     
@@ -743,6 +806,86 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         shortcuts.set_transient_for(self)
         shortcuts.present()
     
+    def _on_convert_to_srt(self, action, param):
+        """Convert current document to SRT format."""
+        if not self.document:
+            self._show_toast("No document loaded")
+            return
+        
+        if self.document.format == SubtitleFormat.SRT:
+            self._show_toast("Document is already in SRT format")
+            return
+        
+        # Confirm conversion
+        dialog = Adw.MessageDialog.new(
+            self,
+            "Convert to SRT?",
+            "Converting to SRT will remove all styling information. This cannot be undone."
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("convert", "Convert")
+        dialog.set_response_appearance("convert", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        
+        dialog.connect("response", self._on_convert_response, SubtitleFormat.SRT)
+        dialog.present()
+    
+    def _on_convert_to_ass(self, action, param):
+        """Convert current document to ASS format."""
+        if not self.document:
+            self._show_toast("No document loaded")
+            return
+        
+        if self.document.format == SubtitleFormat.ASS:
+            self._show_toast("Document is already in ASS format")
+            return
+        
+        # Confirm conversion
+        message = "Convert to ASS format?"
+        if self.document.format == SubtitleFormat.SRT:
+            message = "Converting to ASS will add default styling to all subtitles."
+        
+        dialog = Adw.MessageDialog.new(self, "Convert to ASS?", message)
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("convert", "Convert")
+        dialog.set_response_appearance("convert", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("convert")
+        dialog.set_close_response("cancel")
+        
+        dialog.connect("response", self._on_convert_response, SubtitleFormat.ASS)
+        dialog.present()
+    
+    def _on_convert_response(self, dialog, response, target_format):
+        """Handle format conversion confirmation."""
+        if response == "convert":
+            from subtitle_editor.converters import FormatConverter
+            
+            old_format = self.document.format.value.upper()
+            self.document = FormatConverter.convert(self.document, target_format)
+            
+            # Update UI
+            self.subtitle_list.set_document(self.document)
+            style_names = [s.name for s in (self.document.styles or [])] if self.document else []
+            self.editor_panel.set_document_context(self.document.format, style_names)
+            self._update_format_actions()
+            self._update_title()
+            self._update_status()
+            
+            # Update video player document if available
+            if self.video_player:
+                self.video_player.set_document(self.document)
+            
+            self._show_toast(f"Converted from {old_format} to {target_format.value.upper()}")
+            
+            # Suggest saving
+            if self.current_file:
+                self._show_banner(
+                    "Format converted. Save to preserve changes.",
+                    "Save As",
+                    lambda: self._on_save_as(None, None)
+                )
+    
     # Widget signal handlers
     
     def _on_entry_selected(self, widget, position):
@@ -886,7 +1029,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Check for embedded tracks and show selection dialog if available."""
         has_audio, has_subtitles = self.video_player.has_embedded_tracks()
         
-        print(f"[Track Check] has_audio={has_audio}, has_subtitles={has_subtitles}")
+        logger.info(f"has_audio={has_audio}, has_subtitles={has_subtitles}")
         
         # Prevent showing dialog multiple times
         if hasattr(self, '_extraction_dialog_shown') and self._extraction_dialog_shown:
@@ -918,7 +1061,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             # Multiple audio tracks but no subtitles - show track selection
             self._show_track_selection_dialog()
         else:
-            print("[Track Check] No tracks to select, skipping dialog")
+            logger.debug(No tracks to select, skipping dialog)
         
         return False  # Stop timeout
     
@@ -1107,7 +1250,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                     else:
                         self._clean_subtitle_html(temp_path)
                 except Exception as e:
-                    print(f"[Subtitle Clean] Warning: Failed to clean HTML: {e}")
+                    logger.info(f"Warning: Failed to clean HTML: {e}")
                 
                 # IMPORTANT: Disable embedded subtitle track before loading external file
                 # This prevents double subtitles (embedded + external)
@@ -1207,9 +1350,9 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             with open(subtitle_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            print(f"[Subtitle Clean] Cleaned and fixed formatting in {subtitle_path}")
+            logger.info(f"Cleaned and fixed formatting in {subtitle_path}")
         except Exception as e:
-            print(f"[Subtitle Clean] Error: {e}")
+            logger.info(f"Error: {e}")
             raise
 
 

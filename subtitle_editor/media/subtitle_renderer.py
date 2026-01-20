@@ -14,6 +14,9 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Pango, PangoCairo
 
 from subtitle_editor.models import ASSStyle, SubtitleDocument, SubtitleEntry
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class SubtitleRenderer:
@@ -72,7 +75,7 @@ class SubtitleRenderer:
         if not text:
             return
 
-        print(f"[Render] Display: {width}x{height}, Video: {video_width}x{video_height}, Style: {style_name}")
+        logger.debug(f"Display: {width}x{height}, Video: {video_width}x{video_height}, Style: {style_name}")
 
         # Get style from document
         style = self._get_style(style_name)
@@ -80,7 +83,7 @@ class SubtitleRenderer:
         # Get PlayResY from document metadata (ASS reference resolution)
         play_res_y = self._get_play_res_y(style)
         
-        print(f"[Render] PlayResY: {play_res_y}")
+        logger.debug(f"PlayResY: {play_res_y}")
 
         # Create Pango layout
         layout = PangoCairo.create_layout(cr)
@@ -105,7 +108,7 @@ class SubtitleRenderer:
         text_width = logical_rect.width
         text_height = logical_rect.height
 
-        print(f"[Render] Text size: {text_width}x{text_height}")
+        logger.debug(f"Text size: {text_width}x{text_height}")
 
         # Calculate position based on alignment
         x, y = self._calculate_position(
@@ -113,9 +116,9 @@ class SubtitleRenderer:
         )
         
         if style:
-            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Alignment: {style.alignment}, Margins: L={style.margin_l} R={style.margin_r} V={style.margin_v}")
+            logger.debug(f"Position: ({x:.1f}, {y:.1f}), Alignment: {style.alignment}, Margins: L={style.margin_l} R={style.margin_r} V={style.margin_v}")
         else:
-            print(f"[Render] Position: ({x:.1f}, {y:.1f}), Default alignment")
+            logger.debug(f"Position: ({x:.1f}, {y:.1f}), Default alignment")
 
         # Draw shadow if needed
         if style and style.shadow > 0:
@@ -204,10 +207,10 @@ class SubtitleRenderer:
         # Calculate actual pixel size for logging (avoid formatting issues with mocks in tests)
         try:
             pixel_size = size / Pango.SCALE
-            print(f"[Render] Font: {style.fontname}, Size: {style.fontsize} → {pixel_size:.1f}px (scale: {scale_factor:.3f}, subtitle_scale: {self.subtitle_scale})")
+            logger.debug(f"Font: {style.fontname}, Size: {style.fontsize} → {pixel_size:.1f}px (scale: {scale_factor:.3f}, subtitle_scale: {self.subtitle_scale})")
         except (TypeError, AttributeError):
             # Handle mocked Pango.SCALE in tests
-            print(f"[Render] Font: {style.fontname}, Size: {style.fontsize}, scale: {scale_factor:.3f}, subtitle_scale: {self.subtitle_scale}")
+            logger.debug(f"Font: {style.fontname}, Size: {style.fontsize}, scale: {scale_factor:.3f}, subtitle_scale: {self.subtitle_scale}")
         
         font_desc.set_size(size)
 
