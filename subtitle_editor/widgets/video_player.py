@@ -1117,6 +1117,21 @@ class VideoPlayerWidget(Gtk.Box):
         
         return track_info
     
+    @property
+    def current_audio_track(self):
+        return self._current_audio_track
+
+    @property
+    def current_subtitle_track(self):
+        return self._current_subtitle_track
+
+    @property
+    def media_extractor(self):
+        return None
+
+    def queue_subtitle_redraw(self):
+        self.subtitle_drawing_area.queue_draw()
+
     def get_available_tracks(self):
         """Get list of available audio and subtitle tracks.
         

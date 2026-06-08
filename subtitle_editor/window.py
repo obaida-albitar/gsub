@@ -959,7 +959,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         # Update video player to reflect position changes
         if self.video_player:
-            self.video_player.subtitle_drawing_area.queue_draw()
+            self.video_player.queue_subtitle_redraw()
         
         self._update_title()
     
@@ -1057,7 +1057,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             
             extract_dialog.connect("response", self._on_video_load_extract_response)
             extract_dialog.present()
-        elif has_audio and len(self.video_player._audio_tracks) > 1:
+        elif has_audio and len(self.video_player.get_available_tracks()[0]) > 1:
             # Multiple audio tracks but no subtitles - show track selection
             self._show_track_selection_dialog()
         else:
@@ -1085,8 +1085,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self,
             audio_tracks,
             subtitle_tracks,
-            self.video_player._current_audio_track,
-            self.video_player._current_subtitle_track
+            self.video_player.current_audio_track,
+            self.video_player.current_subtitle_track
         )
         track_dialog.connect("tracks-selected", self._on_tracks_selected)
         track_dialog.present()
@@ -1173,8 +1173,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self,
             audio_tracks,
             subtitle_tracks,
-            self.video_player._current_audio_track,
-            self.video_player._current_subtitle_track
+            self.video_player.current_audio_track,
+            self.video_player.current_subtitle_track
         )
         track_dialog.connect("tracks-selected", self._on_tracks_selected)
         track_dialog.present()
@@ -1244,11 +1244,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             if success:
                 # Clean up HTML tags from the extracted subtitle file
                 try:
-                    # Use the MediaExtractor's clean method if available
-                    if hasattr(self.video_player, 'media_extractor') and self.video_player.media_extractor:
-                        self.video_player.media_extractor.clean_subtitle_file(temp_path)
-                    else:
-                        self._clean_subtitle_html(temp_path)
+                    self._clean_subtitle_html(temp_path)
                 except Exception as e:
                     logger.info(f"Warning: Failed to clean HTML: {e}")
                 
