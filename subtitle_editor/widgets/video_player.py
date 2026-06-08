@@ -1194,7 +1194,7 @@ class VideoPlayerWidget(Gtk.Box):
         
         def extract_thread():
             try:
-                success = self._extract_subtitle_gstreamer(track_index, output_path)
+                success = self._extract_using_playbin(track_index, output_path)
                 if callback:
                     GLib.idle_add(callback, success, None if success else "Extraction failed")
             except Exception as e:
@@ -1204,40 +1204,7 @@ class VideoPlayerWidget(Gtk.Box):
         thread = threading.Thread(target=extract_thread, daemon=True)
         thread.start()
     
-    def _extract_subtitle_gstreamer(self, track_index, output_path):
-        """Extract subtitle using GStreamer pipeline.
-        
-        This uses a secondary pipeline to extract the subtitle track.
-        """
-        try:
-            # Parse the video URI to get file path
-            if self.video_uri.startswith("file://"):
-                video_path = self.video_uri[7:]  # Remove file:// prefix
-            else:
-                video_path = self.video_uri
-            
-            
-            # Create extraction pipeline
-            # We use decodebin and connect to the text pad for the specific track
-            pipeline_desc = f'filesrc location="{video_path}" ! decodebin name=d ! queue ! subparse ! filesink location="{output_path}"'
-            
-            extract_pipeline = Gst.parse_launch(pipeline_desc)
-            
-            # Set to PAUSED to preroll
-            extract_pipeline.set_state(Gst.State.PAUSED)
-            extract_pipeline.get_state(5 * Gst.SECOND)
-            
-            # Try to select the subtitle track
-            # Note: This is a simplified approach. In practice, subtitle extraction
-            # from containers is complex and may require using tools like ffmpeg
-            
-            # For now, we'll use a simpler approach: read subtitles using playbin
-            return self._extract_using_playbin(track_index, output_path)
-            
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            return False
-    
+
     def _extract_using_playbin(self, track_index, output_path):
         """Extract subtitle by reading from playbin text pad.
         
