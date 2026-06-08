@@ -148,7 +148,7 @@ class EditTimingCommand(Command):
     
     def undo(self):
         """Restore the original timing."""
-        if self.old_start and 0 <= self.position < len(self.document.entries):
+        if self.old_start is not None and 0 <= self.position < len(self.document.entries):
             entry = self.document.entries[self.position]
             entry.start_time = self.old_start
             entry.end_time = self.old_end
