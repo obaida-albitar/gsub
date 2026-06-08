@@ -47,6 +47,8 @@ class CommandManager:
         Args:
             max_history: Maximum number of commands to keep in history
         """
+        if max_history < 1:
+            max_history = 1
         self._undo_stack: List[Command] = []
         self._redo_stack: List[Command] = []
         self._max_history = max_history
@@ -58,7 +60,10 @@ class CommandManager:
         Args:
             command: The command to execute
         """
-        command.execute()
+        try:
+            command.execute()
+        except Exception:
+            raise
         self._undo_stack.append(command)
         
         # Clear redo stack when a new command is executed
