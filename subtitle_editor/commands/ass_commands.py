@@ -67,20 +67,23 @@ class UpsertStyleCommand(Command):
         self.style = copy.deepcopy(style)
         self._old_style: Optional[ASSStyle] = None
         self._was_insert: bool = False
+        self._old_entry_styles: Optional[List[Optional[str]]] = None
 
     def execute(self):
+        self._old_entry_styles = [e.style for e in self.document.entries]
         self._old_style = self.document.upsert_style(self.style)
         self._was_insert = self._old_style is None
 
     def undo(self):
         if self._was_insert:
-            # remove newly added style
             self.document.remove_style(self.style.name)
-            return
-
-        # restore replaced style
-        if self._old_style is not None:
+        elif self._old_style is not None:
             self.document.upsert_style(self._old_style)
+
+        if self._old_entry_styles is not None:
+            for entry, old_style in zip(self.document.entries, self._old_entry_styles):
+                entry.style = old_style
+        self.document.modified = True
 
     def description(self) -> str:
         return f"Update style '{self.style.name}'"
