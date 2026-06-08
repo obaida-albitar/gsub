@@ -294,7 +294,7 @@ class VideoPlayerWidget(Gtk.Box):
         
         # Enable text/subtitle support in playbin
         flags = self.player.get_property("flags")
-        flags |= 0x00000004  # Enable TEXT flag
+        flags &= ~0x00000004  # Disable TEXT flag (handled by SubtitleRenderer)
         self.player.set_property("flags", flags)
         
         self.player.set_state(Gst.State.PAUSED)
