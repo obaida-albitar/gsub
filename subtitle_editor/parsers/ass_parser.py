@@ -4,12 +4,15 @@ ASS/SSA (Advanced SubStation Alpha) subtitle format parser.
 ASS format is more complex than SRT, with sections for metadata, styles, and events.
 """
 
+import logging
 import re
 from typing import List, Dict
 from subtitle_editor.models import (
     SubtitleEntry, SubtitleDocument, SubtitleFormat,
     TimeCode, ASSStyle
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ASSParser:
@@ -103,6 +106,7 @@ class ASSParser:
         values = [v.strip() for v in content.split(',')]
         
         if len(values) < len(format_list):
+            logger.warning("Skipping ASS style with insufficient fields: %s", line)
             return None
         
         style = ASSStyle()
@@ -173,8 +177,9 @@ class ASSParser:
         # Split carefully - text may contain commas
         # Format typically: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         parts = content.split(',', len(format_list) - 1)
-        
+
         if len(parts) < len(format_list):
+            logger.warning("Skipping ASS dialogue with insufficient fields: %s", line)
             return None
         
         start_time = None
@@ -184,6 +189,9 @@ class ASSParser:
         margin_l = 0
         margin_r = 0
         margin_v = 0
+        layer = 0
+        actor = ""
+        effect = ""
         
         for i, field in enumerate(format_list):
             if i >= len(parts):
@@ -217,6 +225,15 @@ class ASSParser:
                     margin_v = int(value)
                 except ValueError:
                     margin_v = 0
+            elif field_lower == 'layer':
+                try:
+                    layer = int(value)
+                except ValueError:
+                    layer = 0
+            elif field_lower == 'name':
+                actor = value
+            elif field_lower == 'effect':
+                effect = value
         
         if start_time and end_time:
             return SubtitleEntry(
@@ -229,7 +246,8 @@ class ASSParser:
                 margin_r=margin_r,
                 margin_v=margin_v
             )
-        
+
+        logger.warning("Skipping ASS dialogue with missing start or end time: %s", line)
         return None
     
     @classmethod
@@ -305,14 +323,14 @@ class ASSParser:
         lines.append('Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text')
         
         for entry in document.entries:
-            layer = 0
+            layer = getattr(entry, 'layer', 0)
             style = entry.style or 'Default'
-            name = ''
+            name = getattr(entry, 'actor', '')
             # Use per-entry margins if set, otherwise default to 0
             margin_l = getattr(entry, 'margin_l', 0)
             margin_r = getattr(entry, 'margin_r', 0)
             margin_v = getattr(entry, 'margin_v', 0)
-            effect = ''
+            effect = getattr(entry, 'effect', '')
             
             # Convert newlines in text to ASS format
             text = entry.text.replace('\n', '\\N')
