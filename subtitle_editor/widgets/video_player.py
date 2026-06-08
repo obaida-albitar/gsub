@@ -306,9 +306,9 @@ class SubtitleRenderer:
             hex_color = color_str[2:]
             # ASS colors are AABBGGRR
             if len(hex_color) >= 6:
-                bb = int(hex_color[-2:], 16) / 255.0
+                rr = int(hex_color[-2:], 16) / 255.0
                 gg = int(hex_color[-4:-2], 16) / 255.0
-                rr = int(hex_color[-6:-4], 16) / 255.0
+                bb = int(hex_color[-6:-4], 16) / 255.0
                 # Alpha is optional
                 aa = 1.0
                 if len(hex_color) >= 8:
