@@ -33,6 +33,11 @@ class EditorPanel(Gtk.Box):
         self._text_change_timeout_id = None  # For debouncing text changes
         self._pending_text = None
 
+        self._timing_changed_id = None  # For debouncing timing changes
+        self._pending_timing_values = None
+        self._position_changed_id = None  # For debouncing position changes
+        self._pending_position_values = None
+
         # Add background styling
         self.add_css_class("view")
 
@@ -462,12 +467,16 @@ class EditorPanel(Gtk.Box):
         return False  # Don't repeat the timeout
 
     def _on_timing_changed(self, spin_button):
-        """Handle timing spin button changes."""
+        """Handle timing spin button changes with debouncing."""
         if self._updating or self.current_position < 0:
             return
 
-        # Update duration display
+        # Update duration display immediately
         self._update_duration()
+
+        # Cancel any pending timeout
+        if self._timing_changed_id is not None:
+            GLib.source_remove(self._timing_changed_id)
 
         # Create TimeCode objects
         start_time = TimeCode(
@@ -484,19 +493,59 @@ class EditorPanel(Gtk.Box):
             milliseconds=self.end_milli.get_value_as_int(),
         )
 
-        # Emit signal
-        self.emit("timing-changed", self.current_position, start_time, end_time)
+        # Store the pending values
+        self._pending_timing_values = (start_time, end_time)
+
+        # Set a new timeout (300ms delay)
+        self._timing_changed_id = GLib.timeout_add(
+            300, self._emit_timing_changed
+        )
+
+    def _emit_timing_changed(self):
+        """Emit timing-changed signal after debounce delay."""
+        if self._pending_timing_values is not None and self.current_position >= 0:
+            start_time, end_time = self._pending_timing_values
+            self.emit("timing-changed", self.current_position, start_time, end_time)
+            self._pending_timing_values = None
+
+        self._timing_changed_id = None
+        return False  # Don't repeat the timeout
 
     def _on_position_changed(self, spin_button):
-        """Handle position margin changes."""
+        """Handle position margin changes with debouncing."""
         if self._updating or self.current_position < 0:
             return
         if self._format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
             return
 
+        # Cancel any pending timeout
+        if self._position_changed_id is not None:
+            GLib.source_remove(self._position_changed_id)
+
         margin_l = self.margin_l_spin.get_value_as_int()
         margin_r = self.margin_r_spin.get_value_as_int()
         margin_v = self.margin_v_spin.get_value_as_int()
 
-        # Emit signal
-        self.emit("position-changed", self.current_position, margin_l, margin_r, margin_v)
+        # Store the pending values
+        self._pending_position_values = (margin_l, margin_r, margin_v)
+
+        # Set a new timeout (300ms delay)
+        self._position_changed_id = GLib.timeout_add(
+            300, self._emit_position_changed
+        )
+
+    def _emit_position_changed(self):
+        """Emit position-changed signal after debounce delay."""
+        if self._pending_position_values is not None and self.current_position >= 0:
+            margin_l, margin_r, margin_v = self._pending_position_values
+            self.emit(
+                "position-changed",
+                self.current_position,
+                margin_l,
+                margin_r,
+                margin_v,
+            )
+            self._pending_position_values = None
+
+        self._position_changed_id = None
+        return False  # Don't repeat the timeout
