@@ -321,3 +321,61 @@ class BatchTimingCommand(Command):
     
     def description(self) -> str:
         return f"Adjust timing of {len(self.adjustments)} subtitle(s)"
+
+
+class EditMarginsCommand(Command):
+    """Command to edit subtitle margins (ASS/SSA position overrides)."""
+
+    def __init__(self, document: SubtitleDocument, position: int,
+                 new_margin_l: int, new_margin_r: int, new_margin_v: int):
+        self.document = document
+        self.position = position
+        self.new_margin_l = new_margin_l
+        self.new_margin_r = new_margin_r
+        self.new_margin_v = new_margin_v
+        self.old_margin_l = None
+        self.old_margin_r = None
+        self.old_margin_v = None
+
+    def execute(self):
+        if 0 <= self.position < len(self.document.entries):
+            entry = self.document.entries[self.position]
+            self.old_margin_l = entry.margin_l
+            self.old_margin_r = entry.margin_r
+            self.old_margin_v = entry.margin_v
+            entry.margin_l = self.new_margin_l
+            entry.margin_r = self.new_margin_r
+            entry.margin_v = self.new_margin_v
+            self.document.modified = True
+
+    def undo(self):
+        if self.old_margin_l is not None and 0 <= self.position < len(self.document.entries):
+            entry = self.document.entries[self.position]
+            entry.margin_l = self.old_margin_l
+            entry.margin_r = self.old_margin_r
+            entry.margin_v = self.old_margin_v
+            self.document.modified = True
+
+    def description(self) -> str:
+        return f"Edit margins of subtitle #{self.position + 1}"
+
+
+class SortByTimeCommand(Command):
+    """Command to sort subtitles by start time."""
+
+    def __init__(self, document: SubtitleDocument):
+        self.document = document
+        self.old_order = []
+
+    def execute(self):
+        self.old_order = list(self.document.entries)
+        self.document.sort_by_time()
+
+    def undo(self):
+        self.document.entries.clear()
+        self.document.entries.extend(self.old_order)
+        self.document.reindex()
+        self.document.modified = True
+
+    def description(self) -> str:
+        return "Sort subtitles by time"

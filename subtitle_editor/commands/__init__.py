@@ -10,6 +10,8 @@ from .subtitle_commands import (
     MoveEntryCommand,
     TimeShiftCommand,
     BatchTimingCommand,
+    EditMarginsCommand,
+    SortByTimeCommand,
 )
 
 from .ass_commands import (
@@ -52,4 +54,6 @@ __all__ = [
 
     'EditStyleCommand',
     'BulkEditStyleCommand',
+    'EditMarginsCommand',
+    'SortByTimeCommand',
 ]

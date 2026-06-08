@@ -455,7 +455,37 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     
     def _on_new(self, action, param):
         """Create a new subtitle document."""
-        # TODO: Prompt to save if modified
+        if self.document and self.document.modified:
+            dialog = Adw.MessageDialog.new(
+                self,
+                "Unsaved Changes",
+                "The current document has unsaved changes. Save before creating a new document?"
+            )
+            dialog.add_response("save", "Save")
+            dialog.add_response("discard", "Discard")
+            dialog.add_response("cancel", "Cancel")
+            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response("save")
+            dialog.set_close_response("cancel")
+            dialog.connect("response", self._on_new_response)
+            dialog.present()
+            return
+        
+        self._create_new_document()
+    
+    def _on_new_response(self, dialog, response):
+        """Handle response to new document save prompt."""
+        if response == "save":
+            if self.current_file:
+                self._save_document(self.current_file)
+            else:
+                self._on_save_as(None, None)
+            self._create_new_document()
+        elif response == "discard":
+            self._create_new_document()
+    
+    def _create_new_document(self):
+        """Actually create a new document (called after save prompt check)."""
         self.document = SubtitleDocument(format=SubtitleFormat.SRT)
         self.current_file = None
         self.command_manager.clear()
@@ -777,9 +807,12 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _on_sort_by_time(self, action, param):
         """Sort subtitles by start time."""
         if self.document:
-            self.document.sort_by_time()
+            from subtitle_editor.commands import SortByTimeCommand
+            cmd = SortByTimeCommand(self.document)
+            self.command_manager.execute(cmd)
             self.subtitle_list.refresh(preserve_selection=True)
             self._update_title()
+            self._update_undo_redo_buttons()
             self._show_toast("Subtitles sorted by time")
     
     def _on_about(self, action, param):
@@ -950,18 +983,17 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
             return
         
-        # Update the entry directly (this is a simple property change, not undoable)
-        entry = self.document.entries[position]
-        entry.margin_l = margin_l
-        entry.margin_r = margin_r
-        entry.margin_v = margin_v
-        self.document.modified = True
+        from subtitle_editor.commands import EditMarginsCommand
+        
+        cmd = EditMarginsCommand(self.document, position, margin_l, margin_r, margin_v)
+        self.command_manager.execute(cmd)
         
         # Update video player to reflect position changes
         if self.video_player:
             self.video_player.subtitle_drawing_area.queue_draw()
         
         self._update_title()
+        self._update_undo_redo_buttons()
     
     # Video player handlers
     
@@ -1319,8 +1351,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             content = content.replace(r'\N', '\n')
             
             # Remove ASS drawing commands and other special codes
-            # Curly braces with backslash - ASS style overrides
-            content = re.sub(r'\{\\[^}]*\}', '', content)
+            # Curly braces with any content - ASS/SSA override codes
+            content = re.sub(r'\{[^}]*\}', '', content)
             
             # Fix lines that have only one word (likely formatting issue)
             # This can happen with ASS subtitles that use special positioning
