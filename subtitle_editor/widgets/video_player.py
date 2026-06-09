@@ -257,8 +257,8 @@ class SubtitleRenderer:
 
         # Cache it (limit cache size to prevent memory issues)
         if len(self._font_cache) > 50:
-            # Clear cache when it gets too large
-            self._font_cache.clear()
+            # Remove oldest entry (dicts preserve insertion order in Python 3.7+)
+            self._font_cache.pop(next(iter(self._font_cache)))
         self._font_cache[cache_key] = font_desc
 
         return font_desc
@@ -348,6 +348,10 @@ class SubtitleRenderer:
         # Remove override blocks like {\i1}, {\b1}, etc.
         text = re.sub(r"\{[^}]*\}", "", text)
         return text
+
+    def clear_font_cache(self):
+        """Clear the font description cache."""
+        self._font_cache.clear()
 
 
 class VideoPlayerWidget(Gtk.Box):
@@ -933,7 +937,7 @@ class VideoPlayerWidget(Gtk.Box):
         value = scale.get_value()
         self.subtitle_renderer.subtitle_scale = value
         # Clear font cache since scale changed
-        self.subtitle_renderer._font_cache.clear()
+        self.subtitle_renderer.clear_font_cache()
         # Force redraw of current subtitle
         self.subtitle_drawing_area.queue_draw()
         # Save preference
