@@ -241,7 +241,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,0:00:01.00,0:00:02.00,Default,,,0,0,0,,Valid
 """
         doc = ASSParser.parse(bad_ass)
-        assert len(doc.entries) >= 0  # Should not crash
+        assert len(doc.entries) == 1  # Only the valid dialogue entry is parsed
 
     @pytest.mark.integration
     def test_unicode_content(self):

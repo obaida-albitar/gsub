@@ -158,7 +158,7 @@ class TestASSParser:
         """Test parsing basic ASS content."""
         doc = ASSParser.parse(sample_ass_content)
         
-        assert doc.format in [SubtitleFormat.ASS, SubtitleFormat.SSA]
+        assert doc.format == SubtitleFormat.ASS
         assert len(doc.entries) == 2
         assert len(doc.styles) >= 1
         assert doc.modified is False

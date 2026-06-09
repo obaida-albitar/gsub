@@ -159,7 +159,7 @@ class TestMediaExtractor:
                             format=fmt
                         )
                         # Should not raise exception
-                        assert result is True or isinstance(result, bool)
+                        assert result is True
 
     @pytest.mark.unit
     def test_clean_subtitle_file_removes_html_tags(self):
@@ -326,4 +326,4 @@ Line one\NLine two
                             f'/tmp/output.{fmt}',
                             format=fmt
                         )
-                        assert result is True or isinstance(result, bool)
+                        assert result is True

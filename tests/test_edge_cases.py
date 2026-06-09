@@ -612,8 +612,7 @@ class TestCommandEdgeCases:
         cm = CommandManager()
         cm.execute(TimeShiftCommand(doc, 1000, positions=[]))
         
-        # Empty positions list means no entries are shifted, but TimeShiftCommand 
-        # treats empty list as "shift all" - this is expected behavior
+        # TimeShiftCommand treats empty list as "shift all" - this is expected behavior
         # Entry was at 1000ms, shifted by 1000ms = 2000ms
         assert doc.entries[0].start_time.total_milliseconds == 2000
 
@@ -754,7 +753,7 @@ class TestStressAndBoundaryTests:
         output = ASSParser.serialize(doc)
         doc2 = ASSParser.parse(output)
         
-        assert "작자" in doc2.metadata or len(doc2.metadata) > 0
+        assert "作者" in doc2.metadata
         assert len(doc2.entries) == 1
 
     @pytest.mark.unit
@@ -870,8 +869,7 @@ class TestStressAndBoundaryTests:
         output = SRTParser.serialize(doc)
         doc2 = SRTParser.parse(output)
         
-        # Should handle empty text entries
-        assert len(doc2.entries) >= 0
+        assert len(doc2.entries) == 10
 
     @pytest.mark.integration
     def test_ass_with_maximum_styles(self):
@@ -924,8 +922,8 @@ class TestStressAndBoundaryTests:
             if len(doc.entries) > 5:
                 cm.execute(RemoveEntryCommand(doc, 0))
         
-        # Document should be in valid state
-        assert len(doc.entries) >= 0
+        # Document should be in valid state: 5 entries remain after steady-state removal
+        assert len(doc.entries) == 5
         for i, entry in enumerate(doc.entries, start=1):
             assert entry.index == i
 
