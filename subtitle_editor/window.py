@@ -1138,6 +1138,14 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         except Exception as e:
             pass  # User cancelled
     
+    def _on_video_load_extract_response(self, dialog, response):
+        """Handle video load extraction dialog response."""
+        dialog.close()
+        if response == "extract":
+            self._show_subtitle_extraction_dialog()
+        elif response == "select":
+            self._show_track_selection_dialog()
+
     def _check_and_show_track_selection(self):
         """Check for embedded tracks and show selection dialog if available."""
         has_audio, has_subtitles = self.video_player.has_embedded_tracks()
