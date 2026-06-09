@@ -5,10 +5,11 @@ Displays all subtitle entries in a scrollable list with selection support.
 """
 
 import gi
+import time
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, GObject, Pango, Gio, Gdk
+from gi.repository import Gtk, Adw, GObject, Pango, Gio, Gdk, GLib
 from subtitle_editor.models import SubtitleDocument, SubtitleEntry
 
 

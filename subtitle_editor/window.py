@@ -1128,7 +1128,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self,
             audio_tracks,  # Include audio tracks
             subtitle_tracks,
-            self.video_player._current_audio_track,
+            self.video_player.current_audio_track,
             -1   # No subtitle pre-selected (user must choose which to extract)
         )
         track_dialog.connect("tracks-selected", self._on_extract_track_selected)

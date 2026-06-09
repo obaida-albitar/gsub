@@ -325,6 +325,10 @@ class SubtitleRenderer:
         text = re.sub(r"\{[^}]*\}", "", text)
         return text
 
+    def clear_font_cache(self):
+        """Clear the font description cache."""
+        self._font_cache.clear()
+
 
 class VideoPlayerWidget(Gtk.Box):
     """Video player widget with subtitle overlay."""
