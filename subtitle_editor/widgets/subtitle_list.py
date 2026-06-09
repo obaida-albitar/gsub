@@ -6,6 +6,7 @@ Uses Gtk.ListView for efficient virtualization with large datasets.
 """
 
 import gi
+import time
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
@@ -72,6 +73,21 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.list_view.set_single_click_activate(False)
         self.list_view.add_css_class("navigation-sidebar")
         
+        # Add empty-state placeholder
+        placeholder = Adw.StatusPage()
+        placeholder.set_icon_name("text-x-generic-symbolic")
+        placeholder.set_title("No Subtitles")
+        placeholder.set_description("Open a subtitle file or add your first subtitle entry")
+        
+        add_button = Gtk.Button(label="Add Subtitle")
+        add_button.add_css_class("pill")
+        add_button.add_css_class("suggested-action")
+        add_button.set_action_name("win.add-entry")
+        add_button.set_halign(Gtk.Align.CENTER)
+        placeholder.set_child(add_button)
+        
+        self.list_view.set_placeholder(placeholder)
+        
         # Add margins to list view container
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         box.set_margin_start(12)
@@ -98,9 +114,10 @@ class SubtitleListView(Gtk.ScrolledWindow):
         right_click.connect('pressed', self._on_right_click)
         self.list_view.add_controller(right_click)
         
-        # Store click time for double-click detection
-        self._last_click_time = 0
-        self._last_click_position = -1
+        # Add key controller for activation (Enter key)
+        key_controller = Gtk.EventControllerKey.new()
+        key_controller.connect('key-pressed', self._on_key_pressed)
+        self.list_view.add_controller(key_controller)
     
     def set_document(self, document: SubtitleDocument):
         """Set the subtitle document to display."""
@@ -275,10 +292,13 @@ class SubtitleListView(Gtk.ScrolledWindow):
         selected = []
         bitset = selection_model.get_selection()
         
-        # Iterate through the bitset to get selected indices
-        for i in range(self.list_store.get_n_items()):
-            if bitset.contains(i):
-                selected.append(i)
+        # Use bitset iteration for efficiency (O(selected_count) instead of O(n_items))
+        it = bitset.iterate()
+        while True:
+            result, idx = it.next()
+            if not result:
+                break
+            selected.append(idx)
         
         self._selected_positions = selected
         
@@ -292,20 +312,17 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     def _on_click_pressed(self, gesture, n_press, x, y):
         """Handle click for activation (double-click)."""
-        import time
-        current_time = time.time()
-        
-        # Find which item was clicked
-        widget = gesture.get_widget()
-        # Get position at coordinates - we need to estimate based on item height
-        # For now, we'll track double-clicks by time and emit activation
-        
-        # Double-click detection (within 400ms)
-        if n_press == 2 or (current_time - self._last_click_time < 0.4):
+        if n_press == 2:
             if self._selected_positions:
                 self.emit('entry-activated', self._selected_positions[0])
-        
-        self._last_click_time = current_time
+    
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Handle key press for list activation."""
+        if keyval == Gdk.KEY_Return or keyval == Gdk.KEY_KP_Enter:
+            if self._selected_positions:
+                self.emit('entry-activated', self._selected_positions[0])
+                return True
+        return False
     
     def _on_right_click(self, gesture, n_press, x, y):
         """Handle right-click on list."""
