@@ -405,9 +405,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Save window state before closing."""
         config = self._load_config()
         config["last_directory"] = self.last_directory
-        config["window_width"] = self.get_width()
-        config["window_height"] = self.get_height()
         config["window_maximized"] = self.is_maximized()
+        if not self.is_maximized():
+            config["window_width"] = self.get_width()
+            config["window_height"] = self.get_height()
         self._save_config(config)
         return False  # allow close
 
