@@ -300,6 +300,14 @@ class EditorPanel(Gtk.Box):
         # Give more width for better spacing
         spin.set_width_chars(5 if max_val >= 100 else 4)
 
+        # Disable scroll wheel to prevent accidental value changes
+        scroll_controller = Gtk.EventControllerScroll.new(
+            Gtk.EventControllerScrollFlags.BOTH_AXES
+        )
+        scroll_controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        scroll_controller.connect("scroll", lambda *_: True)
+        spin.add_controller(scroll_controller)
+
         return spin
 
     def set_document_context(self, fmt: SubtitleFormat, style_names: list[str]):
