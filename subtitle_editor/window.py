@@ -12,6 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, Gio, GLib
+import json
 import os
 
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
@@ -35,6 +36,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.current_video_file = None
         self.video_visible = False
+        self.last_directory = self._load_last_directory()
         
         # Set up window properties
         self.set_default_size(1200, 800)
@@ -45,6 +47,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._setup_actions()
         self._update_title()
         self._update_format_actions()
+        self._update_document_actions()
     
     def _build_ui(self):
         """Construct the user interface."""
@@ -348,6 +351,50 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             if action is not None:
                 action.set_enabled(bool(is_ass))
     
+    def _update_document_actions(self):
+        """Enable/disable document-dependent actions."""
+        has_doc = self.document is not None
+        for name in ("save", "save-as", "convert-to-srt", "convert-to-ass",
+                     "select-tracks", "time-shift", "sort-by-time",
+                     "add-entry", "remove-entry", "duplicate-entry",
+                     "move-up", "move-down", "undo", "redo"):
+            action = self._actions.get(name)
+            if action is not None:
+                action.set_enabled(has_doc)
+
+    def _get_config_dir(self):
+        """Get the config directory path."""
+        config_dir = os.path.join(GLib.get_user_config_dir(), "subtitle-editor")
+        os.makedirs(config_dir, exist_ok=True)
+        return config_dir
+
+    def _load_last_directory(self):
+        """Load the last opened directory from config file."""
+        config_file = os.path.join(self._get_config_dir(), "config.json")
+        try:
+            with open(config_file) as f:
+                config = json.load(f)
+                return config.get("last_directory")
+        except (FileNotFoundError, json.JSONDecodeError):
+            return None
+
+    def _save_last_directory(self, directory: str):
+        """Save the last opened directory to config file."""
+        self.last_directory = directory
+        config_file = os.path.join(self._get_config_dir(), "config.json")
+        try:
+            config = {}
+            try:
+                with open(config_file) as f:
+                    config = json.load(f)
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
+            config["last_directory"] = directory
+            with open(config_file, 'w') as f:
+                json.dump(config, f)
+        except Exception as e:
+            logger.warning(f"Failed to save last directory: {e}")
+
     def _show_toast(self, message: str):
         """Show a toast notification."""
         # Escape any special characters for Pango markup (especially & which appears in filenames)
@@ -409,11 +456,13 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._update_title()
             self._update_status()
             self._update_format_actions()
+            self._update_document_actions()
             
             # Update video player with subtitle document
             if self.video_player:
                 self.video_player.set_document(self.document)
             
+            self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             
         except Exception as e:
@@ -439,6 +488,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self.document.file_path = file_path
             self.current_file = file_path
             self._update_title()
+            self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Saved {os.path.basename(file_path)}")
             
         except Exception as e:
@@ -496,6 +546,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._update_title()
         self._update_status()
         self._update_format_actions()
+        self._update_document_actions()
     
     def _on_open(self, action, param):
         """Show file open dialog."""
@@ -526,6 +577,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         dialog.set_filters(filters)
         dialog.set_default_filter(filter_all_subs)
         
+        if self.last_directory:
+            dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
         dialog.open(self, None, self._on_open_response)
     
     def _on_open_response(self, dialog, result):
@@ -590,6 +643,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             ext = ".srt" if self.document.format == SubtitleFormat.SRT else ".ass"
             dialog.set_initial_name(f"untitled{ext}")
         
+        if self.last_directory:
+            dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
         dialog.save(self, None, self._on_save_as_response)
     
     def _on_save_as_response(self, dialog, result):
@@ -923,6 +978,12 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     
     def _on_entry_selected(self, widget, position):
         """Handle subtitle entry selection."""
+        if not self.document:
+            return
+        if len(self.subtitle_list.get_selected_positions()) > 1:
+            self.editor_panel.clear()
+            self.editor_panel.set_sensitive(False)
+            return
         if 0 <= position < len(self.document.entries):
             entry = self.document.entries[position]
             self.editor_panel.set_entry(entry, position)
@@ -1025,6 +1086,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         dialog.set_filters(filters)
         dialog.set_default_filter(filter_video)
         
+        if self.last_directory:
+            dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
         dialog.open(self, None, self._on_open_video_response)
     
     def _on_open_video_response(self, dialog, result):
@@ -1048,6 +1111,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
                     # Expand the paned to show video player
                     self.right_paned.set_position(300)
                 
+                self._save_last_directory(os.path.dirname(file_path))
                 self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
                 
                 # Check for embedded tracks after a delay to allow detection to complete
