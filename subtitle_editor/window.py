@@ -36,11 +36,19 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.current_video_file = None
         self.video_visible = False
-        self.last_directory = self._load_last_directory()
+        
+        # Load saved config
+        config = self._load_config()
+        self.last_directory = config.get("last_directory")
         
         # Set up window properties
-        self.set_default_size(1200, 800)
+        width = config.get("window_width", 1200)
+        height = config.get("window_height", 800)
+        self.set_default_size(width, height)
+        if config.get("window_maximized", False):
+            self.maximize()
         self.set_title("Subtitle Editor")
+        self.connect("close-request", self._on_close_request)
         
         # Build UI
         self._build_ui()
@@ -368,32 +376,40 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         os.makedirs(config_dir, exist_ok=True)
         return config_dir
 
-    def _load_last_directory(self):
-        """Load the last opened directory from config file."""
+    def _load_config(self) -> dict:
+        """Load the full config from the config file."""
         config_file = os.path.join(self._get_config_dir(), "config.json")
         try:
             with open(config_file) as f:
-                config = json.load(f)
-                return config.get("last_directory")
+                return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
-            return None
+            return {}
+
+    def _save_config(self, config: dict):
+        """Save the full config to the config file."""
+        config_file = os.path.join(self._get_config_dir(), "config.json")
+        try:
+            with open(config_file, 'w') as f:
+                json.dump(config, f)
+        except Exception as e:
+            logger.warning(f"Failed to save config: {e}")
 
     def _save_last_directory(self, directory: str):
         """Save the last opened directory to config file."""
         self.last_directory = directory
-        config_file = os.path.join(self._get_config_dir(), "config.json")
-        try:
-            config = {}
-            try:
-                with open(config_file) as f:
-                    config = json.load(f)
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass
-            config["last_directory"] = directory
-            with open(config_file, 'w') as f:
-                json.dump(config, f)
-        except Exception as e:
-            logger.warning(f"Failed to save last directory: {e}")
+        config = self._load_config()
+        config["last_directory"] = directory
+        self._save_config(config)
+
+    def _on_close_request(self, window):
+        """Save window state before closing."""
+        config = self._load_config()
+        config["last_directory"] = self.last_directory
+        config["window_width"] = self.get_width()
+        config["window_height"] = self.get_height()
+        config["window_maximized"] = self.is_maximized()
+        self._save_config(config)
+        return False  # allow close
 
     def _show_toast(self, message: str):
         """Show a toast notification."""
