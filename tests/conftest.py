@@ -48,7 +48,7 @@ def sample_ass_document():
         ASSStyle(name="Title", fontsize=28, bold=True),
     ]
     doc.entries = [
-        SubtitleEntry(1, TimeCode(0, 0, 0, 500), TimeCode(0, 0, 2, 0), "First subtitle", style="Default"),
+        SubtitleEntry(1, TimeCode(0, 0, 0, 500), TimeCode(0, 0, 2, 0), "First subtitle", style="Default", layer=2, actor="Narrator", effect="fade"),
         SubtitleEntry(2, TimeCode(0, 0, 2, 500), TimeCode(0, 0, 5, 0), "Second subtitle", style="Title"),
     ]
     return doc
@@ -98,6 +98,6 @@ Style: Default,Arial,20,&H00FFFFFF,&H00000000,&H00000000,&H00000000,0,0,0,0,100.
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.50,0:00:02.00,Default,,,0,0,0,,First subtitle
+Dialogue: 2,0:00:00.50,0:00:02.00,Default,Narrator,0,0,0,fade,First subtitle
 Dialogue: 0,0:00:02.50,0:00:05.00,Default,,,0,0,0,,Second subtitle
 """
