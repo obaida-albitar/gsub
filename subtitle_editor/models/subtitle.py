@@ -110,6 +110,9 @@ class SubtitleEntry:
     margin_l: int = 0  # Left margin override (0 = use style default)
     margin_r: int = 0  # Right margin override (0 = use style default)
     margin_v: int = 0  # Vertical margin override (0 = use style default)
+    layer: int = 0  # ASS layer number
+    actor: str = ""  # ASS "Name" field (spec calls it "Actor")
+    effect: str = ""  # ASS effect
     
     def __post_init__(self):
         """Ensure text doesn't have leading/trailing whitespace lines."""

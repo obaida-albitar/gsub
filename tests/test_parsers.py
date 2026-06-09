@@ -372,6 +372,9 @@ Dialogue: 0,0:00:00.50,0:00:02.00,Default,,,0,0,0,,Test
             assert e1.end_time.total_milliseconds == e2.end_time.total_milliseconds
             assert e1.text == e2.text
             assert e1.style == e2.style
+            assert e1.layer == e2.layer
+            assert e1.actor == e2.actor
+            assert e1.effect == e2.effect
 
     @pytest.mark.unit
     @pytest.mark.parser
