@@ -1067,8 +1067,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         if hasattr(self, '_extraction_dialog_shown') and self._extraction_dialog_shown:
             return False
         
-        # If video has subtitle tracks, ask user if they want to extract and edit
-        if has_subtitles:
+        # If video has audio or subtitle tracks, show unified selection dialog
+        if has_audio or has_subtitles:
             self._extraction_dialog_shown = True
             audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
             
@@ -1097,16 +1097,6 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         return False  # Stop timeout
     
-    def _on_video_load_extract_response(self, dialog, response):
-        """Handle response to extract dialog on video load."""
-        if response == "extract":
-            # Show track selection for extraction
-            self._show_subtitle_extraction_dialog()
-        elif response == "select":
-            # Show full track selection dialog
-            self._show_track_selection_dialog()
-        # else: just play video - do nothing
-    
     def _show_track_selection_dialog(self):
         """Show the track selection dialog."""
         audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
@@ -1124,35 +1114,22 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         track_dialog.present()
     
     def _show_subtitle_extraction_dialog(self):
-        """Show dialog to select which subtitle track to extract."""
+        """Show dialog to select which subtitle track to extract and optionally change audio."""
         audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
         
         if not subtitle_tracks:
             self._show_toast("No subtitle tracks found")
             return
         
-        # Create a simple selection dialog
-        extract_dialog = Adw.MessageDialog.new(
-            self,
-            "Select Subtitle Track to Extract",
-            "Choose which subtitle track you want to extract for editing:"
-        )
-        
-        # For simplicity, if only one track, extract it directly
-        if len(subtitle_tracks) == 1:
-            self._extract_and_load_subtitle(0)
-            return
-        
-        # Otherwise show selection (we'll create a proper dialog)
+        # Show full track selection dialog with audio tracks included
         from subtitle_editor.widgets.dialogs import TrackSelectionDialog
         
-        # Show dialog with only subtitle selection
         track_dialog = TrackSelectionDialog(
             self,
-            [],  # No audio tracks in this context
+            audio_tracks,  # Include audio tracks
             subtitle_tracks,
-            -1,  # No audio selection
-            -1   # No subtitle pre-selected
+            self.video_player.current_audio_track,
+            -1   # No subtitle pre-selected (user must choose which to extract)
         )
         track_dialog.connect("tracks-selected", self._on_extract_track_selected)
         track_dialog.present()
@@ -1213,7 +1190,10 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     
     def _on_tracks_selected(self, dialog, audio_track, subtitle_track):
         """Handle track selection from dialog."""
-        # Set audio track
+        # Close the track selection dialog first
+        dialog.close()
+        
+        # Set audio track (can be changed independently)
         if audio_track >= 0:
             self.video_player.set_audio_track(audio_track)
             self._show_toast(f"Audio track {audio_track + 1} selected")
@@ -1240,15 +1220,22 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             
             extract_dialog.connect("response", self._on_extract_response, subtitle_track)
             extract_dialog.present()
-        else:
+        elif subtitle_track == -1:
             # Disable embedded subtitles
             self.video_player.set_subtitle_track(-1)
             self._show_toast("Using external subtitles")
     
     def _on_extract_track_selected(self, dialog, audio_track, subtitle_track):
         """Handle track selection for extraction."""
+        # Apply audio track selection first (independent of subtitle extraction)
+        if audio_track >= 0:
+            self.video_player.set_audio_track(audio_track)
+        
+        # Then handle subtitle extraction if a track is selected
         if subtitle_track >= 0:
             self._extract_and_load_subtitle(subtitle_track)
+        
+        dialog.close()
     
     def _extract_and_load_subtitle(self, track_index):
         """Extract a subtitle track and load it for editing."""
