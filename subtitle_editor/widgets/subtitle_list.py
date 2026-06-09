@@ -59,6 +59,7 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self._pending_refresh_positions = set()
         self._refresh_debounce_delay = 50  # 50ms debounce
         
+        
         # Set up scrolled window with modern styling
         self.set_hexpand(True)
         self.set_vexpand(True)
@@ -163,18 +164,22 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.context_menu.append_section(None, move_section)
 
     def _rebuild_store(self):
-        """Create a new store and selection model, and set them on the list view."""
-        new_store = Gio.ListStore.new(SubtitleListItem)
-        if self.document:
-            for i, entry in enumerate(self.document.entries):
-                new_store.append(SubtitleListItem(position=i, entry=entry))
+        """Rebuild the list store in-place to preserve scroll position."""
+        old_count = self.list_store.get_n_items()
+        new_count = len(self.document.entries) if self.document else 0
         
-        new_selection = Gtk.MultiSelection.new(new_store)
-        new_selection.connect('selection-changed', self._on_selection_changed)
-        
-        self.list_store = new_store
-        self.selection_model = new_selection
-        self.list_view.set_model(self.selection_model)
+        if old_count == new_count:
+            # Same count — just update items in place
+            for i in range(new_count):
+                entry = self.document.entries[i]
+                self.list_store.splice(i, 1, [SubtitleListItem(position=i, entry=entry)])
+        else:
+            # Different count — replace all items in one splice call
+            new_items = []
+            if self.document:
+                for i, entry in enumerate(self.document.entries):
+                    new_items.append(SubtitleListItem(position=i, entry=entry))
+            self.list_store.splice(0, old_count, new_items)
 
     def refresh(self, preserve_selection=False):
         """Refresh the entire list by rebuilding the model."""
@@ -221,19 +226,20 @@ class SubtitleListView(Gtk.ScrolledWindow):
         for position in self._pending_refresh_positions:
             if 0 <= position < self.list_store.get_n_items() and self.document and position < len(self.document.entries):
                 entry = self.document.entries[position]
-                store_item = self.list_store.get_item(position)
-                if store_item:
-                    store_item.entry_index = entry.index
-                    store_item.entry_text = entry.text[:80] if len(entry.text) > 80 else entry.text
-                    store_item.entry_start = str(entry.start_time)
-                    store_item.entry_end = str(entry.end_time)
-                    store_item.entry_style = entry.style or ''
-                    self.list_store.splice(position, 1, [store_item])
+                was_selected = position in self._selected_positions
+                self.list_store.splice(position, 1, [SubtitleListItem(position=position, entry=entry)])
+                if was_selected:
+                    self.selection_model.select_item(position, False)
         
         self._pending_refresh_positions.clear()
         self._refresh_timeout_id = None
         return False  # Don't repeat timeout
     
+    def _scroll_to(self, position: int):
+        """Scroll the list view to make the given position visible."""
+        if 0 <= position < self.list_store.get_n_items():
+            self.list_view.scroll_to(position, Gtk.ListScrollFlags.NONE, None)
+
     def select_entry(self, position: int, clear_others=True):
         """Select an entry by position."""
         if position < 0:
@@ -249,6 +255,8 @@ class SubtitleListView(Gtk.ScrolledWindow):
             self.selection_model.select_item(position, False)
             if position not in self._selected_positions:
                 self._selected_positions.append(position)
+        
+        self._scroll_to(position)
     
     def get_selected_positions(self) -> list:
         """Get all currently selected positions."""
