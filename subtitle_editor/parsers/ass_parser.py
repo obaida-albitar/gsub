@@ -4,12 +4,15 @@ ASS/SSA (Advanced SubStation Alpha) subtitle format parser.
 ASS format is more complex than SRT, with sections for metadata, styles, and events.
 """
 
+import logging
 import re
 from typing import List, Dict
 from subtitle_editor.models import (
     SubtitleEntry, SubtitleDocument, SubtitleFormat,
     TimeCode, ASSStyle
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ASSParser:
@@ -103,6 +106,7 @@ class ASSParser:
         values = [v.strip() for v in content.split(',')]
         
         if len(values) < len(format_list):
+            logger.warning("Skipping ASS style with insufficient fields: %s", line)
             return None
         
         style = ASSStyle()
@@ -173,8 +177,9 @@ class ASSParser:
         # Split carefully - text may contain commas
         # Format typically: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text
         parts = content.split(',', len(format_list) - 1)
-        
+
         if len(parts) < len(format_list):
+            logger.warning("Skipping ASS dialogue with insufficient fields: %s", line)
             return None
         
         start_time = None
@@ -244,7 +249,8 @@ class ASSParser:
                 actor=actor,
                 effect=effect
             )
-        
+
+        logger.warning("Skipping ASS dialogue with missing start or end time: %s", line)
         return None
     
     @classmethod

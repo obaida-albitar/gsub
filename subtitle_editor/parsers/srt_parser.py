@@ -11,9 +11,12 @@ This is the first subtitle
 This is the second subtitle
 """
 
+import logging
 import re
 from typing import List
 from subtitle_editor.models import SubtitleEntry, SubtitleDocument, SubtitleFormat, TimeCode
+
+logger = logging.getLogger(__name__)
 
 
 class SRTParser:
@@ -38,7 +41,8 @@ class SRTParser:
                 
             lines = block.strip().split('\n')
             if len(lines) < 3:
-                continue  # Invalid block
+                logger.warning("Skipping SRT block with fewer than 3 lines: %r", block)
+                continue
             
             try:
                 # First line: index
@@ -47,6 +51,7 @@ class SRTParser:
                 # Second line: timecodes
                 match = cls.TIMECODE_PATTERN.match(lines[1])
                 if not match:
+                    logger.warning("Skipping SRT block with invalid timecode: %s", lines[1])
                     continue
                 
                 start_time = TimeCode(
@@ -74,8 +79,9 @@ class SRTParser:
                 )
                 document.entries.append(entry)
                 
-            except (ValueError, IndexError):
-                continue  # Skip invalid entries
+            except (ValueError, IndexError) as exc:
+                logger.warning("Skipping invalid SRT block due to %s: %r", exc, block)
+                continue
         
         document.reindex()
         document.modified = False
