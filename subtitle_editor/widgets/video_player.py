@@ -41,6 +41,8 @@ class SubtitleRenderer:
         # Global subtitle scale factor (similar to mpv's --sub-scale)
         # Default 0.75 to match common video players' comfortable reading size
         self.subtitle_scale = 0.75
+        # Cache for font descriptions to avoid recreating them
+        self._font_cache = {}
 
     def set_document(self, document: Optional[SubtitleDocument]):
         """Set the subtitle document for style lookup."""
@@ -208,21 +210,37 @@ class SubtitleRenderer:
     def _create_font_description(
         self, style: ASSStyle, display_height: int, play_res_y: int = None
     ) -> Pango.FontDescription:
-        """Create a Pango font description from ASS style.
+        """Create a Pango font description from ASS style with caching.
 
         Args:
             style: ASS style object
             display_height: Current display height for scaling
             play_res_y: ASS PlayResY value (reference resolution)
         """
-        font_desc = Pango.FontDescription()
-        font_desc.set_family(style.fontname or "Sans")
-
         # ASS fonts are designed for a specific reference resolution (PlayResY)
         # Default PlayResY is typically 384 for SD or 720/1080 for HD
         # If not specified, assume 384 (the ASS default)
         if play_res_y is None or play_res_y <= 0:
             play_res_y = 384
+
+        # Create cache key
+        cache_key = (
+            style.fontname,
+            style.fontsize,
+            style.bold,
+            style.italic,
+            display_height,
+            play_res_y,
+            self.subtitle_scale
+        )
+        
+        # Check cache first
+        if cache_key in self._font_cache:
+            return self._font_cache[cache_key]
+
+        # Create new font description
+        font_desc = Pango.FontDescription()
+        font_desc.set_family(style.fontname or "Sans")
 
         # Scale font: (display_height / PlayResY) * fontsize * subtitle_scale
         # The subtitle_scale factor makes subtitles more comfortable to read
@@ -236,6 +254,12 @@ class SubtitleRenderer:
             font_desc.set_weight(Pango.Weight.BOLD)
         if style.italic:
             font_desc.set_style(Pango.Style.ITALIC)
+
+        # Cache it (limit cache size to prevent memory issues)
+        if len(self._font_cache) > 50:
+            # Clear cache when it gets too large
+            self._font_cache.clear()
+        self._font_cache[cache_key] = font_desc
 
         return font_desc
 
@@ -352,6 +376,10 @@ class VideoPlayerWidget(Gtk.Box):
         self._current_audio_track = -1
         self._current_subtitle_track = -1
         self._embedded_subtitle_active = False
+        self._tracks_detected = False
+        
+        # Performance optimization: caching to avoid redundant operations
+        self._last_drawn_subtitle = None  # Cache last drawn subtitle to avoid redraws
 
         # Create GStreamer pipeline
         self.player = Gst.ElementFactory.make("playbin", "player")
@@ -450,7 +478,7 @@ class VideoPlayerWidget(Gtk.Box):
         bus.add_signal_watch()
         bus.connect("message", self._on_gst_message)
 
-        # Update timer - use 250ms for better performance
+        # Update timer - use 250ms for smoother updates with less CPU usage
         GLib.timeout_add(250, self._update_position)
         
         # Set up keyboard shortcuts for subtitle size
@@ -608,6 +636,11 @@ class VideoPlayerWidget(Gtk.Box):
         
         self.player.set_state(Gst.State.PAUSED)
 
+        # Reset tracks detection
+        self._audio_tracks = []
+        self._subtitle_tracks = []
+        self._tracks_detected = False
+
         # Query duration and tracks after loading
         GLib.timeout_add(500, self._query_duration)
         GLib.timeout_add(1000, self._detect_tracks)
@@ -663,8 +696,8 @@ class VideoPlayerWidget(Gtk.Box):
             int(position_sec * Gst.SECOND),
         )
 
-        # Update subtitle immediately after seek
-        GLib.idle_add(lambda: self._update_current_subtitle(position_sec))
+        # Update subtitle immediately after seek (direct call, no idle_add needed)
+        self._update_current_subtitle(position_sec)
 
     def skip(self, offset_ms: int):
         """Skip forward or backward by offset in milliseconds."""
@@ -684,8 +717,8 @@ class VideoPlayerWidget(Gtk.Box):
             )
             logger.debug(f"Seek result: {result})")
             
-            # Update subtitle immediately after seek
-            GLib.idle_add(lambda: self._update_current_subtitle(new_pos / Gst.SECOND))
+            # Update subtitle immediately after seek (direct call, no idle_add needed)
+            self._update_current_subtitle(new_pos / Gst.SECOND)
         else:
             logger.error("Error: Could not query position")
 
@@ -700,33 +733,34 @@ class VideoPlayerWidget(Gtk.Box):
         return 0.0
 
     def _update_position(self):
-        """Update position display and subtitle."""
+        """Update position display and subtitle with throttling."""
         if not self.player or self._is_seeking:
             return True
 
         success, position = self.player.query_position(Gst.Format.TIME)
         if success:
             pos_sec = position / Gst.SECOND
+            
+            # Update UI elements (already throttled by 250ms timer)
             self.time_label.set_text(self._format_time(pos_sec))
             self.timeline_scale.set_value(pos_sec)
             self.emit("position-changed", pos_sec)
-
-            # Update subtitle
+            
+            # Update subtitle (also throttled by 250ms timer now)
             self._update_current_subtitle(pos_sec)
 
         return True
 
     def _update_current_subtitle(self, position_sec: float):
-        """Update the currently displayed subtitle based on position."""
+        """Update the currently displayed subtitle based on position with caching."""
         # Don't show external subtitles if embedded subtitles are active
         if self._embedded_subtitle_active:
             if self.current_subtitle is not None:
-                logger.debug(f"Hiding external subtitle (embedded active))")
                 self.current_subtitle = None
                 self.subtitle_drawing_area.queue_draw()
             return
         
-        if not self.document:
+        if not self.document or not self.document.entries:
             if self.current_subtitle is not None:
                 self.current_subtitle = None
                 self.subtitle_drawing_area.queue_draw()
@@ -734,22 +768,21 @@ class VideoPlayerWidget(Gtk.Box):
 
         position_ms = position_sec * 1000
 
-        # Optimize: Check current subtitle first before searching
+        # Optimize: Check current subtitle first before searching (caching)
         if self.current_subtitle:
             start_ms = self.current_subtitle.start_time.total_milliseconds
             end_ms = self.current_subtitle.end_time.total_milliseconds
             if start_ms <= position_ms <= end_ms:
-                # Still showing the same subtitle
+                # Still showing the same subtitle - no need to update
                 return
 
         # Find subtitle at current position using binary search for better performance
         new_subtitle = self._find_subtitle_at_position(position_ms)
 
-        # Update only if changed
+        # Update only if changed (avoid unnecessary redraws)
         if new_subtitle != self.current_subtitle:
             self.current_subtitle = new_subtitle
-            if new_subtitle:
-                logger.debug(f"Showing external subtitle at {position_sec:.2f}s)")
+            # Only queue draw when subtitle actually changes
             self.subtitle_drawing_area.queue_draw()
 
     def _find_subtitle_at_position(self, position_ms: float):
@@ -785,17 +818,30 @@ class VideoPlayerWidget(Gtk.Box):
         return None
 
     def _update_subtitle_display(self):
-        """Force subtitle display update."""
+        """Force subtitle display update (throttled to avoid excessive redraws)."""
+        # This is already optimized - queue_draw() is coalesced by GTK
+        # Multiple calls in quick succession will only trigger one actual redraw
         self.subtitle_drawing_area.queue_draw()
 
     def _draw_subtitle(self, area, cr, width, height):
         """Draw subtitle overlay - optimized to reduce GPU usage."""
+        # Check if we need to redraw (subtitle or size changed)
+        current_key = (id(self.current_subtitle), width, height) if self.current_subtitle else None
+        
         if not self.current_subtitle:
-            # Clear the drawing area when no subtitle
-            cr.set_operator(cairo.Operator.CLEAR)
-            cr.paint()
-            cr.set_operator(cairo.Operator.OVER)
+            # Only clear if we previously had a subtitle
+            if self._last_drawn_subtitle is not None:
+                cr.set_operator(cairo.Operator.CLEAR)
+                cr.paint()
+                cr.set_operator(cairo.Operator.OVER)
+                self._last_drawn_subtitle = None
             return
+        
+        # Skip redraw if same subtitle and same dimensions (optimization)
+        if self._last_drawn_subtitle == current_key:
+            return
+        
+        self._last_drawn_subtitle = current_key
 
         # Clear background - make it transparent
         cr.set_operator(cairo.Operator.CLEAR)
@@ -886,6 +932,8 @@ class VideoPlayerWidget(Gtk.Box):
         """Handle subtitle scale change."""
         value = scale.get_value()
         self.subtitle_renderer.subtitle_scale = value
+        # Clear font cache since scale changed
+        self.subtitle_renderer._font_cache.clear()
         # Force redraw of current subtitle
         self.subtitle_drawing_area.queue_draw()
         # Save preference
@@ -1038,6 +1086,7 @@ class VideoPlayerWidget(Gtk.Box):
         n_audio = self.player.get_property("n-audio")
         n_text = self.player.get_property("n-text")
         
+        # If no tracks detected yet, keep trying
         if n_audio == 0 and n_text == 0:
             return True  # Try again
         
@@ -1056,6 +1105,9 @@ class VideoPlayerWidget(Gtk.Box):
         # Get current tracks
         self._current_audio_track = self.player.get_property("current-audio")
         self._current_subtitle_track = self.player.get_property("current-text")
+        
+        # Mark tracks as detected
+        self._tracks_detected = True
         
         logger.debug(f"Detected {n_audio} audio, {n_text} subtitle tracks)")
         
@@ -1182,9 +1234,18 @@ class VideoPlayerWidget(Gtk.Box):
         """Check if video has embedded audio or subtitle tracks.
         
         Returns:
-            tuple: (has_audio_tracks, has_subtitle_tracks)
+            tuple: (has_audio_tracks, has_subtitle_tracks) or (False, False) if detection not complete
         """
-        return (len(self._audio_tracks) > 0, len(self._subtitle_tracks) > 0)
+        # Don't report tracks until detection is complete
+        # This prevents false negatives during the initial video load
+        if not self.player or not self._tracks_detected:
+            return (False, False)
+        
+        # Once detected, query directly from GStreamer for accurate counts
+        n_audio = self.player.get_property("n-audio")
+        n_text = self.player.get_property("n-text")
+        
+        return (n_audio > 0, n_text > 0)
     
     def extract_subtitle_track(self, track_index, output_path, callback=None):
         """Extract a subtitle track from the video to a file.
