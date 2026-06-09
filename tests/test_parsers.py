@@ -65,6 +65,47 @@ Test 2
 
     @pytest.mark.unit
     @pytest.mark.parser
+    def test_parse_srt_multiparagraph_text(self):
+        """Test parsing SRT with multi-paragraph text (blank lines within text)."""
+        content = """1
+00:00:01,000 --> 00:00:02,000
+First paragraph
+
+Second paragraph
+
+2
+00:00:03,000 --> 00:00:04,000
+Next subtitle
+"""
+        doc = SRTParser.parse(content)
+        assert len(doc.entries) == 2
+        assert "First paragraph" in doc.entries[0].text
+        assert "Second paragraph" in doc.entries[0].text
+        assert doc.entries[1].text == "Next subtitle"
+
+    @pytest.mark.unit
+    @pytest.mark.parser
+    def test_parse_srt_multiparagraph_with_multiple_blank_lines(self):
+        """Test parsing SRT with multiple blank lines within text."""
+        content = """1
+00:00:01,000 --> 00:00:02,000
+Para 1
+
+
+Para 2
+
+
+2
+00:00:03,000 --> 00:00:04,000
+Next
+"""
+        doc = SRTParser.parse(content)
+        assert len(doc.entries) == 2
+        assert "Para 1" in doc.entries[0].text
+        assert "Para 2" in doc.entries[0].text
+
+    @pytest.mark.unit
+    @pytest.mark.parser
     def test_parse_srt_invalid_timecode(self):
         """Test parsing SRT with invalid timecode is skipped."""
         content = """1
@@ -78,6 +119,27 @@ Valid subtitle
         doc = SRTParser.parse(content)
         assert len(doc.entries) == 1
         assert doc.entries[0].text == "Valid subtitle"
+
+    @pytest.mark.unit
+    @pytest.mark.parser
+    def test_parse_srt_multiparagraph_does_not_drop_subsequent_entries(self):
+        """Test that multi-paragraph text doesn't cause cascading entry loss."""
+        lines = []
+        for i in range(1, 51):
+            lines.append(f"{i}")
+            minutes = i // 60
+            seconds = i % 60
+            lines.append(f"00:{minutes:02d}:{seconds:02d},000 --> 00:{minutes:02d}:{seconds + 1:02d},000")
+            if i == 25:
+                lines.append("Line 1\n\nLine 3")
+            else:
+                lines.append(f"Subtitle {i}")
+            lines.append("")
+        content = '\n'.join(lines)
+        doc = SRTParser.parse(content)
+        assert len(doc.entries) == 50
+        assert "Line 1" in doc.entries[24].text
+        assert "Line 3" in doc.entries[24].text
 
     @pytest.mark.unit
     @pytest.mark.parser

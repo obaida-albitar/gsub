@@ -6,24 +6,37 @@ Uses Gtk.ListView for efficient virtualization with large datasets.
 """
 
 import gi
-import time
+import logging
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GObject, Pango, Gio, Gdk, GLib
 from subtitle_editor.models import SubtitleDocument, SubtitleEntry
 
+logger = logging.getLogger(__name__)
+
 
 class SubtitleListItem(GObject.Object):
-    """Wrapper object for list store items holding position indices."""
+    """Wrapper object for list store items holding subtitle entry data."""
     
     __gtype_name__ = 'SubtitleListItem'
     
     position = GObject.Property(type=int, default=0)
+    entry_index = GObject.Property(type=int, default=0)
+    entry_text = GObject.Property(type=str, default='')
+    entry_start = GObject.Property(type=str, default='')
+    entry_end = GObject.Property(type=str, default='')
+    entry_style = GObject.Property(type=str, default='')
     
-    def __init__(self, position=0):
+    def __init__(self, position=0, entry=None):
         super().__init__()
         self.position = position
+        if entry:
+            self.entry_index = entry.index
+            self.entry_text = entry.text[:80] if len(entry.text) > 80 else entry.text
+            self.entry_start = str(entry.start_time)
+            self.entry_end = str(entry.end_time)
+            self.entry_style = entry.style or ''
 
 
 class SubtitleListView(Gtk.ScrolledWindow):
@@ -86,17 +99,17 @@ class SubtitleListView(Gtk.ScrolledWindow):
         add_button.set_halign(Gtk.Align.CENTER)
         placeholder.set_child(add_button)
         
-        self.list_view.set_placeholder(placeholder)
+        if hasattr(self.list_view, 'set_placeholder'):
+            self.list_view.set_placeholder(placeholder)
         
-        # Add margins to list view container
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        box.set_margin_start(12)
-        box.set_margin_end(12)
-        box.set_margin_top(12)
-        box.set_margin_bottom(12)
-        box.append(self.list_view)
-        
-        self.set_child(box)
+        # Make ListView the direct child of the ScrolledWindow so that
+        # the ScrolledWindow uses the ListView's own Gtk.Scrollable
+        # implementation for adjustment communication.
+        self.list_view.set_margin_start(12)
+        self.list_view.set_margin_end(12)
+        self.list_view.set_margin_top(12)
+        self.list_view.set_margin_bottom(12)
+        self.set_child(self.list_view)
         
         # Create context menu (rebuilt based on document format)
         self.context_menu = Gio.Menu()
@@ -149,6 +162,20 @@ class SubtitleListView(Gtk.ScrolledWindow):
         move_section.append("Move Down", "win.move-down")
         self.context_menu.append_section(None, move_section)
 
+    def _rebuild_store(self):
+        """Create a new store and selection model, and set them on the list view."""
+        new_store = Gio.ListStore.new(SubtitleListItem)
+        if self.document:
+            for i, entry in enumerate(self.document.entries):
+                new_store.append(SubtitleListItem(position=i, entry=entry))
+        
+        new_selection = Gtk.MultiSelection.new(new_store)
+        new_selection.connect('selection-changed', self._on_selection_changed)
+        
+        self.list_store = new_store
+        self.selection_model = new_selection
+        self.list_view.set_model(self.selection_model)
+
     def refresh(self, preserve_selection=False):
         """Refresh the entire list by rebuilding the model."""
         # Cancel any pending single-entry refreshes
@@ -160,12 +187,8 @@ class SubtitleListView(Gtk.ScrolledWindow):
         # Store current selection if requested
         old_selection = self._selected_positions.copy() if preserve_selection else []
         
-        # Clear and rebuild the list store
-        self.list_store.remove_all()
-        
-        if self.document:
-            for i in range(len(self.document.entries)):
-                self.list_store.append(SubtitleListItem(position=i))
+        self._rebuild_store()
+        self.list_view.queue_resize()
         
         # Restore selection if requested
         if preserve_selection and old_selection:
@@ -195,10 +218,17 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     def _process_pending_refreshes(self):
         """Process all pending entry refreshes in batch."""
-        # For ListView, we notify the model that items changed
         for position in self._pending_refresh_positions:
-            if 0 <= position < self.list_store.get_n_items():
-                self.list_store.items_changed(position, 1, 1)
+            if 0 <= position < self.list_store.get_n_items() and self.document and position < len(self.document.entries):
+                entry = self.document.entries[position]
+                store_item = self.list_store.get_item(position)
+                if store_item:
+                    store_item.entry_index = entry.index
+                    store_item.entry_text = entry.text[:80] if len(entry.text) > 80 else entry.text
+                    store_item.entry_start = str(entry.start_time)
+                    store_item.entry_end = str(entry.end_time)
+                    store_item.entry_style = entry.style or ''
+                    self.list_store.splice(position, 1, [store_item])
         
         self._pending_refresh_positions.clear()
         self._refresh_timeout_id = None
@@ -256,50 +286,47 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     def _on_factory_bind(self, factory, list_item):
         """Bind phase: Update widget with actual data."""
-        # Get the SubtitleListItem object
-        item = list_item.get_item()
-        if not item:
-            return
-        
-        position = item.position
-        if not self.document or position >= len(self.document.entries):
-            return
-        
-        entry = self.document.entries[position]
-        action_row = list_item.get_child()
-        
-        # Update index
-        action_row._index_label.set_text(str(entry.index))
-        
-        # Update title (subtitle text)
-        action_row.set_title(entry.text[:80] if len(entry.text) > 80 else entry.text)
-        
-        # Update subtitle (timing and style)
-        timing_text = f"{entry.start_time} → {entry.end_time}"
-        subtitle_parts = [f"<span font_features='tnum=1'>{timing_text}</span>"]
-        if entry.style:
-            subtitle_parts.append(f"<b>Style:</b> {entry.style}")
-        action_row.set_subtitle(" • ".join(subtitle_parts))
+        try:
+            item = list_item.get_item()
+            if not item:
+                logger.warning("bind: get_item() returned None")
+                return
+            
+            position = item.position
+            action_row = list_item.get_child()
+            
+            logger.debug("bind: position=%d, idx=%d, text='%s'",
+                         position, item.entry_index,
+                         item.entry_text[:30])
+            
+            # Update index
+            action_row._index_label.set_text(str(item.entry_index))
+            
+            # Update title (subtitle text)
+            action_row.set_title(item.entry_text)
+            
+            # Update subtitle (timing and style)
+            timing_text = f"{item.entry_start} → {item.entry_end}"
+            subtitle_parts = [timing_text]
+            if item.entry_style:
+                subtitle_parts.append(f"Style: {item.entry_style}")
+            action_row.set_subtitle(" • ".join(subtitle_parts))
+        except Exception:
+            logger.exception("Failed to bind list item")
     
     def _on_factory_unbind(self, factory, list_item):
         """Unbind phase: Clean up if needed."""
-        # Nothing to clean up in our case
-        pass
+        item = list_item.get_item()
+        if item:
+            logger.debug("unbind: position=%d", item.position)
     
     def _on_selection_changed(self, selection_model, position, n_items):
         """Handle selection changes in the ListView."""
-        # Get all selected positions
         selected = []
         bitset = selection_model.get_selection()
-        
-        # Use bitset iteration for efficiency (O(selected_count) instead of O(n_items))
-        it = bitset.iterate()
-        while True:
-            result, idx = it.next()
-            if not result:
-                break
-            selected.append(idx)
-        
+        size = bitset.get_size()
+        for i in range(size):
+            selected.append(bitset.get_nth(i))
         self._selected_positions = selected
         
         # Emit signals

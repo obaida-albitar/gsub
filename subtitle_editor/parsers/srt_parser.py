@@ -32,8 +32,13 @@ class SRTParser:
         """Parse SRT content into a SubtitleDocument."""
         document = SubtitleDocument(format=SubtitleFormat.SRT)
         
-        # Split into subtitle blocks (separated by blank lines)
-        blocks = re.split(r'\n\s*\n', content.strip())
+        # Split into subtitle blocks only at blank lines followed by
+        # a subtitle block header (index number + timecode line).
+        # This avoids splitting inside multi-paragraph subtitle text.
+        blocks = re.split(
+            r'\n\s*\n(?=\d+\s*\n\d{2}:\d{2}:\d{2},\d{3}\s*-->\s*\d{2}:\d{2}:\d{2},\d{3})',
+            content.strip()
+        )
         
         for block in blocks:
             if not block.strip():
