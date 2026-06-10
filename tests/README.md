@@ -1,6 +1,6 @@
-# Test Suite for GNOME Subtitle Editor
+# Test Suite for gsub
 
-This directory contains comprehensive tests for the GNOME Subtitle Editor application.
+This directory contains comprehensive tests for the gsub application.
 
 ## Test Structure
 

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=gsub
+Comment=Edit SRT and ASS/SSA subtitle files
+Exec=gsub %F
+Icon=app.gsub
+Terminal=false
+Type=Application
+Categories=GTK;AudioVideo;Video;TextTools;
+MimeType=application/x-subrip;text/x-ass;text/x-ssa;
+StartupNotify=true

@@ -28,7 +28,7 @@ from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
 from subtitle_editor.widgets.batch_confirm_dialog import BatchConfirmDialog
 
 
-class SubtitleEditorWindow(Adw.ApplicationWindow):
+class GsubWindow(Adw.ApplicationWindow):
     """Main application window."""
     
     def __init__(self, **kwargs):
@@ -1382,15 +1382,13 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         """Show about dialog."""
         about = Adw.AboutWindow(
             transient_for=self,
-            application_name="Subtitle Editor",
-            application_icon="accessories-text-editor-symbolic",
-            developer_name="GNOME Community",
-            version="1.0.0",
-            website="https://gitlab.gnome.org/",
-            issue_url="https://gitlab.gnome.org/",
+            application_name="gsub",
+            application_icon="app.gsub",
+            developer_name="gsub Contributors",
+            version="0.1.0",
             license_type=Gtk.License.GPL_3_0,
-            developers=["GNOME Subtitle Editor Contributors"],
-            comments="A modern subtitle editor for GNOME"
+            developers=["gsub Contributors"],
+            comments="A modern subtitle editor"
         )
         about.present()
     

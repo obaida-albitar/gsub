@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#8b5cf6"/>
+    </linearGradient>
+  </defs>
+  <!-- Base rounded square -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <!-- Film perforations (left side) -->
+  <rect x="96" y="128" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <rect x="96" y="176" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <rect x="96" y="224" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <rect x="96" y="272" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <rect x="96" y="320" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <rect x="96" y="368" width="24" height="24" rx="3" fill="#ffffff" opacity="0.3"/>
+  <!-- Subtitle bar -->
+  <rect x="148" y="216" width="280" height="112" rx="28" fill="#ffffff"/>
+  <!-- Play triangle -->
+  <path d="M 172 244 L 172 300 L 216 272 Z" fill="#6366f1" opacity="0.5"/>
+  <!-- Text line 1 -->
+  <rect x="232" y="250" width="168" height="14" rx="7" fill="#6366f1" opacity="0.8"/>
+  <!-- Text line 2 -->
+  <rect x="232" y="280" width="120" height="14" rx="7" fill="#6366f1" opacity="0.5"/>
+</svg>

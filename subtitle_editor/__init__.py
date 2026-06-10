@@ -1,4 +1,4 @@
-"""GNOME Subtitle Editor package."""
+"""gsub package."""
 
-__version__ = "1.0.0"
-__author__ = "GNOME Subtitle Editor Contributors"
+__version__ = "0.1.0"
+__author__ = "gsub Contributors"
