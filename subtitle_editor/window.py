@@ -22,6 +22,10 @@ from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
 from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
+from subtitle_editor.widgets.home_screen import HomeScreenView
+from subtitle_editor.widgets.batch_file_list import BatchFileList
+from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
+from subtitle_editor.widgets.batch_confirm_dialog import BatchConfirmDialog
 
 
 class SubtitleEditorWindow(Adw.ApplicationWindow):
@@ -36,6 +40,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.current_video_file = None
         self.video_visible = False
+        self.current_view = "home"  # "home", "editor", or "batch"
+        self.batch_format = None  # SubtitleFormat of batch files (all same format)
         
         # Load saved config
         config = self._load_config()
@@ -52,6 +58,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         
         # Build UI
         self._build_ui()
+        self._update_header_bar()
         self._setup_actions()
         self._update_title()
         self._update_format_actions()
@@ -76,71 +83,139 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.header_bar = Adw.HeaderBar()
         toolbar_view.add_top_bar(self.header_bar)
         
-        # Primary menu button
-        menu_button = Gtk.MenuButton()
-        menu_button.set_icon_name("open-menu-symbolic")
-        menu_button.set_menu_model(self._create_primary_menu())
-        menu_button.set_tooltip_text("Main Menu")
-        self.header_bar.pack_end(menu_button)
+        # Primary menu button (menu model switches per view)
+        self.menu_button = Gtk.MenuButton()
+        self.menu_button.set_icon_name("open-menu-symbolic")
+        self.menu_button.set_tooltip_text("Main Menu")
+        self.header_bar.pack_end(self.menu_button)
         
         # Document title - centered
         self.title_widget = Adw.WindowTitle()
         self.title_widget.set_title("Subtitle Editor")
         self.header_bar.set_title_widget(self.title_widget)
-        
-        # Open/Save button group (start side)
+
+        # Header start buttons - use a stack to switch between views
+        self.header_start_stack = Gtk.Stack()
+        self.header_start_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+
+        # Home page: empty (no start buttons)
+        home_header = Gtk.Box()
+        self.header_start_stack.add_named(home_header, "home")
+
+        # Editor page: nav buttons + Open/Save + Undo/Redo + Video toggle
+        editor_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+
+        nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        nav_box.add_css_class("linked")
+
+        home_btn = Gtk.Button()
+        home_btn.set_icon_name("go-home-symbolic")
+        home_btn.set_tooltip_text("Home")
+        home_btn.connect('clicked', lambda b: self._navigate_to_home())
+        nav_box.append(home_btn)
+
+        batch_btn = Gtk.Button()
+        batch_btn.set_icon_name("folder-multiple-symbolic")
+        batch_btn.set_tooltip_text("Batch Operations")
+        batch_btn.connect('clicked', lambda b: self._navigate_to_batch())
+        nav_box.append(batch_btn)
+
+        editor_header.append(nav_box)
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        separator.set_margin_start(4)
+        separator.set_margin_end(4)
+        editor_header.append(separator)
+
         file_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         file_box.add_css_class("linked")
-        
+
         open_button = Gtk.Button()
         open_button.set_icon_name("document-open-symbolic")
         open_button.set_tooltip_text("Open File (Ctrl+O)")
         open_button.set_action_name("win.open")
         file_box.append(open_button)
-        
+
         self.save_button = Gtk.Button()
         self.save_button.set_icon_name("document-save-symbolic")
         self.save_button.set_tooltip_text("Save (Ctrl+S)")
         self.save_button.set_action_name("win.save")
         file_box.append(self.save_button)
-        
-        self.header_bar.pack_start(file_box)
-        
-        # Undo/Redo buttons
+
+        editor_header.append(file_box)
+
         undo_redo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         undo_redo_box.add_css_class("linked")
-        
+        undo_redo_box.set_margin_start(6)
+
         self.undo_button = Gtk.Button()
         self.undo_button.set_icon_name("edit-undo-symbolic")
         self.undo_button.set_tooltip_text("Undo (Ctrl+Z)")
         self.undo_button.set_action_name("win.undo")
         self.undo_button.set_sensitive(False)
         undo_redo_box.append(self.undo_button)
-        
+
         self.redo_button = Gtk.Button()
         self.redo_button.set_icon_name("edit-redo-symbolic")
         self.redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
-        self.redo_button.set_action_name("win.redo")
         self.redo_button.set_sensitive(False)
         undo_redo_box.append(self.redo_button)
-        
-        self.header_bar.pack_start(undo_redo_box)
-        
-        # Video button (toggle video player)
+
+        editor_header.append(undo_redo_box)
+
         self.video_button = Gtk.ToggleButton()
         self.video_button.set_icon_name("video-display-symbolic")
         self.video_button.set_tooltip_text("Toggle Video Player (Ctrl+V)")
         self.video_button.connect('toggled', self._on_video_toggle)
-        self.header_bar.pack_start(self.video_button)
+        self.video_button.set_margin_start(6)
+        editor_header.append(self.video_button)
+
+        self.header_start_stack.add_named(editor_header, "editor")
+
+        # Batch page: navigation + Add Files
+        batch_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        batch_nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        batch_nav_box.add_css_class("linked")
+        batch_home_btn = Gtk.Button()
+        batch_home_btn.set_icon_name("go-home-symbolic")
+        batch_home_btn.set_tooltip_text("Home")
+        batch_home_btn.connect('clicked', lambda b: self._navigate_to_home())
+        batch_nav_box.append(batch_home_btn)
+        batch_editor_btn = Gtk.Button()
+        batch_editor_btn.set_icon_name("accessories-text-editor-symbolic")
+        batch_editor_btn.set_tooltip_text("Editor")
+        batch_editor_btn.connect('clicked', lambda b: self._navigate_to_editor(show_open=False))
+        batch_nav_box.append(batch_editor_btn)
+        batch_header.append(batch_nav_box)
+
+        separator2 = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
+        separator2.set_margin_start(4)
+        separator2.set_margin_end(4)
+        batch_header.append(separator2)
+
+        batch_add_btn = Gtk.Button(label="Add Files…")
+        batch_add_btn.set_icon_name("list-add-symbolic")
+        batch_add_btn.connect('clicked', lambda b: self._on_batch_add_files())
+        batch_header.append(batch_add_btn)
+        self.header_start_stack.add_named(batch_header, "batch")
+
+        self.header_bar.pack_start(self.header_start_stack)
         
-        # Main content - use Adw.ViewStack for potential future views
+        # Main content - use Adw.ViewStack for different views
         self.view_stack = Adw.ViewStack()
         self.toast_overlay.set_child(self.view_stack)
-        
-        # Main editing view
+
+        # --- Home page ---
+        self.home_screen = HomeScreenView()
+        self.home_screen.connect('open-file', lambda w: self._navigate_to_editor(show_open=True))
+        self.home_screen.connect('open-batch', lambda w: self._navigate_to_batch())
+        self.view_stack.add_titled(self.home_screen, "home", "Home")
+
+        # --- Editor page (existing single-file editing) ---
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        main_page = self.view_stack.add_titled(main_box, "main", "Editor")
-        
+        self.view_stack.add_titled(main_box, "editor", "Editor")
+
         # Editing area - horizontal split (list + editor with video)
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.paned.set_vexpand(True)
@@ -150,7 +225,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.paned.set_resize_start_child(False)
         self.paned.set_resize_end_child(True)
         main_box.append(self.paned)
-        
+
         # Left side: Subtitle list with card container
         list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         list_container.add_css_class("background")
@@ -159,7 +234,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.subtitle_list.connect('entry-activated', self._on_entry_activated)
         list_container.append(self.subtitle_list)
         self.paned.set_start_child(list_container)
-        
+
         # Right side: Video player at top, editor panel below - use vertical paned for resizing
         self.right_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         self.right_paned.set_vexpand(True)
@@ -168,7 +243,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.right_paned.set_resize_start_child(True)
         self.right_paned.set_resize_end_child(True)
         self.right_paned.set_position(0)  # Start collapsed
-        
+
         # Video player at the top (initially hidden) in a container
         video_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         video_container.add_css_class("background")
@@ -178,13 +253,13 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.video_player.connect('position-changed', self._on_video_position_changed)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
-        
+
         # Editor panel below video player in a scrolled window
         editor_scroll = Gtk.ScrolledWindow()
         editor_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         editor_scroll.set_vexpand(True)
         editor_scroll.add_css_class("background")
-        
+
         self.editor_panel = EditorPanel()
         self.editor_panel.connect('text-changed', self._on_text_changed)
         self.editor_panel.connect('timing-changed', self._on_timing_changed)
@@ -192,51 +267,111 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self.editor_panel.connect('position-changed', self._on_position_changed)
         editor_scroll.set_child(self.editor_panel)
         self.right_paned.set_end_child(editor_scroll)
-        
+
         self.paned.set_end_child(self.right_paned)
-        
+
+        # --- Batch page ---
+        batch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.view_stack.add_titled(batch_box, "batch", "Batch Operations")
+
+        self.batch_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        self.batch_paned.set_vexpand(True)
+        self.batch_paned.set_position(350)
+        batch_box.append(self.batch_paned)
+
+        # Left side: batch file list
+        batch_list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        batch_list_container.add_css_class("background")
+        self.batch_file_list = BatchFileList()
+        self.batch_file_list.connect('selection-changed', self._on_batch_selection_changed)
+        self.batch_file_list.connect('files-changed', self._on_batch_files_changed)
+        batch_list_container.append(self.batch_file_list)
+        self.batch_paned.set_start_child(batch_list_container)
+
+        # Right side: batch operations
+        batch_ops_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        batch_ops_container.add_css_class("background")
+        self.batch_operations = BatchOperationsPanel()
+        self.batch_operations.connect('operations-changed', self._on_batch_ops_changed)
+        batch_ops_container.append(self.batch_operations)
+
+        # Batch action buttons below operations
+        batch_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        batch_button_box.set_margin_start(12)
+        batch_button_box.set_margin_end(12)
+        batch_button_box.set_margin_top(18)
+        batch_button_box.set_margin_bottom(12)
+
+        batch_apply_btn = Gtk.Button(label="Apply Operations")
+        batch_apply_btn.add_css_class("suggested-action")
+        batch_apply_btn.connect('clicked', lambda b: self._on_batch_apply())
+        self.batch_apply_btn = batch_apply_btn
+        self.batch_apply_btn.set_sensitive(False)
+        batch_button_box.append(batch_apply_btn)
+
+        batch_save_btn = Gtk.Button(label="Save All")
+        batch_save_btn.connect('clicked', lambda b: self._on_batch_save_all())
+        self.batch_save_btn = batch_save_btn
+        self.batch_save_btn.set_sensitive(False)
+        batch_button_box.append(batch_save_btn)
+
+        batch_save_as_btn = Gtk.Button(label="Save All As…")
+        batch_save_as_btn.connect('clicked', lambda b: self._on_batch_save_all_as())
+        self.batch_save_as_btn = batch_save_as_btn
+        self.batch_save_as_btn.set_sensitive(False)
+        batch_button_box.append(batch_save_as_btn)
+
+        batch_ops_container.append(batch_button_box)
+        self.batch_paned.set_end_child(batch_ops_container)
+
+        # Set default view to home
+        self.view_stack.set_visible_child_name("home")
+
         # Bottom bar with status and actions
-        bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        bottom_bar.set_margin_start(12)
-        bottom_bar.set_margin_end(12)
-        bottom_bar.set_margin_top(6)
-        bottom_bar.set_margin_bottom(6)
-        toolbar_view.add_bottom_bar(bottom_bar)
-        
+        self.bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.bottom_bar.set_margin_start(12)
+        self.bottom_bar.set_margin_end(12)
+        self.bottom_bar.set_margin_top(6)
+        self.bottom_bar.set_margin_bottom(6)
+        toolbar_view.add_bottom_bar(self.bottom_bar)
+
         # Status label
         self.status_bar = Gtk.Label()
         self.status_bar.set_halign(Gtk.Align.START)
         self.status_bar.set_hexpand(True)
         self.status_bar.add_css_class("dim-label")
-        bottom_bar.append(self.status_bar)
-        
-        # Action buttons in bottom bar
-        action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        
-        add_button = Gtk.Button()
-        add_button.set_icon_name("list-add-symbolic")
-        add_button.set_tooltip_text("Add Subtitle (Ctrl+N)")
-        add_button.set_action_name("win.add-entry")
-        action_box.append(add_button)
-        
-        remove_button = Gtk.Button()
-        remove_button.set_icon_name("list-remove-symbolic")
-        remove_button.set_tooltip_text("Remove Subtitle (Delete)")
-        remove_button.set_action_name("win.remove-entry")
-        action_box.append(remove_button)
-        
-        duplicate_button = Gtk.Button()
-        duplicate_button.set_icon_name("edit-copy-symbolic")
-        duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
-        duplicate_button.set_action_name("win.duplicate-entry")
-        action_box.append(duplicate_button)
-        
-        bottom_bar.append(action_box)
-        
-        self._update_status()
+        self.bottom_bar.append(self.status_bar)
+
+        # Action buttons in bottom bar (shared across views, updated on switch)
+        self.action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.bottom_bar.append(self.action_box)
+
+        self._update_bottom_bar()
     
-    def _create_primary_menu(self):
-        """Create the primary menu."""
+    def _create_home_menu(self):
+        """Create the primary menu for the home view."""
+        menu = Gio.Menu()
+        app_section = Gio.Menu()
+        app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
+        app_section.append("About Subtitle Editor", "win.about")
+        menu.append_section(None, app_section)
+        return menu
+
+    def _create_batch_menu(self):
+        """Create the primary menu for the batch view."""
+        menu = Gio.Menu()
+        nav_section = Gio.Menu()
+        nav_section.append("Home", "win.home")
+        nav_section.append("Editor", "win.editor-view")
+        menu.append_section(None, nav_section)
+        app_section = Gio.Menu()
+        app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
+        app_section.append("About Subtitle Editor", "win.about")
+        menu.append_section(None, app_section)
+        return menu
+
+    def _create_editor_menu(self):
+        """Create the primary menu for the editor view."""
         menu = Gio.Menu()
         
         # File section
@@ -252,6 +387,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         file_section.append_submenu("Convert Format", convert_menu)
         
         menu.append_section(None, file_section)
+
+        # Batch section
+        batch_section = Gio.Menu()
+        batch_section.append("Batch Operations…", "win.batch")
+        menu.append_section(None, batch_section)
         
         # Video section
         video_section = Gio.Menu()
@@ -291,6 +431,11 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._create_action("toggle-video", self._on_toggle_video, ["<Ctrl>V"])
         self._create_action("select-tracks", self._on_select_tracks, ["<Ctrl><Shift>T"])
         
+        # Navigation actions
+        self._create_action("home", self._on_home, ["<Alt>Home"])
+        self._create_action("batch", self._on_batch)
+        self._create_action("editor-view", self._on_editor_view)
+
         # Edit actions
         self._create_action("undo", self._on_undo, ["<Ctrl>Z"])
         self._create_action("redo", self._on_redo, ["<Ctrl><Shift>Z"])
@@ -437,7 +582,84 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
     def _hide_banner(self):
         """Hide the banner notification."""
         self.banner.set_revealed(False)
-    
+
+    def _navigate_to_home(self):
+        """Switch to the home view."""
+        self.current_view = "home"
+        self.view_stack.set_visible_child_name("home")
+        self.title_widget.set_title("Subtitle Editor")
+        self.title_widget.set_subtitle("")
+        self._update_header_bar()
+        self._update_bottom_bar()
+
+    def _navigate_to_editor(self, show_open=True):
+        """Switch to the editor view.
+
+        Args:
+            show_open: If True, show the file open dialog (used when coming from home).
+        """
+        self.current_view = "editor"
+        self.view_stack.set_visible_child_name("editor")
+        self._update_header_bar()
+        self._update_bottom_bar()
+        self._update_title()
+        self._update_status()
+        # Only open file dialog when explicitly requested (from home screen or new file)
+        if show_open and not self.document:
+            self._on_open(None, None)
+
+    def _navigate_to_batch(self):
+        """Switch to the batch operations view."""
+        self.current_view = "batch"
+        self.view_stack.set_visible_child_name("batch")
+        self.title_widget.set_title("Batch Operations")
+        self.title_widget.set_subtitle("")
+        self._update_header_bar()
+        self._update_bottom_bar()
+
+    def _update_header_bar(self):
+        """Update the header bar buttons and menu based on current view."""
+        self.header_start_stack.set_visible_child_name(self.current_view)
+        if self.current_view == "home":
+            self.menu_button.set_menu_model(self._create_home_menu())
+        elif self.current_view == "batch":
+            self.menu_button.set_menu_model(self._create_batch_menu())
+        else:
+            self.menu_button.set_menu_model(self._create_editor_menu())
+
+    def _update_bottom_bar(self):
+        """Update the bottom bar buttons based on current view."""
+        # Clear existing action buttons
+        while self.action_box.get_first_child():
+            self.action_box.remove(self.action_box.get_first_child())
+
+        if self.current_view == "editor":
+            # Editor action buttons
+            add_button = Gtk.Button()
+            add_button.set_icon_name("list-add-symbolic")
+            add_button.set_tooltip_text("Add Subtitle (Ctrl+Shift+N)")
+            add_button.set_action_name("win.add-entry")
+            self.action_box.append(add_button)
+
+            remove_button = Gtk.Button()
+            remove_button.set_icon_name("list-remove-symbolic")
+            remove_button.set_tooltip_text("Remove Subtitle (Delete)")
+            remove_button.set_action_name("win.remove-entry")
+            self.action_box.append(remove_button)
+
+            duplicate_button = Gtk.Button()
+            duplicate_button.set_icon_name("edit-copy-symbolic")
+            duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
+            duplicate_button.set_action_name("win.duplicate-entry")
+            self.action_box.append(duplicate_button)
+
+            self._update_status()
+        elif self.current_view == "batch":
+            self._update_batch_status()
+        else:
+            # Home view - just status
+            self.status_bar.set_text("")
+
     def open_file(self, gfile: Gio.File):
         """Open a subtitle file."""
         try:
@@ -481,7 +703,8 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             
             self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Opened {os.path.basename(file_path)}")
-            
+            self._navigate_to_editor(show_open=False)
+
         except Exception as e:
             self._show_error(f"Error opening file: {str(e)}")
     
@@ -564,6 +787,7 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         self._update_status()
         self._update_format_actions()
         self._update_document_actions()
+        self._navigate_to_editor(show_open=False)
     
     def _on_open(self, action, param):
         """Show file open dialog."""
@@ -887,6 +1111,273 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
             self._update_undo_redo_buttons()
             self._show_toast("Subtitles sorted by time")
     
+    # --- Batch operation handlers ---
+
+    def _on_batch_selection_changed(self, widget):
+        """Handle batch file selection changes."""
+        self._update_batch_action_buttons()
+
+    def _on_batch_files_changed(self, widget):
+        """Handle batch file list changes."""
+        self._update_batch_action_buttons()
+
+    def _on_batch_ops_changed(self, widget):
+        """Handle batch operations changes."""
+        self._update_batch_action_buttons()
+
+    def _update_batch_action_buttons(self):
+        """Enable/disable batch action buttons based on state."""
+        has_files = self.batch_file_list.file_count > 0
+        has_selected = len(self.batch_file_list.get_selected_files()) > 0
+        has_ops = self.batch_operations.has_any_operation()
+
+        self.batch_apply_btn.set_sensitive(has_selected and has_ops)
+        self.batch_save_btn.set_sensitive(has_selected)
+        self.batch_save_as_btn.set_sensitive(has_selected)
+
+    def _update_batch_status(self):
+        """Update the status bar for batch view."""
+        total = self.batch_file_list.file_count
+        selected = len(self.batch_file_list.get_selected_files())
+        if total == 0:
+            self.status_bar.set_text("No files loaded. Click 'Add Files…' to begin.")
+        else:
+            fmt = self.batch_format.value.upper() if self.batch_format else ""
+            self.status_bar.set_text(f"{total} files ({selected} selected) • {fmt} format")
+
+    def _on_batch_add_files(self):
+        """Open a file dialog to add multiple subtitle files to the batch list."""
+        dialog = Gtk.FileDialog()
+        dialog.set_title("Add Subtitle Files")
+
+        # Set up file filters
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+
+        filter_all_subs = Gtk.FileFilter()
+        filter_all_subs.set_name("All Subtitle Files")
+        filter_all_subs.add_pattern("*.srt")
+        filter_all_subs.add_pattern("*.ass")
+        filter_all_subs.add_pattern("*.ssa")
+        filters.append(filter_all_subs)
+
+        filter_srt = Gtk.FileFilter()
+        filter_srt.set_name("SRT Files")
+        filter_srt.add_pattern("*.srt")
+        filters.append(filter_srt)
+
+        filter_ass = Gtk.FileFilter()
+        filter_ass.set_name("ASS/SSA Files")
+        filter_ass.add_pattern("*.ass")
+        filter_ass.add_pattern("*.ssa")
+        filters.append(filter_ass)
+
+        dialog.set_filters(filters)
+        dialog.set_default_filter(filter_all_subs)
+
+        # Set default filter to match existing batch format if any
+        if self.batch_format == SubtitleFormat.SRT:
+            dialog.set_default_filter(filter_srt)
+        elif self.batch_format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            dialog.set_default_filter(filter_ass)
+
+        if self.last_directory:
+            dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
+        dialog.open_multiple(self, None, self._on_batch_add_files_response)
+
+    def _on_batch_add_files_response(self, dialog, result):
+        """Handle batch file selection dialog response."""
+        try:
+            files = dialog.open_multiple_finish(result)
+            if not files:
+                return
+
+            for gfile in files:
+                file_path = gfile.get_path()
+                try:
+                    success, contents, _ = gfile.load_contents(None)
+                    if not success:
+                        continue
+
+                    content = contents.decode('utf-8')
+                    ext = os.path.splitext(file_path)[1].lower()
+
+                    # Parse based on format
+                    if ext == '.srt':
+                        doc = SRTParser.parse(content)
+                    elif ext in ['.ass', '.ssa']:
+                        doc = ASSParser.parse(content)
+                    else:
+                        continue
+
+                    doc.file_path = file_path
+
+                    # Enforce same format for all files
+                    if self.batch_format is None:
+                        self.batch_format = doc.format
+                    elif doc.format != self.batch_format:
+                        self._show_toast(
+                            f"Skipped {os.path.basename(file_path)}: "
+                            f"expected {self.batch_format.value.upper()} format"
+                        )
+                        continue
+
+                    self.batch_file_list.add_file(doc, file_path)
+                    self._save_last_directory(os.path.dirname(file_path))
+                    self._show_toast(f"Added {os.path.basename(file_path)}")
+
+                except Exception as e:
+                    self._show_toast(f"Error loading {os.path.basename(file_path)}: {str(e)}")
+
+            self._update_batch_status()
+            self._update_batch_action_buttons()
+
+        except Exception as e:
+            pass  # User cancelled
+
+    def _on_batch_apply(self):
+        """Apply configured operations to all selected batch files."""
+        selected = self.batch_file_list.get_selected_files()
+        if not selected:
+            return
+
+        if not self.batch_operations.has_any_operation():
+            self._show_toast("No operations configured")
+            return
+
+        # Show confirmation dialog
+        summary = self.batch_operations.get_summary()
+        confirm = BatchConfirmDialog(
+            self,
+            file_count=self.batch_file_list.file_count,
+            operation_summary=summary,
+            selected_count=len(selected),
+            format_name=self.batch_format.value.upper() if self.batch_format else ""
+        )
+        confirm.connect('closed', lambda d: self._on_batch_confirm_closed(d, selected))
+        confirm.present()
+
+    def _on_batch_confirm_closed(self, dialog, selected_files):
+        """Handle batch confirmation dialog close."""
+        if not dialog.is_confirmed():
+            return
+
+        modified_count = 0
+        for item in selected_files:
+            doc = item.document
+            changed = False
+
+            # Apply time shift
+            if self.batch_operations.has_time_shift():
+                offset = int(self.batch_operations.offset_row.get_value())
+                for entry in doc.entries:
+                    entry.shift_time(offset)
+                changed = True
+
+            # Apply font size change (ASS/SSA only)
+            if self.batch_operations.has_font_size_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+                new_size = int(self.batch_operations.font_size_row.get_value())
+                for style in doc.styles:
+                    style.fontsize = new_size
+                changed = True
+
+            # Apply resolution change (ASS/SSA only)
+            if self.batch_operations.has_resolution_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+                new_w = str(int(self.batch_operations.res_width_row.get_value()))
+                new_h = str(int(self.batch_operations.res_height_row.get_value()))
+                doc.metadata["PlayResX"] = new_w
+                doc.metadata["PlayResY"] = new_h
+                changed = True
+
+            if changed:
+                doc.modified = True
+                item.modified = True
+                modified_count += 1
+
+        self.batch_file_list.update_ui()
+        self._update_batch_status()
+
+        if modified_count > 0:
+            self._show_toast(f"Applied changes to {modified_count} file{'s' if modified_count != 1 else ''}")
+            self._update_batch_action_buttons()
+
+    def _on_batch_save_all(self):
+        """Save all selected batch files in-place."""
+        selected = self.batch_file_list.get_selected_files()
+        if not selected:
+            return
+
+        saved = 0
+        skipped = 0
+        for item in selected:
+            try:
+                if item.document.format == SubtitleFormat.SRT:
+                    content = SRTParser.serialize(item.document)
+                else:
+                    content = ASSParser.serialize(item.document)
+
+                with open(item.file_path, 'w', encoding='utf-8') as f:
+                    f.write(content)
+
+                item.document.modified = False
+                item.modified = False
+                saved += 1
+            except Exception as e:
+                self._show_toast(f"Error saving {item.filename}: {str(e)}")
+                skipped += 1
+
+        if saved > 0:
+            self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''}")
+        self._update_batch_status()
+
+    def _on_batch_save_all_as(self):
+        """Save all selected batch files to a chosen directory."""
+        selected = self.batch_file_list.get_selected_files()
+        if not selected:
+            return
+
+        # Use folder selection dialog
+        folder_dialog = Gtk.FileDialog()
+        folder_dialog.set_title("Select Output Directory")
+
+        if self.last_directory:
+            folder_dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
+
+        folder_dialog.select_folder(self, None, lambda d, r: self._on_batch_save_dir_selected(d, r, selected))
+
+    def _on_batch_save_dir_selected(self, dialog, result, selected_files):
+        """Handle output directory selection for batch save."""
+        try:
+            folder = dialog.select_folder_finish(result)
+            if not folder:
+                return
+
+            output_dir = folder.get_path()
+            saved = 0
+            for item in selected_files:
+                try:
+                    dest_path = os.path.join(output_dir, item.filename)
+
+                    if item.document.format == SubtitleFormat.SRT:
+                        content = SRTParser.serialize(item.document)
+                    else:
+                        content = ASSParser.serialize(item.document)
+
+                    with open(dest_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+
+                    item.document.modified = False
+                    item.modified = False
+                    saved += 1
+                except Exception as e:
+                    self._show_toast(f"Error saving {item.filename}: {str(e)}")
+
+            if saved > 0:
+                self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''} to {output_dir}")
+            self._update_batch_status()
+
+        except Exception as e:
+            pass  # User cancelled
+
     def _on_about(self, action, param):
         """Show about dialog."""
         about = Adw.AboutWindow(
@@ -911,6 +1402,18 @@ class SubtitleEditorWindow(Adw.ApplicationWindow):
         shortcuts.set_transient_for(self)
         shortcuts.present()
     
+    def _on_home(self, action, param):
+        """Navigate to home view."""
+        self._navigate_to_home()
+
+    def _on_editor_view(self, action, param):
+        """Navigate to editor view."""
+        self._navigate_to_editor()
+
+    def _on_batch(self, action, param):
+        """Navigate to batch operations view."""
+        self._navigate_to_batch()
+
     def _on_convert_to_srt(self, action, param):
         """Convert current document to SRT format."""
         if not self.document:
