@@ -1,21 +1,24 @@
 #!/usr/bin/env python3
 """
-Setup script for GNOME Subtitle Editor.
+Setup script for gsub.
 """
 
 from setuptools import setup, find_packages
 
-with open("README.md", "r", encoding="utf-8") as fh:
-    long_description = fh.read()
+try:
+    with open("README.md", "r", encoding="utf-8") as fh:
+        long_description = fh.read()
+except FileNotFoundError:
+    long_description = ""
 
 setup(
-    name="gnome-subtitle-editor",
-    version="1.0.0",
-    author="GNOME Subtitle Editor Contributors",
+    name="gsub",
+    version="0.1.0",
+    author="gsub Contributors",
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://gitlab.gnome.org/",
+    url="",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -37,7 +40,7 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "subtitle-editor=subtitle_editor.main:main",
+            "gsub=subtitle_editor.main:main",
         ],
     },
     include_package_data=True,

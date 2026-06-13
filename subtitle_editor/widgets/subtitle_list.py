@@ -165,6 +165,11 @@ class SubtitleListView(Gtk.ScrolledWindow):
 
     def _rebuild_store(self):
         """Rebuild the list store in-place to preserve scroll position."""
+        # Clear selection before mutating the store to avoid
+        # GTK trying to focus a row whose parent was removed.
+        self.selection_model.unselect_all()
+        self._selected_positions = []
+        
         old_count = self.list_store.get_n_items()
         new_count = len(self.document.entries) if self.document else 0
         
@@ -195,14 +200,19 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self._rebuild_store()
         self.list_view.queue_resize()
         
-        # Restore selection if requested
+        # Restore selection via idle to let GTK wire up new rows first
         if preserve_selection and old_selection:
-            for pos in old_selection:
-                if 0 <= pos < len(self.document.entries):
-                    self.selection_model.select_item(pos, False)
             self._selected_positions = [p for p in old_selection if 0 <= p < len(self.document.entries)]
+            GLib.idle_add(self._restore_selection_idle)
         else:
             self._selected_positions = []
+    
+    def _restore_selection_idle(self):
+        """Restore selection after GTK finishes processing model changes."""
+        for pos in self._selected_positions:
+            if 0 <= pos < self.list_store.get_n_items():
+                self.selection_model.select_item(pos, False)
+        return False
     
     def refresh_entry(self, position: int):
         """Refresh a single entry in the list with debouncing."""
@@ -223,17 +233,30 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     def _process_pending_refreshes(self):
         """Process all pending entry refreshes in batch."""
+        to_select = []
         for position in self._pending_refresh_positions:
             if 0 <= position < self.list_store.get_n_items() and self.document and position < len(self.document.entries):
                 entry = self.document.entries[position]
                 was_selected = position in self._selected_positions
                 self.list_store.splice(position, 1, [SubtitleListItem(position=position, entry=entry)])
                 if was_selected:
-                    self.selection_model.select_item(position, False)
+                    to_select.append(position)
         
         self._pending_refresh_positions.clear()
         self._refresh_timeout_id = None
+        
+        # Defer selection to let GTK wire up new rows
+        if to_select:
+            GLib.idle_add(self._select_positions_idle, to_select)
+        
         return False  # Don't repeat timeout
+    
+    def _select_positions_idle(self, positions):
+        """Select positions after GTK finishes processing model changes."""
+        for pos in positions:
+            if 0 <= pos < self.list_store.get_n_items():
+                self.selection_model.select_item(pos, False)
+        return False
     
     def _scroll_to(self, position: int):
         """Scroll the list view to make the given position visible."""
@@ -252,11 +275,18 @@ class SubtitleListView(Gtk.ScrolledWindow):
             self._selected_positions = []
         
         if position < self.list_store.get_n_items():
-            self.selection_model.select_item(position, False)
             if position not in self._selected_positions:
                 self._selected_positions.append(position)
+            # Defer select_item to let GTK finish wiring rows
+            GLib.idle_add(self._select_single_idle, position)
         
         self._scroll_to(position)
+    
+    def _select_single_idle(self, position):
+        """Select a single item after model changes settle."""
+        if 0 <= position < self.list_store.get_n_items():
+            self.selection_model.select_item(position, False)
+        return False
     
     def get_selected_positions(self) -> list:
         """Get all currently selected positions."""
@@ -310,14 +340,14 @@ class SubtitleListView(Gtk.ScrolledWindow):
             # Update index
             action_row._index_label.set_text(str(item.entry_index))
             
-            # Update title (subtitle text)
-            action_row.set_title(item.entry_text)
+            # Update title (subtitle text) — escape Pango markup
+            action_row.set_title(GLib.markup_escape_text(item.entry_text))
             
-            # Update subtitle (timing and style)
+            # Update subtitle (timing and style) — escape Pango markup
             timing_text = f"{item.entry_start} → {item.entry_end}"
-            subtitle_parts = [timing_text]
+            subtitle_parts = [GLib.markup_escape_text(timing_text)]
             if item.entry_style:
-                subtitle_parts.append(f"Style: {item.entry_style}")
+                subtitle_parts.append(GLib.markup_escape_text(f"Style: {item.entry_style}"))
             action_row.set_subtitle(" • ".join(subtitle_parts))
         except Exception:
             logger.exception("Failed to bind list item")
