@@ -986,7 +986,7 @@ class TrackSelectionDialog(Adw.Window):
             else:
                 # Dict format from old code
                 track_index = track.get('index', 0)
-                track_title = track.get('title', f"Track {track_index + 1}")
+                track_title = track.get('title') or f"Track {track_index + 1}"
                 track_language = track.get('language')
                 track_codec = track.get('codec')
             
@@ -1050,7 +1050,7 @@ class TrackSelectionDialog(Adw.Window):
             else:
                 # Dict format from old code
                 track_index = track.get('index', 0)
-                track_title = track.get('title', f"Track {track_index + 1}")
+                track_title = track.get('title') or f"Track {track_index + 1}"
                 track_language = track.get('language')
                 track_codec = track.get('codec')
             
