@@ -8,13 +8,16 @@ This directory contains comprehensive tests for the gsub application.
 tests/
 ├── __init__.py              # Test package initialization
 ├── conftest.py              # Pytest fixtures and configuration
-├── test_models.py           # Tests for data models (TimeCode, SubtitleEntry, etc.)
-├── test_parsers.py          # Tests for SRT and ASS parsers
-├── test_commands.py         # Tests for command pattern and subtitle commands
 ├── test_ass_commands.py     # Tests for ASS-specific commands
-├── test_style_commands.py   # Tests for style editing commands
-├── test_integration.py      # Integration tests and workflows
+├── test_command_gaps.py     # Tests for untested command implementations
+├── test_commands.py         # Tests for command pattern and subtitle commands
 ├── test_edge_cases.py       # Edge cases, stress tests, and boundary conditions
+├── test_integration.py      # Integration tests and workflows
+├── test_models.py           # Tests for data models (TimeCode, SubtitleEntry, etc.)
+├── test_parser_coverage.py  # Tests for uncovered parser code paths
+├── test_parsers.py          # Tests for SRT and ASS parsers
+├── test_sample_file_parser.py  # Tests using the sample ASS subtitle file
+├── test_style_commands.py   # Tests for style editing commands
 └── README.md                # This file
 ```
 
@@ -105,6 +108,17 @@ These tests verify that components work correctly together:
 - Performance with large documents
 - Unicode and special character handling
 
+### Sample File Tests (`test_sample_file_parser.py`)
+
+These tests use the large sample ASS file (`sample_subtitle_file.ass`) to verify:
+
+- Parsing 120 dialogue entries with various ASS override tags
+- Style extraction (Default, Alternate, Top, Draw styles)
+- Aegisub Project Garbage and Extradata handling
+- Comment and Picture line behavior
+- Serialization roundtrips
+- Preservation of all ASS formatting tags
+
 ## Test Coverage
 
 The test suite aims for comprehensive coverage of:
@@ -151,6 +165,8 @@ The test suite uses pytest fixtures defined in `conftest.py`:
 - `sample_ass_style`: A sample ASSStyle object
 - `sample_srt_content`: Sample SRT file content as string
 - `sample_ass_content`: Sample ASS file content as string
+- `sample_ass_file_path`: Path to the large sample ASS test file
+- `sample_ass_file_content`: Content of the large sample ASS test file
 
 ## Writing New Tests
 
@@ -242,10 +258,10 @@ When adding new features:
 ## Test Metrics
 
 Current test statistics:
-- **Total test files**: 7
-- **Test categories**: Unit, Integration, Parser, Command, Models
+- **Total test files**: 14
+- **Test categories**: Unit, Integration, Parser, Command, Models, Sample File
 - **Target coverage**: 80%+
-- **Fixtures**: 7 shared fixtures
+- **Fixtures**: 9 shared fixtures
 
 ## Resources
 

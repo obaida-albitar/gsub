@@ -1,9 +1,23 @@
 """Pytest configuration and shared fixtures."""
 
+from pathlib import Path
+
 import pytest
 from subtitle_editor.models import (
     TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat, ASSStyle
 )
+
+
+@pytest.fixture(scope="session")
+def sample_ass_file_path() -> Path:
+    """Path to the large sample ASS subtitle file."""
+    return Path(__file__).parent / "sample_subtitle_file.ass"
+
+
+@pytest.fixture(scope="session")
+def sample_ass_file_content(sample_ass_file_path: Path) -> str:
+    """Content of the large sample ASS subtitle file."""
+    return sample_ass_file_path.read_text(encoding="utf-8")
 
 
 @pytest.fixture

@@ -1,0 +1,173 @@
+[Script Info]
+; This is a large sample ASS file for testing subtitle editing software.
+; It includes all standard metadata, multiple styles, comments, drawing commands,
+; and Aegisub-specific sections (Project Garbage & Extradata).
+Title: Big Test Subtitles
+Original Script: test generator v1.0
+ScriptType: v4.00+
+PlayResX: 1920
+PlayResY: 1080
+WrapStyle: 0
+ScaledBorderAndShadow: yes
+Collisions: Normal
+Timer: 100.0000
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,Arial,48,&H00FFFFFF,&H000000FF,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1
+Style: Alternate,Times New Roman,42,&H0000FFFF,&H00000000,&H00000000,&H00000000,0,-1,0,0,100,100,0,0,1,2,2,8,10,10,10,1
+Style: Top,Calibri,36,&H00FF00FF,&H00000000,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,3,1,2,10,10,10,1
+Style: Draw,Arial,20,&H00FFFFFF,&H00000000,&H00000000,&H00000000,0,0,0,0,100,100,0,0,1,1,0,7,10,10,10,1
+
+[Aegisub Project Garbage]
+Audio File: ?dummy
+Video File: ?dummy
+Video AR Mode: 4
+Video AR Value: 1.777778
+Video Zoom Percent: 0.500000
+Video Position: 24576
+Scroll Position: 0
+Active Line: 1
+
+[Aegisub Extradata]
+Data: 0,ScrollPosition,0
+Data: 0,ActiveLine,1
+Data: 0,VideoZoom,5
+Data: 0,LastStyle,Default
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Comment: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,=== Start of test file ===
+Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,Line 1 - Default style.
+Dialogue: 0,0:00:02.00,0:00:04.00,Alternate,,0,0,0,,{\i1}Line 2 - Alternate style italic{\i0}
+Dialogue: 0,0:00:04.00,0:00:06.00,Default,,0,0,0,,Line 3 with {\b1}bold{\b0} text.
+Dialogue: 0,0:00:06.00,0:00:08.00,Alternate,,0,0,0,,Line 4 {\an8}top-center alignment.
+Dialogue: 0,0:00:08.00,0:00:10.00,Default,,0,0,0,,Line 5 - normal.
+Picture: 1,0:00:10.00,0:00:12.00,Draw,,0,0,0,,{\p1}m 0 0 l 100 0 100 100 0 100{\p0}
+Dialogue: 0,0:00:10.00,0:00:12.00,Top,,0,0,0,,{\pos(960,50)}Line 6 - positioned top.
+Dialogue: 0,0:00:12.00,0:00:14.00,Default,,0,0,0,,Line 7.
+Dialogue: 0,0:00:14.00,0:00:16.00,Alternate,,0,0,0,,Line 8 {\b1}bold{\b0} alternative.
+Dialogue: 0,0:00:16.00,0:00:18.00,Default,,0,0,0,,Line 9.
+Dialogue: 0,0:00:18.00,0:00:20.00,Alternate,,0,0,0,,Line 10 {\i1}ital{\i0} end of block.
+Comment: 0,0:00:20.00,0:00:22.00,Default,,0,0,0,,--- Block 1 complete ---
+Dialogue: 0,0:00:22.00,0:00:24.00,Default,,0,0,0,,Line 11.
+Dialogue: 0,0:00:24.00,0:00:26.00,Alternate,,0,0,0,,Line 12 with {\u1}underline{\u0}.
+Dialogue: 0,0:00:26.00,0:00:28.00,Default,,0,0,0,,Line 13.
+Dialogue: 0,0:00:28.00,0:00:30.00,Alternate,,0,0,0,,Line 14 {\s1}strikeout{\s0}.
+Dialogue: 0,0:00:30.00,0:00:32.00,Default,,0,0,0,,Line 15.
+Dialogue: 0,0:00:32.00,0:00:34.00,Alternate,,0,0,0,,Line 16 {\fnCourier New}monospace{\fn}.
+Dialogue: 0,0:00:34.00,0:00:36.00,Default,,0,0,0,,Line 17.
+Dialogue: 0,0:00:36.00,0:00:38.00,Alternate,,0,0,0,,Line 18 {\fs60}bigger text{\fs}.
+Dialogue: 0,0:00:38.00,0:00:40.00,Default,,0,0,0,,Line 19.
+Dialogue: 0,0:00:40.00,0:00:42.00,Alternate,,0,0,0,,Line 20 {\c&HFF00FF&}pink{\c}.
+Comment: 0,0:00:42.00,0:00:44.00,Default,,0,0,0,,--- Block 2 complete ---
+Dialogue: 0,0:00:44.00,0:00:46.00,Default,,0,0,0,,Line 21.
+Dialogue: 0,0:00:46.00,0:00:48.00,Alternate,,0,0,0,,Line 22 {\alpha&H80&}semi-transparent{\alpha}.
+Dialogue: 0,0:00:48.00,0:00:50.00,Default,,0,0,0,,Line 23.
+Dialogue: 0,0:00:50.00,0:00:52.00,Top,,0,0,0,,{\pos(200,900)}Line 24 - custom pos.
+Dialogue: 0,0:00:52.00,0:00:54.00,Default,,0,0,0,,Line 25.
+Dialogue: 0,0:00:54.00,0:00:56.00,Alternate,,0,0,0,,Line 26 {\fsp5}spacing 5{\fsp}.
+Dialogue: 0,0:00:56.00,0:00:58.00,Default,,0,0,0,,Line 27.
+Dialogue: 0,0:00:58.00,0:01:00.00,Alternate,,0,0,0,,Line 28 {\frz15}rotated 15°{\frz}.
+Dialogue: 0,0:01:00.00,0:01:02.00,Default,,0,0,0,,Line 29.
+Dialogue: 0,0:01:02.00,0:01:04.00,Alternate,,0,0,0,,Line 30 {\kf}karaoke{\kf}.
+Comment: 0,0:01:04.00,0:01:06.00,Default,,0,0,0,,--- Block 3 complete ---
+Dialogue: 0,0:01:06.00,0:01:08.00,Default,,0,0,0,,Line 31.
+Dialogue: 0,0:01:08.00,0:01:10.00,Alternate,,0,0,0,,Line 32 {\rTop}switch to Top style{\r}.
+Dialogue: 0,0:01:10.00,0:01:12.00,Default,,0,0,0,,Line 33.
+Dialogue: 0,0:01:12.00,0:01:14.00,Alternate,,0,0,0,,Line 34 {\q2}alignment 2{\q}.
+Dialogue: 0,0:01:14.00,0:01:16.00,Default,,0,0,0,,Line 35.
+Dialogue: 0,0:01:16.00,0:01:18.00,Alternate,,0,0,0,,Line 36 {\be1}blur edges{\be0}.
+Dialogue: 0,0:01:18.00,0:01:20.00,Default,,0,0,0,,Line 37.
+Dialogue: 0,0:01:20.00,0:01:22.00,Alternate,,0,0,0,,Line 38 {\bord5}thick border{\bord}.
+Dialogue: 0,0:01:22.00,0:01:24.00,Default,,0,0,0,,Line 39.
+Dialogue: 0,0:01:24.00,0:01:26.00,Alternate,,0,0,0,,Line 40 {\shad8}deep shadow{\shad}.
+Comment: 0,0:01:26.00,0:01:28.00,Default,,0,0,0,,--- Block 4 complete ---
+Dialogue: 0,0:01:28.00,0:01:30.00,Default,,0,0,0,,Line 41.
+Dialogue: 0,0:01:30.00,0:01:32.00,Alternate,,0,0,0,,Line 42 {\an5}center{\an}.
+Dialogue: 0,0:01:32.00,0:01:34.00,Default,,0,0,0,,Line 43.
+Dialogue: 0,0:01:34.00,0:01:36.00,Alternate,,0,0,0,,Line 44 {\fay10}shear{\fay}.
+Dialogue: 0,0:01:36.00,0:01:38.00,Default,,0,0,0,,Line 45.
+Dialogue: 0,0:01:38.00,0:01:40.00,Alternate,,0,0,0,,Line 46 {\clip(0,0,400,400)}clipped{\clip}.
+Dialogue: 0,0:01:40.00,0:01:42.00,Default,,0,0,0,,Line 47.
+Dialogue: 0,0:01:42.00,0:01:44.00,Alternate,,0,0,0,,Line 48 {\t(0,500,\fscx200\fscy200)}growing{\t}.
+Dialogue: 0,0:01:44.00,0:01:46.00,Default,,0,0,0,,Line 49.
+Dialogue: 0,0:01:46.00,0:01:48.00,Alternate,,0,0,0,,Line 50 {\move(200,200,800,800)}moving{\move}.
+Comment: 0,0:01:48.00,0:01:50.00,Default,,0,0,0,,--- Block 5 complete ---
+Dialogue: 0,0:01:50.00,0:01:52.00,Default,,0,0,0,,Line 51.
+Dialogue: 0,0:01:52.00,0:01:54.00,Alternate,,0,0,0,,Line 52 {\p1}m 10 10 l 50 10 50 50 10 50{\p0} simple shape.
+Dialogue: 0,0:01:54.00,0:01:56.00,Default,,0,0,0,,Line 53.
+Dialogue: 0,0:01:56.00,0:01:58.00,Alternate,,0,0,0,,Line 54 {\fscx150}stretched X{\fscx}.
+Dialogue: 0,0:01:58.00,0:02:00.00,Default,,0,0,0,,Line 55.
+Dialogue: 0,0:02:00.00,0:02:02.00,Alternate,,0,0,0,,Line 56 {\fscy80}squished Y{\fscy}.
+Dialogue: 0,0:02:02.00,0:02:04.00,Default,,0,0,0,,Line 57.
+Dialogue: 0,0:02:04.00,0:02:06.00,Alternate,,0,0,0,,Line 58 {\fnSegoe UI}different font{\fn}.
+Dialogue: 0,0:02:06.00,0:02:08.00,Default,,0,0,0,,Line 59.
+Dialogue: 0,0:02:08.00,0:02:10.00,Alternate,,0,0,0,,Line 60 {\2c&HFF0000&}secondary red{\2c}.
+Comment: 0,0:02:10.00,0:02:12.00,Default,,0,0,0,,--- Block 6 complete ---
+Dialogue: 0,0:02:12.00,0:02:14.00,Default,,0,0,0,,Line 61.
+Dialogue: 0,0:02:14.00,0:02:16.00,Alternate,,0,0,0,,Line 62 {\3c&H00FF00&}outline green{\3c}.
+Dialogue: 0,0:02:16.00,0:02:18.00,Default,,0,0,0,,Line 63.
+Dialogue: 0,0:02:18.00,0:02:20.00,Alternate,,0,0,0,,Line 64 {\4c&H0000FF&}shadow blue{\4c}.
+Dialogue: 0,0:02:20.00,0:02:22.00,Default,,0,0,0,,Line 65.
+Dialogue: 0,0:02:22.00,0:02:24.00,Alternate,,0,0,0,,Line 66 {\fs32\t(0,1000,\fs48)}dynamic size{\t}.
+Dialogue: 0,0:02:24.00,0:02:26.00,Default,,0,0,0,,Line 67.
+Dialogue: 0,0:02:26.00,0:02:28.00,Alternate,,0,0,0,,Line 68 {\fad(500,500)}fade{\fad}.
+Dialogue: 0,0:02:28.00,0:02:30.00,Default,,0,0,0,,Line 69.
+Dialogue: 0,0:02:30.00,0:02:32.00,Alternate,,0,0,0,,Line 70 {\org(200,200)\frz30}rotated around origin{\org}.
+Comment: 0,0:02:32.00,0:02:34.00,Default,,0,0,0,,--- Block 7 complete ---
+Dialogue: 0,0:02:34.00,0:02:36.00,Default,,0,0,0,,Line 71.
+Dialogue: 0,0:02:36.00,0:02:38.00,Alternate,,0,0,0,,Line 72 {\blur1}blur 1{\blur0}.
+Dialogue: 0,0:02:38.00,0:02:40.00,Default,,0,0,0,,Line 73.
+Dialogue: 0,0:02:40.00,0:02:42.00,Alternate,,0,0,0,,Line 74 {\an1}bottom-left{\an}.
+Dialogue: 0,0:02:42.00,0:02:44.00,Default,,0,0,0,,Line 75.
+Dialogue: 0,0:02:44.00,0:02:46.00,Alternate,,0,0,0,,Line 76 {\pos(800,600)\an7}custom pos+align{\an7}.
+Dialogue: 0,0:02:46.00,0:02:48.00,Default,,0,0,0,,Line 77.
+Dialogue: 0,0:02:48.00,0:02:50.00,Alternate,,0,0,0,,Line 78 {\clip(100,100,500,500)}clip square{\clip}.
+Dialogue: 0,0:02:50.00,0:02:52.00,Default,,0,0,0,,Line 79.
+Dialogue: 0,0:02:52.00,0:02:54.00,Alternate,,0,0,0,,Line 80 {\iclip(100,100,500,500)}inverse clip{\iclip}.
+Comment: 0,0:02:54.00,0:02:56.00,Default,,0,0,0,,--- Block 8 complete ---
+Dialogue: 0,0:02:56.00,0:02:58.00,Default,,0,0,0,,Line 81.
+Dialogue: 0,0:02:58.00,0:03:00.00,Alternate,,0,0,0,,Line 82 {\fs40\b1\i1}bold italic 40{\b0\i0\fs}.
+Dialogue: 0,0:03:00.00,0:03:02.00,Default,,0,0,0,,Line 83.
+Dialogue: 0,0:03:02.00,0:03:04.00,Alternate,,0,0,0,,Line 84 {\frz-5\fry5}3D-ish rotation{\frz\fry}.
+Dialogue: 0,0:03:04.00,0:03:06.00,Default,,0,0,0,,Line 85.
+Dialogue: 0,0:03:06.00,0:03:08.00,Alternate,,0,0,0,,Line 86 {\k30}ka{\k20}ra{\k50}o{\k0}ke{\k}.
+Dialogue: 0,0:03:08.00,0:03:10.00,Default,,0,0,0,,Line 87.
+Dialogue: 0,0:03:10.00,0:03:12.00,Alternate,,0,0,0,,Line 88 {\q2\an3}bottom-right{\an}.
+Dialogue: 0,0:03:12.00,0:03:14.00,Default,,0,0,0,,Line 89.
+Dialogue: 0,0:03:14.00,0:03:16.00,Alternate,,0,0,0,,Line 90 {\fnImpact}Impact font{\fn}.
+Comment: 0,0:03:16.00,0:03:18.00,Default,,0,0,0,,--- Block 9 complete ---
+Dialogue: 0,0:03:18.00,0:03:20.00,Default,,0,0,0,,Line 91.
+Dialogue: 0,0:03:20.00,0:03:22.00,Alternate,,0,0,0,,Line 92 {\fs50\c&HFF8000&\3c&H000000&}orange outline{\c\3c}.
+Dialogue: 0,0:03:22.00,0:03:24.00,Default,,0,0,0,,Line 93.
+Dialogue: 0,0:03:24.00,0:03:26.00,Alternate,,0,0,0,,Line 94 {\p1}m 20 20 l 80 20 80 80 20 80{\p0} rectangle.
+Dialogue: 0,0:03:26.00,0:03:28.00,Default,,0,0,0,,Line 95.
+Dialogue: 0,0:03:28.00,0:03:30.00,Alternate,,0,0,0,,Line 96 {\alpha&H40&}50% transparent{\alpha}.
+Dialogue: 0,0:03:30.00,0:03:32.00,Default,,0,0,0,,Line 97.
+Dialogue: 0,0:03:32.00,0:03:34.00,Alternate,,0,0,0,,Line 98 {\fscx80\fscy120}anamorphic{\fscx\fscy}.
+Dialogue: 0,0:03:34.00,0:03:36.00,Default,,0,0,0,,Line 99.
+Dialogue: 0,0:03:36.00,0:03:38.00,Alternate,,0,0,0,,Line 100 {\t(0,2000,\1c&HFF00FF&)}color transition{\t}.
+Comment: 0,0:03:38.00,0:03:40.00,Default,,0,0,0,,--- Block 10 complete ---
+Dialogue: 0,0:03:40.00,0:03:42.00,Default,,0,0,0,,Line 101.
+Dialogue: 0,0:03:42.00,0:03:44.00,Alternate,,0,0,0,,Line 102 {\bord3\shad10}thick borders and shadow{\bord\shad}.
+Dialogue: 0,0:03:44.00,0:03:46.00,Default,,0,0,0,,Line 103.
+Dialogue: 0,0:03:46.00,0:03:48.00,Alternate,,0,0,0,,Line 104 {\an6\pos(960,1040)}bottom-center{\an}.
+Dialogue: 0,0:03:48.00,0:03:50.00,Default,,0,0,0,,Line 105.
+Dialogue: 0,0:03:50.00,0:03:52.00,Alternate,,0,0,0,,Line 106 {\fnGeorgia}Georgia serif{\fn}.
+Dialogue: 0,0:03:52.00,0:03:54.00,Default,,0,0,0,,Line 107.
+Dialogue: 0,0:03:54.00,0:03:56.00,Alternate,,0,0,0,,Line 108 {\clip(200,200,800,800)\t(0,1000,\clip(400,400,1000,1000))}moving clip{\clip\t}.
+Dialogue: 0,0:03:56.00,0:03:58.00,Default,,0,0,0,,Line 109.
+Dialogue: 0,0:03:58.00,0:04:00.00,Alternate,,0,0,0,,Line 110 {\fad(300,0)}fade in only{\fad}.
+Comment: 0,0:04:00.00,0:04:02.00,Default,,0,0,0,,--- Final block ---
+Dialogue: 0,0:04:00.00,0:04:02.00,Default,,0,0,0,,Line 111.
+Dialogue: 0,0:04:02.00,0:04:04.00,Alternate,,0,0,0,,Line 112 {\p1}m 0 0 l 1920 0 1920 1080 0 1080{\p0} fullscreen shape.
+Dialogue: 0,0:04:04.00,0:04:06.00,Default,,0,0,0,,Line 113.
+Dialogue: 0,0:04:06.00,0:04:08.00,Alternate,,0,0,0,,Line 114 {\frz180}upside down{\frz}.
+Dialogue: 0,0:04:08.00,0:04:10.00,Default,,0,0,0,,Line 115.
+Dialogue: 0,0:04:10.00,0:04:12.00,Alternate,,0,0,0,,Line 116 {\u1\s1}underline + strike{\u0\s0}.
+Dialogue: 0,0:04:12.00,0:04:14.00,Default,,0,0,0,,Line 117.
+Dialogue: 0,0:04:14.00,0:04:16.00,Alternate,,0,0,0,,Line 118 {\be2}blur edges strong{\be0}.
+Dialogue: 0,0:04:16.00,0:04:18.00,Default,,0,0,0,,Line 119.
+Dialogue: 0,0:04:18.00,0:04:20.00,Alternate,,0,0,0,,Line 120 {\kf}last line with {\kf}karaoke{\k0}.
+Comment: 0,0:04:20.00,0:04:22.00,Default,,0,0,0,,=== End of test file ===

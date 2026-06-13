@@ -24,16 +24,16 @@ class ASSParser:
     @classmethod
     def parse(cls, content: str) -> SubtitleDocument:
         """Parse ASS/SSA content into a SubtitleDocument."""
+        content = content.replace('\r\n', '\n').replace('\r', '\n')
         lines = content.split('\n')
         
         # Detect format (ASS or SSA)
         format_type = SubtitleFormat.ASS
         for line in lines[:10]:
-            if '[Script Info]' in line:
-                # Check if it mentions SSA
-                pass
-            if 'ScriptType: v4.00' in line:
-                format_type = SubtitleFormat.SSA
+            if 'ScriptType:' in line:
+                stype = line.split(':', 1)[1].strip()
+                if stype == 'v4.00':
+                    format_type = SubtitleFormat.SSA
         
         document = SubtitleDocument(format=format_type)
         
