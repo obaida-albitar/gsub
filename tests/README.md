@@ -1,6 +1,6 @@
-# Test Suite for gsub
+# Test Suite for Gsub
 
-This directory contains comprehensive tests for the gsub application.
+This directory contains comprehensive tests for the Gsub application.
 
 ## Test Structure
 

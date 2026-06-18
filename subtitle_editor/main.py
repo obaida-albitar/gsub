@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-gsub - Main Entry Point
+Gsub - Main Entry Point
 
 A modern subtitle editor using GTK 4 and libadwaita.
 Supports SRT and ASS/SSA subtitle formats with full editing capabilities.
@@ -29,7 +29,7 @@ from subtitle_editor.window import GsubWindow
 
 
 class GsubApplication(Adw.Application):
-    """Main application class for gsub."""
+    """Main application class for Gsub."""
 
     def __init__(self):
         super().__init__(

@@ -1,5 +1,5 @@
 """
-Resource loading helpers for gsub.
+Resource loading helpers for Gsub.
 
 The application bundles all UI templates, the stylesheet, and the icon into a
 single gresource (compiled at build time by meson, see data/app.gsub.gresource.xml).

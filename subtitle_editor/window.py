@@ -70,7 +70,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.set_default_size(width, height)
         if config.get("window_maximized", False):
             self.maximize()
-        self.set_title("gsub")
+        self.set_title("Gsub")
         self.connect("close-request", self._on_close_request)
 
         # Wire the dynamic child widgets into the templated scaffold.
@@ -329,7 +329,7 @@ class GsubWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About gsub", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         return menu
 
@@ -342,7 +342,7 @@ class GsubWindow(Adw.ApplicationWindow):
         menu.append_section(None, nav_section)
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About gsub", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         return menu
 
@@ -387,7 +387,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # App section
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About gsub", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         
         return menu
@@ -453,7 +453,7 @@ class GsubWindow(Adw.ApplicationWindow):
             else:
                 self.title_widget.set_subtitle("")
         else:
-            self.title_widget.set_title("gsub")
+            self.title_widget.set_title("Gsub")
             self.title_widget.set_subtitle("")
     
     def _update_status(self):
@@ -563,7 +563,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Switch to the home view."""
         self.current_view = "home"
         self.view_stack.set_visible_child_name("home")
-        self.title_widget.set_title("gsub")
+        self.title_widget.set_title("Gsub")
         self.title_widget.set_subtitle("")
         self._update_header_bar()
         self._update_bottom_bar()
@@ -1358,12 +1358,12 @@ class GsubWindow(Adw.ApplicationWindow):
         """Show about dialog."""
         about = Adw.AboutWindow(
             transient_for=self,
-            application_name="gsub",
+            application_name="Gsub",
             application_icon="app.gsub",
-            developer_name="gsub Contributors",
+            developer_name="Gsub Contributors",
             version="0.2.0",
             license_type=Gtk.License.GPL_3_0,
-            developers=["gsub Contributors"],
+            developers=["Gsub Contributors"],
             comments="A modern subtitle editor"
         )
         about.present()

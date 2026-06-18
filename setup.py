@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup script for gsub.
+Setup script for Gsub.
 """
 
 from setuptools import setup, find_packages
@@ -14,7 +14,7 @@ except FileNotFoundError:
 setup(
     name="gsub",
     version="0.2.0",
-    author="gsub Contributors",
+    author="Gsub Contributors",
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,
     long_description_content_type="text/markdown",
