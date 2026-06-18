@@ -27,6 +27,7 @@ from subtitle_editor.models import (
     SubtitleEntry,
     SubtitleFormat,
 )
+from subtitle_editor.resources import template_resource_path
 
 # Initialize GStreamer
 Gst.init(None)
@@ -354,8 +355,11 @@ class SubtitleRenderer:
         self._font_cache.clear()
 
 
+@Gtk.Template(resource_path=template_resource_path('video-player'))
 class VideoPlayerWidget(Gtk.Box):
     """Video player widget with subtitle overlay."""
+
+    __gtype_name__ = 'GsubVideoPlayer'
 
     __gsignals__ = {
         "position-changed": (GObject.SignalFlags.RUN_FIRST, None, (float,)),
@@ -363,8 +367,21 @@ class VideoPlayerWidget(Gtk.Box):
         "state-changed": (GObject.SignalFlags.RUN_FIRST, None, (bool,)),  # True=playing
     }
 
+    # Template children.
+    video_frame = Gtk.Template.Child()
+    overlay = Gtk.Template.Child()
+    video_picture = Gtk.Template.Child()
+    subtitle_drawing_area = Gtk.Template.Child()
+    controls_box = Gtk.Template.Child()
+    play_button = Gtk.Template.Child()
+    time_label = Gtk.Template.Child()
+    timeline_scale = Gtk.Template.Child()
+    duration_label = Gtk.Template.Child()
+    volume_button = Gtk.Template.Child()
+    subtitle_size_button = Gtk.Template.Child()
+
     def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        super().__init__()
 
         self.document: Optional[SubtitleDocument] = None
         self.current_subtitle: Optional[SubtitleEntry] = None
@@ -373,7 +390,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._duration = 0
         self._video_width = 0
         self._video_height = 0
-        
+
         # Track management
         self._audio_tracks = []
         self._subtitle_tracks = []
@@ -381,7 +398,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._current_subtitle_track = -1
         self._embedded_subtitle_active = False
         self._tracks_detected = False
-        
+
         # Performance optimization: caching to avoid redundant operations
         self._last_drawn_subtitle = None  # Cache last drawn subtitle to avoid redraws
 
@@ -445,37 +462,15 @@ class VideoPlayerWidget(Gtk.Box):
         # Create subtitle renderer
         self.subtitle_renderer = SubtitleRenderer()
 
-        # Video display area
-        video_frame = Gtk.Frame()
-        video_frame.add_css_class("view")
-        video_frame.set_vexpand(True)
-        self.append(video_frame)
-
-        # Overlay for subtitles
-        self.overlay = Gtk.Overlay()
-        video_frame.set_child(self.overlay)
-
-        # Video picture widget
-        self.video_picture = Gtk.Picture()
-        self.video_picture.set_content_fit(Gtk.ContentFit.CONTAIN)
+        # Wire the GStreamer paintable into the templated video picture.
         if paintable:
             self.video_picture.set_paintable(paintable)
-        self.video_picture.set_vexpand(True)
-        self.video_picture.set_can_shrink(True)
-        self.overlay.set_child(self.video_picture)
 
-        # Subtitle overlay (drawing area)
-        # Only redraw when subtitle actually changes for better performance
-        self.subtitle_drawing_area = Gtk.DrawingArea()
+        # Wire the draw function onto the templated subtitle overlay.
         self.subtitle_drawing_area.set_draw_func(self._draw_subtitle)
-        self.subtitle_drawing_area.set_vexpand(True)
-        self.subtitle_drawing_area.set_hexpand(True)
-        # Make drawing area transparent and only visible when needed
-        self.subtitle_drawing_area.set_opacity(1.0)
-        self.overlay.add_overlay(self.subtitle_drawing_area)
 
-        # Control bar
-        self._build_controls()
+        # Wire control signals + build the subtitle-size popover.
+        self._wire_controls()
 
         # Setup GStreamer bus
         bus = self.player.get_bus()
@@ -484,96 +479,48 @@ class VideoPlayerWidget(Gtk.Box):
 
         # Update timer - use 250ms for smoother updates with less CPU usage
         GLib.timeout_add(250, self._update_position)
-        
+
         # Set up keyboard shortcuts for subtitle size
         self._setup_key_controller()
 
-    def _build_controls(self):
-        """Build compact video control bar with timeline and controls on same level."""
-        controls_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        controls_box.add_css_class("toolbar")
-        controls_box.add_css_class("osd")
-        controls_box.set_margin_start(6)
-        controls_box.set_margin_end(6)
-        controls_box.set_margin_top(6)
-        controls_box.set_margin_bottom(6)
-        self.append(controls_box)
+    @Gtk.Template.Callback()
+    def on_skip_back(self, _button):
+        self.skip(-5000)
 
-        # Playback controls on the left
-        playback_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        playback_box.add_css_class("linked")
-        controls_box.append(playback_box)
+    @Gtk.Template.Callback()
+    def on_skip_forward(self, _button):
+        self.skip(5000)
 
-        # Skip backward button
-        skip_back_button = Gtk.Button()
-        skip_back_button.set_icon_name("media-seek-backward-symbolic")
-        skip_back_button.set_tooltip_text("Skip backward 5 seconds")
-        skip_back_button.connect("clicked", lambda b: self.skip(-5000))
-        playback_box.append(skip_back_button)
+    @Gtk.Template.Callback()
+    def on_play_pause(self, _button):
+        self._on_play_pause_clicked(_button)
 
-        # Play/Pause button
-        self.play_button = Gtk.Button()
-        self.play_button.set_icon_name("media-playback-start-symbolic")
-        self.play_button.set_tooltip_text("Play/Pause (Space)")
-        self.play_button.connect("clicked", self._on_play_pause_clicked)
-        playback_box.append(self.play_button)
-
-        # Skip forward button
-        skip_forward_button = Gtk.Button()
-        skip_forward_button.set_icon_name("media-seek-forward-symbolic")
-        skip_forward_button.set_tooltip_text("Skip forward 5 seconds")
-        skip_forward_button.connect("clicked", lambda b: self.skip(5000))
-        playback_box.append(skip_forward_button)
-
-        # Current time label
-        self.time_label = Gtk.Label(label="0:00")
-        self.time_label.add_css_class("numeric")
-        self.time_label.set_width_chars(5)
-        self.time_label.set_margin_start(6)
-        controls_box.append(self.time_label)
-
+    def _wire_controls(self):
+        """Wire signals onto the templated control widgets and build the
+        subtitle-size popover. The control bar layout itself is defined in the
+        Blueprint template."""
         # Timeline scale - takes up remaining space
-        self.timeline_scale = Gtk.Scale()
         self.timeline_scale.set_range(0, 100)
         self.timeline_scale.set_value(0)
-        self.timeline_scale.set_draw_value(False)
-        self.timeline_scale.set_hexpand(True)
         self.timeline_scale.connect("change-value", self._on_timeline_seek)
-        controls_box.append(self.timeline_scale)
-
-        # Duration label
-        self.duration_label = Gtk.Label(label="0:00")
-        self.duration_label.add_css_class("numeric")
-        self.duration_label.add_css_class("dim-label")
-        self.duration_label.set_width_chars(5)
-        self.duration_label.set_margin_end(6)
-        controls_box.append(self.duration_label)
 
         # Volume button
-        self.volume_button = Gtk.VolumeButton()
         self.volume_button.set_value(1.0)
-        self.volume_button.set_tooltip_text("Volume")
         self.volume_button.connect("value-changed", self._on_volume_changed)
-        controls_box.append(self.volume_button)
 
-        # Subtitle size button with popover
-        subtitle_size_button = Gtk.MenuButton()
-        subtitle_size_button.set_icon_name("format-text-bold-symbolic")
-        subtitle_size_button.set_tooltip_text("Subtitle Size")
-        
-        # Create popover content
+        # Subtitle size popover (built in code; the MenuButton is templated).
         popover = Gtk.Popover()
         popover_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         popover_box.set_margin_start(12)
         popover_box.set_margin_end(12)
         popover_box.set_margin_top(12)
         popover_box.set_margin_bottom(12)
-        
+
         # Label
         scale_label = Gtk.Label(label="Subtitle Size")
         scale_label.add_css_class("heading")
         popover_box.append(scale_label)
-        
+
         # Scale slider (0.1 to 1.5, default from preferences)
         scale_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.subtitle_scale_slider = Gtk.Scale()
@@ -588,23 +535,22 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_scale_slider.set_digits(2)
         self.subtitle_scale_slider.set_size_request(200, -1)
         self.subtitle_scale_slider.connect("value-changed", self._on_subtitle_scale_changed)
-        
+
         # Add marks for reference points
         self.subtitle_scale_slider.add_mark(0.1, Gtk.PositionType.BOTTOM, None)
         self.subtitle_scale_slider.add_mark(0.75, Gtk.PositionType.BOTTOM, "Default")
         self.subtitle_scale_slider.add_mark(1.5, Gtk.PositionType.BOTTOM, None)
-        
+
         scale_box.append(self.subtitle_scale_slider)
         popover_box.append(scale_box)
-        
+
         # Reset button
         reset_button = Gtk.Button(label="Reset to Default")
         reset_button.connect("clicked", lambda b: self.subtitle_scale_slider.set_value(0.75))
         popover_box.append(reset_button)
-        
+
         popover.set_child(popover_box)
-        subtitle_size_button.set_popover(popover)
-        controls_box.append(subtitle_size_button)
+        self.subtitle_size_button.set_popover(popover)
 
     def _show_error_state(self):
         """Show error state when GStreamer is not available."""
