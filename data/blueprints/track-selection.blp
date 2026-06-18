@@ -1,10 +1,10 @@
 using Gtk 4.0;
 using Adw 1;
 
-template GsubTrackSelectionDialog : Adw.Window {
+template GsubTrackSelectionDialog : Adw.Dialog {
   title: _("Select Audio and Subtitle Tracks");
-  default-width: 500;
-  default-height: 450;
+  content-width: 500;
+  content-height: 450;
 
   child: Adw.ToolbarView {
     [top]

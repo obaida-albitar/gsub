@@ -648,7 +648,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
 
 
 @Gtk.Template(resource_path=template_resource_path('track-selection'))
-class TrackSelectionDialog(Adw.Window):
+class TrackSelectionDialog(Adw.Dialog):
     """Dialog for selecting audio and subtitle tracks from a video file."""
 
     __gtype_name__ = 'GsubTrackSelectionDialog'
@@ -674,8 +674,7 @@ class TrackSelectionDialog(Adw.Window):
         """
         super().__init__()
 
-        self.set_transient_for(parent)
-        self.set_modal(True)
+        self.parent_window = parent
 
         self.audio_tracks = audio_tracks
         self.subtitle_tracks = subtitle_tracks
