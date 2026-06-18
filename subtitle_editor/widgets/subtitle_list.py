@@ -12,6 +12,7 @@ gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GObject, Pango, Gio, Gdk, GLib
 from subtitle_editor.models import SubtitleDocument, SubtitleEntry
+from subtitle_editor.resources import template_resource_path
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,15 @@ class SubtitleListItem(GObject.Object):
             self.entry_start = str(entry.start_time)
             self.entry_end = str(entry.end_time)
             self.entry_style = entry.style or ''
+
+
+@Gtk.Template(resource_path=template_resource_path('subtitle-list-row'))
+class SubtitleListRow(Adw.ActionRow):
+    """A single row in the subtitle list, created by the list factory."""
+
+    __gtype_name__ = 'GsubSubtitleListRow'
+
+    index_label = Gtk.Template.Child()
 
 
 class SubtitleListView(Gtk.ScrolledWindow):
@@ -298,30 +308,10 @@ class SubtitleListView(Gtk.ScrolledWindow):
     
     def _on_factory_setup(self, factory, list_item):
         """Setup phase: Create the widget structure for list items."""
-        # Use Adw.ActionRow for better styling
-        action_row = Adw.ActionRow()
-        action_row.set_activatable(False)
-        
-        # Index badge as prefix
-        index_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        index_box.set_valign(Gtk.Align.CENTER)
-        index_label = Gtk.Label()
-        index_label.set_width_chars(4)
-        index_label.set_xalign(0.5)
-        index_label.add_css_class("title-3")
-        index_label.add_css_class("numeric")
-        index_label.add_css_class("dim-label")
-        index_box.append(index_label)
-        action_row.add_prefix(index_box)
-        
-        # Set subtitle lines
-        action_row.set_subtitle_lines(2)
-        
-        # Store references for bind phase
-        action_row._index_label = index_label
-        
-        list_item.set_child(action_row)
-    
+        # GsubSubtitleListRow is a Blueprint-templated Adw.ActionRow with the
+        # index badge already wired up as a prefix.
+        list_item.set_child(SubtitleListRow())
+
     def _on_factory_bind(self, factory, list_item):
         """Bind phase: Update widget with actual data."""
         try:
@@ -329,20 +319,20 @@ class SubtitleListView(Gtk.ScrolledWindow):
             if not item:
                 logger.warning("bind: get_item() returned None")
                 return
-            
+
             position = item.position
             action_row = list_item.get_child()
-            
+
             logger.debug("bind: position=%d, idx=%d, text='%s'",
                          position, item.entry_index,
                          item.entry_text[:30])
-            
+
             # Update index
-            action_row._index_label.set_text(str(item.entry_index))
-            
+            action_row.index_label.set_text(str(item.entry_index))
+
             # Update title (subtitle text) — escape Pango markup
             action_row.set_title(GLib.markup_escape_text(item.entry_text))
-            
+
             # Update subtitle (timing and style) — escape Pango markup
             timing_text = f"{item.entry_start} → {item.entry_end}"
             subtitle_parts = [GLib.markup_escape_text(timing_text)]
