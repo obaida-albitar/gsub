@@ -1,0 +1,17 @@
+/*
+ * gsub application stylesheet.
+ *
+ * Most styling relies on libadwaita's built-in style classes; this file only
+ * holds a few app-specific overrides that aren't expressible via those classes.
+ */
+
+/* Live ASS style preview frame in the ASS Info & Styles dialog. */
+.ass-preview-frame {
+  border-radius: 9px;
+  padding: 18px;
+  background-color: @view_bg_color;
+}
+
+.ass-preview-label {
+  font-size: 20pt;
+}
