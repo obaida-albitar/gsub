@@ -13,7 +13,7 @@ except FileNotFoundError:
 
 setup(
     name="gsub",
-    version="0.1.0",
+    version="0.2.0",
     author="gsub Contributors",
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,

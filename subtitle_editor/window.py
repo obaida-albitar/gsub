@@ -1361,7 +1361,7 @@ class GsubWindow(Adw.ApplicationWindow):
             application_name="gsub",
             application_icon="app.gsub",
             developer_name="gsub Contributors",
-            version="0.1.0",
+            version="0.2.0",
             license_type=Gtk.License.GPL_3_0,
             developers=["gsub Contributors"],
             comments="A modern subtitle editor"
