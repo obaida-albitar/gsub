@@ -1,0 +1,208 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubASSInfoStylesDialog : Adw.Dialog {
+  title: _("ASS/SSA Info & Styles");
+  content-width: 700;
+  content-height: 720;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      // --- Script Info ---
+      Adw.PreferencesGroup info_group {
+        title: _("Script Info");
+        description: _("Metadata stored in the [Script Info] section");
+        // Common-key EntryRows + dynamic kv editors are added from code.
+      }
+
+      // --- Styles ---
+      Adw.PreferencesGroup styles_group {
+        title: _("Styles");
+        description: _("Edit style definitions in [V4+ Styles]");
+
+        Adw.ComboRow style_combo {
+          title: _("Style");
+          // model + selected set from code.
+        }
+
+        Adw.ActionRow buttons_row {
+          title: _("Manage styles");
+          activatable: false;
+
+          [suffix]
+          Button add_style_btn {
+            icon-name: "list-add-symbolic";
+            styles ["flat", "circular"]
+            tooltip-text: _("Add style");
+            clicked => $on_add_style();
+          }
+
+          [suffix]
+          Button remove_style_btn {
+            icon-name: "list-remove-symbolic";
+            styles ["flat", "circular"]
+            tooltip-text: _("Remove style");
+            clicked => $on_remove_style();
+          }
+        }
+
+        Adw.EntryRow style_name {
+          title: _("Name");
+        }
+
+        Adw.ComboRow style_font {
+          title: _("Font");
+          // model set from code.
+        }
+
+        Adw.SpinRow style_fontsize {
+          title: _("Font Size");
+          adjustment: Adjustment {
+            lower: 1;
+            upper: 200;
+            step-increment: 1;
+            page-increment: 10;
+          };
+        }
+
+        Adw.ActionRow primary_row {
+          title: _("Primary Colour");
+          activatable: false;
+
+          [suffix]
+          ColorDialogButton primary_color_btn {
+            valign: center;
+            dialog: ColorDialog {
+              with-alpha: true;
+            };
+          }
+        }
+
+        Adw.ActionRow outline_row {
+          title: _("Outline Colour");
+          activatable: false;
+
+          [suffix]
+          ColorDialogButton outline_color_btn {
+            valign: center;
+            dialog: ColorDialog {
+              with-alpha: true;
+            };
+          }
+        }
+
+        Adw.ActionRow back_row {
+          title: _("Back Colour");
+          activatable: false;
+
+          [suffix]
+          ColorDialogButton back_color_btn {
+            valign: center;
+            dialog: ColorDialog {
+              with-alpha: true;
+            };
+          }
+        }
+
+        Adw.SwitchRow style_bold {
+          title: _("Bold");
+        }
+
+        Adw.SwitchRow style_italic {
+          title: _("Italic");
+        }
+
+        Adw.SpinRow style_outline_width {
+          title: _("Outline");
+          digits: 1;
+          adjustment: Adjustment {
+            lower: 0;
+            upper: 20;
+            step-increment: 0.1;
+            page-increment: 1;
+          };
+        }
+
+        Adw.SpinRow style_shadow {
+          title: _("Shadow");
+          digits: 1;
+          adjustment: Adjustment {
+            lower: 0;
+            upper: 20;
+            step-increment: 0.1;
+            page-increment: 1;
+          };
+        }
+
+        Adw.SpinRow style_alignment {
+          title: _("Alignment");
+          subtitle: _("1-9 (ASS alignment grid)");
+          adjustment: Adjustment {
+            lower: 1;
+            upper: 9;
+            step-increment: 1;
+            page-increment: 1;
+          };
+        }
+
+        Adw.ExpanderRow preview_expander {
+          title: _("Preview");
+          subtitle: _("Live sample for the selected style");
+          expanded: true;
+
+          Adw.ActionRow preview_content_row {
+            activatable: false;
+            vexpand: true;
+
+            [suffix]
+            ScrolledWindow preview_scroller {
+              hexpand: true;
+              vexpand: true;
+              min-content-height: 220;
+              hscrollbar-policy: never;
+              vscrollbar-policy: automatic;
+
+              child: Box preview_frame {
+                styles ["ass-preview-frame"]
+                orientation: vertical;
+                margin-top: 6;
+                margin-bottom: 6;
+                margin-start: 6;
+                margin-end: 6;
+
+                Label preview_label {
+                  styles ["ass-preview-label"]
+                  xalign: 0.0;
+                  wrap: true;
+                  wrap-mode: word_char;
+                  max-width-chars: 60;
+                  label: _("The quick brown fox jumps over the lazy dog 0123456789");
+                }
+              };
+            }
+          }
+        }
+      }
+    };
+  };
+}

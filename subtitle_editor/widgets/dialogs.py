@@ -10,155 +10,74 @@ gi.require_version('PangoCairo', '1.0')
 from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk, GObject
 from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
 from subtitle_editor.models import ASSStyle
+from subtitle_editor.resources import template_resource_path
 import copy
 
 
+@Gtk.Template(resource_path=template_resource_path('time-shift'))
 class TimeShiftDialog(Adw.Dialog):
     """Dialog for shifting subtitle timing."""
-    
+
+    __gtype_name__ = 'GsubTimeShiftDialog'
+
+    offset_row = Gtk.Template.Child()
+    back_box = Gtk.Template.Child()
+    forward_box = Gtk.Template.Child()
+    scope_all = Gtk.Template.Child()
+    scope_selected = Gtk.Template.Child()
+    scope_from = Gtk.Template.Child()
+    scope_all_row = Gtk.Template.Child()
+    scope_selected_row = Gtk.Template.Child()
+    scope_from_row = Gtk.Template.Child()
+
     def __init__(self, parent_window):
         super().__init__()
-        
+
         self.parent_window = parent_window
         self.document = parent_window.document
-        
-        # Set up dialog - larger size to show all content
-        self.set_title("Time Shift")
-        self.set_content_width(520)
-        self.set_content_height(650)
-        
-        # Use toolbar view for modern layout
-        toolbar_view = Adw.ToolbarView()
-        self.set_child(toolbar_view)
-        
-        # Header bar
-        header = Adw.HeaderBar()
-        header.set_show_title(False)
-        toolbar_view.add_top_bar(header)
-        
-        cancel_button = Gtk.Button(label="Cancel")
-        cancel_button.connect('clicked', lambda b: self.close())
-        header.pack_start(cancel_button)
-        
-        apply_button = Gtk.Button(label="Apply")
-        apply_button.add_css_class("suggested-action")
-        apply_button.connect('clicked', self._on_apply)
-        header.pack_end(apply_button)
-        
-        # Preferences page as content
-        prefs_page = Adw.PreferencesPage()
-        prefs_page.set_vexpand(True)
-        toolbar_view.set_content(prefs_page)
-        
-        # Time shift group
-        shift_group = Adw.PreferencesGroup()
-        shift_group.set_title("Offset")
-        shift_group.set_description("Shift subtitles forward or backward in time")
-        prefs_page.add(shift_group)
-        
-        # Offset input using SpinRow for modern look
-        self.offset_row = Adw.SpinRow.new_with_range(-3600000, 3600000, 100)
-        self.offset_row.set_title("Time Offset")
-        self.offset_row.set_subtitle("Milliseconds (negative for backward)")
-        self.offset_row.set_value(0)
-        self.offset_row.set_digits(0)
-        self.offset_row.set_numeric(True)
-        shift_group.add(self.offset_row)
-        
-        # Quick presets with better layout
-        presets_group = Adw.PreferencesGroup()
-        presets_group.set_title("Quick Adjustments")
-        presets_group.set_description("Common time shift values")
-        prefs_page.add(presets_group)
-        
-        # Preset buttons using ActionRows with buttons
-        preset_row_back = Adw.ActionRow()
-        preset_row_back.set_title("Shift Backward")
-        preset_row_back.set_activatable(False)
-        back_icon = Gtk.Image.new_from_icon_name("media-seek-backward-symbolic")
-        preset_row_back.add_prefix(back_icon)
-        
-        back_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+
+        # Build the preset buttons (loop-generated with closures).
         for label, value in [("-5s", -5000), ("-1s", -1000), ("-100ms", -100)]:
             button = Gtk.Button(label=label)
             button.connect('clicked', lambda b, v=value: self.offset_row.set_value(self.offset_row.get_value() + v))
-            back_box.append(button)
-        preset_row_back.add_suffix(back_box)
-        presets_group.add(preset_row_back)
-        
-        preset_row_forward = Adw.ActionRow()
-        preset_row_forward.set_title("Shift Forward")
-        preset_row_forward.set_activatable(False)
-        forward_icon = Gtk.Image.new_from_icon_name("media-seek-forward-symbolic")
-        preset_row_forward.add_prefix(forward_icon)
-        
-        forward_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            self.back_box.append(button)
+
         for label, value in [("+100ms", 100), ("+1s", 1000), ("+5s", 5000)]:
             button = Gtk.Button(label=label)
             button.add_css_class("suggested-action")
             button.connect('clicked', lambda b, v=value: self.offset_row.set_value(self.offset_row.get_value() + v))
-            forward_box.append(button)
-        preset_row_forward.add_suffix(forward_box)
-        presets_group.add(preset_row_forward)
-        
-        # Scope group with better styling
-        scope_group = Adw.PreferencesGroup()
-        scope_group.set_title("Apply To")
-        scope_group.set_description("Choose which subtitles to shift")
-        prefs_page.add(scope_group)
-        
-        # Radio buttons for scope with icons
-        self.scope_all = Gtk.CheckButton()
-        self.scope_all.set_active(True)
-        scope_all_row = Adw.ActionRow()
-        scope_all_row.set_title("All Subtitles")
-        scope_all_row.set_subtitle("Shift the entire subtitle track")
-        all_icon = Gtk.Image.new_from_icon_name("view-list-symbolic")
-        scope_all_row.add_prefix(all_icon)
-        scope_all_row.add_prefix(self.scope_all)
-        scope_all_row.set_activatable_widget(self.scope_all)
-        scope_group.add(scope_all_row)
-        
-        self.scope_selected = Gtk.CheckButton()
+            self.forward_box.append(button)
+
+        # Group the scope radio buttons (must be wired in code).
         self.scope_selected.set_group(self.scope_all)
-        scope_selected_row = Adw.ActionRow()
-        scope_selected_row.set_title("Selected Only")
-        scope_selected_row.set_subtitle("Shift only the currently selected subtitle")
-        selected_icon = Gtk.Image.new_from_icon_name("edit-select-symbolic")
-        scope_selected_row.add_prefix(selected_icon)
-        scope_selected_row.add_prefix(self.scope_selected)
-        scope_selected_row.set_activatable_widget(self.scope_selected)
-        scope_group.add(scope_selected_row)
-        
-        self.scope_from = Gtk.CheckButton()
         self.scope_from.set_group(self.scope_all)
-        scope_from_row = Adw.ActionRow()
-        scope_from_row.set_title("From Selected to End")
-        scope_from_row.set_subtitle("Shift all subtitles after the selected one")
-        from_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        scope_from_row.add_prefix(from_icon)
-        scope_from_row.add_prefix(self.scope_from)
-        scope_from_row.set_activatable_widget(self.scope_from)
-        scope_group.add(scope_from_row)
-    
-    def _on_apply(self, button):
+        self.scope_all_row.set_activatable_widget(self.scope_all)
+        self.scope_selected_row.set_activatable_widget(self.scope_selected)
+        self.scope_from_row.set_activatable_widget(self.scope_from)
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
+
+    @Gtk.Template.Callback()
+    def on_apply(self, _button):
         """Apply the time shift."""
         offset_ms = int(self.offset_row.get_value())
-        
+
         if offset_ms == 0:
             self.close()
             return
-        
+
         # Determine which subtitles to shift
         positions = None
-        
+
         if self.scope_selected.get_active():
             # Only selected subtitles
             positions = self.parent_window.subtitle_list.get_selected_positions()
             if not positions:
                 self.close()
                 return
-        
+
         elif self.scope_from.get_active():
             # From first selected to end
             selected_positions = self.parent_window.subtitle_list.get_selected_positions()
@@ -168,102 +87,54 @@ class TimeShiftDialog(Adw.Dialog):
             else:
                 self.close()
                 return
-        
+
         # Create and execute command
         cmd = TimeShiftCommand(self.document, offset_ms, positions)
         self.parent_window.command_manager.execute(cmd)
-        
+
         # Update UI - preserve selection
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
         self.parent_window._update_undo_redo_buttons()
         self.parent_window._show_toast(f"Time shifted by {offset_ms}ms")
-        
+
         self.close()
 
 
+@Gtk.Template(resource_path=template_resource_path('bulk-apply-style'))
 class BulkApplyStyleDialog(Adw.Dialog):
     """Dialog to apply a style to multiple subtitle entries (ASS/SSA)."""
+
+    __gtype_name__ = 'GsubBulkApplyStyleDialog'
+
+    style_row = Gtk.Template.Child()
+    scope_selected = Gtk.Template.Child()
+    scope_selected_check = Gtk.Template.Child()
+    scope_all = Gtk.Template.Child()
+    scope_all_check = Gtk.Template.Child()
+    scope_from = Gtk.Template.Child()
+    scope_from_check = Gtk.Template.Child()
 
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
         self.document = parent_window.document
 
-        self.set_title("Bulk Apply Style")
-        self.set_content_width(520)
-        self.set_content_height(420)
-
-        toolbar_view = Adw.ToolbarView()
-        self.set_child(toolbar_view)
-
-        header = Adw.HeaderBar()
-        header.set_show_title(False)
-        toolbar_view.add_top_bar(header)
-
-        cancel_button = Gtk.Button(label="Cancel")
-        cancel_button.connect('clicked', lambda b: self.close())
-        header.pack_start(cancel_button)
-
-        apply_button = Gtk.Button(label="Apply")
-        apply_button.add_css_class("suggested-action")
-        apply_button.connect('clicked', self._on_apply)
-        header.pack_end(apply_button)
-
-        prefs_page = Adw.PreferencesPage()
-        prefs_page.set_vexpand(True)
-        toolbar_view.set_content(prefs_page)
-
-        group = Adw.PreferencesGroup()
-        group.set_title("Style")
-        group.set_description("Apply a style to many subtitles at once")
-        prefs_page.add(group)
-
         style_names = [s.name for s in (self.document.styles or [])] or ['Default']
         self._style_names = style_names
         self._style_model = Gtk.StringList.new(style_names)
-
-        self.style_row = Adw.ComboRow()
-        self.style_row.set_title("Style")
         self.style_row.set_model(self._style_model)
-        self.style_row.set_selected(0)
-        group.add(self.style_row)
 
-        scope_group = Adw.PreferencesGroup()
-        scope_group.set_title("Scope")
-        scope_group.set_description("Choose which subtitles to modify")
-        prefs_page.add(scope_group)
-
-        self.scope_selected = Adw.ActionRow()
-        self.scope_selected.set_title("Selected subtitles")
-        self.scope_selected.set_subtitle("Apply to currently selected entries only")
-        self.scope_selected_check = Gtk.CheckButton()
-        self.scope_selected_check.set_active(True)
-        self.scope_selected.add_prefix(self.scope_selected_check)
+        # Group the scope radio buttons (must be wired in code).
+        self.scope_all_check.set_group(self.scope_selected_check)
+        self.scope_from_check.set_group(self.scope_selected_check)
         self.scope_selected.set_activatable_widget(self.scope_selected_check)
-        selected_icon = Gtk.Image.new_from_icon_name("edit-select-symbolic")
-        self.scope_selected.add_prefix(selected_icon)
-        scope_group.add(self.scope_selected)
-
-        self.scope_all = Adw.ActionRow()
-        self.scope_all.set_title("All subtitles")
-        self.scope_all.set_subtitle("Apply to every subtitle in the document")
-        self.scope_all_check = Gtk.CheckButton(group=self.scope_selected_check)
-        self.scope_all.add_prefix(self.scope_all_check)
         self.scope_all.set_activatable_widget(self.scope_all_check)
-        all_icon = Gtk.Image.new_from_icon_name("view-list-symbolic")
-        self.scope_all.add_prefix(all_icon)
-        scope_group.add(self.scope_all)
-
-        self.scope_from = Adw.ActionRow()
-        self.scope_from.set_title("From first selected to end")
-        self.scope_from.set_subtitle("Apply to selected and all following entries")
-        self.scope_from_check = Gtk.CheckButton(group=self.scope_selected_check)
-        self.scope_from.add_prefix(self.scope_from_check)
         self.scope_from.set_activatable_widget(self.scope_from_check)
-        from_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        self.scope_from.add_prefix(from_icon)
-        scope_group.add(self.scope_from)
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
 
     def _resolve_positions(self):
         if self.scope_all_check.get_active():
@@ -278,7 +149,8 @@ class BulkApplyStyleDialog(Adw.Dialog):
         # default: selected
         return self.parent_window.subtitle_list.get_selected_positions()
 
-    def _on_apply(self, _button):
+    @Gtk.Template.Callback()
+    def on_apply(self, _button):
         if not self.document or not self.document.entries:
             self.close()
             return
@@ -303,8 +175,11 @@ class BulkApplyStyleDialog(Adw.Dialog):
         self.close()
 
 
+@Gtk.Template(resource_path=template_resource_path('ass-info-styles'))
 class ASSInfoStylesDialog(Adw.Dialog):
     """Dialog to edit ASS/SSA Script Info metadata and style definitions."""
+
+    __gtype_name__ = 'GsubASSInfoStylesDialog'
 
     COMMON_KEYS = [
         ('Title', 'Title'),
@@ -314,14 +189,30 @@ class ASSInfoStylesDialog(Adw.Dialog):
         ('YCbCr Matrix', 'YCbCr Matrix'),
     ]
 
+    # Template children (static editor rows).
+    info_group = Gtk.Template.Child()
+    styles_group = Gtk.Template.Child()
+    style_combo = Gtk.Template.Child()
+    style_name = Gtk.Template.Child()
+    style_font = Gtk.Template.Child()
+    style_fontsize = Gtk.Template.Child()
+    primary_color_btn = Gtk.Template.Child()
+    outline_color_btn = Gtk.Template.Child()
+    back_color_btn = Gtk.Template.Child()
+    style_bold = Gtk.Template.Child()
+    style_italic = Gtk.Template.Child()
+    style_outline_width = Gtk.Template.Child()
+    style_shadow = Gtk.Template.Child()
+    style_alignment = Gtk.Template.Child()
+    preview_expander = Gtk.Template.Child()
+    preview_label = Gtk.Template.Child()
+    preview_frame = Gtk.Template.Child()
+    preview_scroller = Gtk.Template.Child()
+
     def __init__(self, parent_window):
         super().__init__()
         self.parent_window = parent_window
         self.document = parent_window.document
-
-        self.set_title("ASS/SSA Info & Styles")
-        self.set_content_width(700)
-        self.set_content_height(720)
 
         # Local editable copies
         self._metadata = copy.deepcopy(self.document.metadata or {})
@@ -332,38 +223,13 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self._selected_style_index = 0
         self._updating_style_ui = False
 
-        toolbar_view = Adw.ToolbarView()
-        self.set_child(toolbar_view)
-
-        header = Adw.HeaderBar()
-        header.set_show_title(False)
-        toolbar_view.add_top_bar(header)
-
-        cancel_button = Gtk.Button(label="Cancel")
-        cancel_button.connect('clicked', lambda b: self.close())
-        header.pack_start(cancel_button)
-
-        apply_button = Gtk.Button(label="Apply")
-        apply_button.add_css_class("suggested-action")
-        apply_button.connect('clicked', self._on_apply)
-        header.pack_end(apply_button)
-
-        prefs_page = Adw.PreferencesPage()
-        prefs_page.set_vexpand(True)
-        toolbar_view.set_content(prefs_page)
-
-        # --- Script Info ---
-        info_group = Adw.PreferencesGroup()
-        info_group.set_title("Script Info")
-        info_group.set_description("Metadata stored in the [Script Info] section")
-        prefs_page.add(info_group)
-
+        # --- Script Info: common keys (built in a loop) ---
         self._info_rows = {}
         for key, label in self.COMMON_KEYS:
             row = Adw.EntryRow()
             row.set_title(label)
             row.set_text(str(self._metadata.get(key, "")))
-            info_group.add(row)
+            self.info_group.add(row)
             self._info_rows[key] = row
 
         # Full Script Info editor (dynamic fields)
@@ -371,7 +237,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
         full_info_row.set_title("All Script Info")
         full_info_row.set_subtitle("Edit all keys including PlayResX/PlayResY")
         full_info_row.set_expanded(True)
-        info_group.add(full_info_row)
+        self.info_group.add(full_info_row)
 
         self._script_info_rows = []  # list of (key_entry, value_entry)
 
@@ -394,7 +260,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
         aeg_row.set_title("Aegisub Project Garbage")
         aeg_row.set_subtitle("Optional section used by Aegisub")
         aeg_row.set_expanded(False)
-        info_group.add(aeg_row)
+        self.info_group.add(aeg_row)
 
         self._aegisub_rows = []
         self._aegisub_garbage = copy.deepcopy(getattr(self.document, 'aegisub_project_garbage', {}) or {})
@@ -413,170 +279,46 @@ class ASSInfoStylesDialog(Adw.Dialog):
         for k in sorted(self._aegisub_garbage.keys()):
             self._add_kv_row(aeg_row, self._aegisub_rows, k, self._aegisub_garbage[k])
 
-        # --- Styles ---
-        styles_group = Adw.PreferencesGroup()
-        styles_group.set_title("Styles")
-        styles_group.set_description("Edit style definitions in [V4+ Styles]")
-        prefs_page.add(styles_group)
-
+        # --- Styles: models + signal wiring on the templated rows ---
         # Keep a persistent model to avoid signal feedback loops / freezes.
         self._style_model = Gtk.StringList.new([s.name for s in self._styles])
-
-        self.style_combo = Adw.ComboRow()
-        self.style_combo.set_title("Style")
         self.style_combo.set_model(self._style_model)
         self.style_combo.set_selected(self._selected_style_index)
         self.style_combo.connect('notify::selected', self._on_style_selected)
-        styles_group.add(self.style_combo)
 
-        buttons_row = Adw.ActionRow()
-        buttons_row.set_title("Manage styles")
-
-        add_btn = Gtk.Button()
-        add_btn.set_icon_name("list-add-symbolic")
-        add_btn.add_css_class("flat")
-        add_btn.add_css_class("circular")
-        add_btn.set_tooltip_text("Add style")
-        add_btn.connect('clicked', self._on_add_style)
-
-        remove_btn = Gtk.Button()
-        remove_btn.set_icon_name("list-remove-symbolic")
-        remove_btn.add_css_class("flat")
-        remove_btn.add_css_class("circular")
-        remove_btn.set_tooltip_text("Remove style")
-        remove_btn.connect('clicked', self._on_remove_style)
-
-        buttons_row.add_suffix(add_btn)
-        buttons_row.add_suffix(remove_btn)
-        buttons_row.set_activatable(False)
-        styles_group.add(buttons_row)
-
-        self.style_name = Adw.EntryRow()
-        self.style_name.set_title("Name")
         self.style_name.connect('notify::text', self._on_style_field_changed)
-        styles_group.add(self.style_name)
 
         # Font family dropdown
         self._font_families = sorted(
             [f.get_name() for f in PangoCairo.FontMap.get_default().list_families()]
         )
         self._font_model = Gtk.StringList.new(self._font_families)
-
-        self.style_font = Adw.ComboRow()
-        self.style_font.set_title("Font")
         self.style_font.set_model(self._font_model)
         self.style_font.connect('notify::selected', self._on_style_field_changed)
-        styles_group.add(self.style_font)
 
-        self.style_fontsize = Adw.SpinRow.new_with_range(1, 200, 1)
-        self.style_fontsize.set_title("Font Size")
         self.style_fontsize.connect('notify::value', self._on_style_field_changed)
-        styles_group.add(self.style_fontsize)
 
-        # Color pickers (GTK color wheel) -> stored as ASS &H... strings
-        primary_dialog = Gtk.ColorDialog()
-        outline_dialog = Gtk.ColorDialog()
-        back_dialog = Gtk.ColorDialog()
-        # Enable alpha transparency
-        primary_dialog.set_with_alpha(True)
-        outline_dialog.set_with_alpha(True)
-        back_dialog.set_with_alpha(True)
-
-        self._primary_color_btn = Gtk.ColorDialogButton.new(primary_dialog)
-        self._outline_color_btn = Gtk.ColorDialogButton.new(outline_dialog)
-        self._back_color_btn = Gtk.ColorDialogButton.new(back_dialog)
-
-        primary_row = Adw.ActionRow()
-        primary_row.set_title("Primary Colour")
-        primary_row.add_suffix(self._primary_color_btn)
-        primary_row.set_activatable(False)
-        styles_group.add(primary_row)
-
-        outline_row = Adw.ActionRow()
-        outline_row.set_title("Outline Colour")
-        outline_row.add_suffix(self._outline_color_btn)
-        outline_row.set_activatable(False)
-        styles_group.add(outline_row)
-
-        back_row = Adw.ActionRow()
-        back_row.set_title("Back Colour")
-        back_row.add_suffix(self._back_color_btn)
-        back_row.set_activatable(False)
-        styles_group.add(back_row)
-
+        # Color pickers — the ColorDialogButton + ColorDialog(with-alpha) are
+        # declared in the template; here we only wire the change handlers.
+        self._primary_color_btn = self.primary_color_btn
+        self._outline_color_btn = self.outline_color_btn
+        self._back_color_btn = self.back_color_btn
         self._primary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('primary'))
         self._outline_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('outline'))
         self._back_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('back'))
 
-        self.style_bold = Adw.SwitchRow()
-        self.style_bold.set_title("Bold")
         self.style_bold.connect('notify::active', self._on_style_field_changed)
-        styles_group.add(self.style_bold)
-
-        self.style_italic = Adw.SwitchRow()
-        self.style_italic.set_title("Italic")
         self.style_italic.connect('notify::active', self._on_style_field_changed)
-        styles_group.add(self.style_italic)
-
-        self.style_outline_width = Adw.SpinRow.new_with_range(0, 20, 0.1)
-        self.style_outline_width.set_title("Outline")
-        self.style_outline_width.set_digits(1)
         self.style_outline_width.connect('notify::value', self._on_style_field_changed)
-        styles_group.add(self.style_outline_width)
-
-        self.style_shadow = Adw.SpinRow.new_with_range(0, 20, 0.1)
-        self.style_shadow.set_title("Shadow")
-        self.style_shadow.set_digits(1)
         self.style_shadow.connect('notify::value', self._on_style_field_changed)
-        styles_group.add(self.style_shadow)
-
-        self.style_alignment = Adw.SpinRow.new_with_range(1, 9, 1)
-        self.style_alignment.set_title("Alignment")
-        self.style_alignment.set_subtitle("1-9 (ASS alignment grid)")
         self.style_alignment.connect('notify::value', self._on_style_field_changed)
-        styles_group.add(self.style_alignment)
-
-        # Live preview (own line, larger area)
-        preview_expander = Adw.ExpanderRow()
-        preview_expander.set_title("Preview")
-        preview_expander.set_subtitle("Live sample for the selected style")
-        preview_expander.set_expanded(True)
-        styles_group.add(preview_expander)
-
-        # Larger preview area: scrolls instead of squishing other controls.
-        self.preview_label = Gtk.Label(label="The quick brown fox jumps over the lazy dog 0123456789")
-        self.preview_label.set_xalign(0.0)
-        self.preview_label.set_wrap(True)
-        self.preview_label.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
-        self.preview_label.set_max_width_chars(60)
-
-        # Preview container with explicit CSS class so we can style it reliably
-        self.preview_frame = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
-        self.preview_frame.add_css_class("ass-preview-frame")
-        self.preview_frame.set_margin_top(6)
-        self.preview_frame.set_margin_bottom(6)
-        self.preview_frame.set_margin_start(6)
-        self.preview_frame.set_margin_end(6)
-
-        self.preview_label.add_css_class("ass-preview-label")
-        self.preview_frame.append(self.preview_label)
-
-        self.preview_scroller = Gtk.ScrolledWindow()
-        self.preview_scroller.set_hexpand(True)
-        self.preview_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.preview_scroller.set_min_content_height(220)
-        # Let preview take remaining space in the dialog
-        self.preview_scroller.set_vexpand(True)
-        self.preview_scroller.set_child(self.preview_frame)
-
-        preview_content_row = Adw.ActionRow()
-        preview_content_row.set_activatable(False)
-        preview_content_row.set_vexpand(True)
-        preview_content_row.add_suffix(self.preview_scroller)
-        preview_expander.add_row(preview_content_row)
 
         self._load_style_into_editor()
         self._update_preview()
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
 
     def _set_selected_style_index(self, idx: int) -> None:
         if not (0 <= idx < len(self._styles)):
@@ -656,14 +398,16 @@ class ASSInfoStylesDialog(Adw.Dialog):
 
         self._update_preview()
 
-    def _on_add_style(self, _button):
+    @Gtk.Template.Callback()
+    def on_add_style(self, _button):
         new_style = ASSStyle(name=f"Style{len(self._styles) + 1}")
         self._styles.append(new_style)
         self._style_model.splice(self._style_model.get_n_items(), 0, [new_style.name])
         self._set_selected_style_index(len(self._styles) - 1)
         self._load_style_into_editor()
 
-    def _on_remove_style(self, _button):
+    @Gtk.Template.Callback()
+    def on_remove_style(self, _button):
         if len(self._styles) <= 1:
             return
         idx = self._selected_style_index
@@ -863,7 +607,8 @@ class ASSInfoStylesDialog(Adw.Dialog):
             out[k] = value_entry.get_text().strip()
         return out
 
-    def _on_apply(self, _button):
+    @Gtk.Template.Callback()
+    def on_apply(self, _button):
         # Collect Script Info from dynamic rows
         metadata = self._collect_kv_rows(self._script_info_rows)
 
@@ -902,18 +647,24 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.close()
 
 
+@Gtk.Template(resource_path=template_resource_path('track-selection'))
 class TrackSelectionDialog(Adw.Window):
     """Dialog for selecting audio and subtitle tracks from a video file."""
+
+    __gtype_name__ = 'GsubTrackSelectionDialog'
 
     __gsignals__ = {
         "tracks-selected": (GObject.SignalFlags.RUN_FIRST, None, (int, int)),
         # (audio_track_index, subtitle_track_index) - both can be -1 for "none"
     }
 
+    audio_group = Gtk.Template.Child()
+    subtitle_group = Gtk.Template.Child()
+
     def __init__(self, parent, audio_tracks, subtitle_tracks, current_audio=-1, current_subtitle=-1):
         """
         Initialize track selection dialog.
-        
+
         Args:
             parent: Parent window
             audio_tracks: List of dicts with 'index', 'title', 'language', 'codec'
@@ -922,60 +673,27 @@ class TrackSelectionDialog(Adw.Window):
             current_subtitle: Currently selected subtitle track index
         """
         super().__init__()
-        
+
         self.set_transient_for(parent)
         self.set_modal(True)
-        self.set_title("Select Audio and Subtitle Tracks")
-        self.set_default_size(500, 450)
-        
+
         self.audio_tracks = audio_tracks
         self.subtitle_tracks = subtitle_tracks
         self.selected_audio = current_audio
         self.selected_subtitle = current_subtitle
-        
-        # Main content - AdwWindow uses AdwToolbarView for header
-        toolbar_view = Adw.ToolbarView()
-        self.set_content(toolbar_view)
-        
-        header = Adw.HeaderBar()
-        toolbar_view.add_top_bar(header)
-        
-        # Cancel button
-        cancel_button = Gtk.Button(label="Cancel")
-        cancel_button.connect("clicked", lambda b: self.close())
-        header.pack_start(cancel_button)
-        
-        # Select button
-        select_button = Gtk.Button(label="Select")
-        select_button.add_css_class("suggested-action")
-        select_button.connect("clicked", self._on_select_clicked)
-        header.pack_end(select_button)
-        
-        # Content box
-        content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        toolbar_view.set_content(content_box)
-        
-        # Scrolled window
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        content_box.append(scrolled)
-        
-        # Preferences page
-        prefs_page = Adw.PreferencesPage()
-        scrolled.set_child(prefs_page)
-        
-        # Audio tracks group
-        audio_group = Adw.PreferencesGroup()
-        audio_group.set_title("Audio Tracks")
-        audio_group.set_description(f"Select an audio track ({len(audio_tracks)} available)")
-        prefs_page.add(audio_group)
-        
+
+        self.audio_group.set_description(
+            f"Select an audio track ({len(audio_tracks)} available)"
+        )
+        self.subtitle_group.set_description(
+            f"Select a subtitle track ({len(subtitle_tracks)} available)"
+        )
+
         # Create radio buttons for audio tracks
         self.audio_check_group = []
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
-            
+
             # Handle both TrackInfo objects and dict format
             if hasattr(track, 'to_dict'):
                 # TrackInfo object from refactored code
@@ -989,11 +707,11 @@ class TrackSelectionDialog(Adw.Window):
                 track_title = track.get('title') or f"Track {track_index + 1}"
                 track_language = track.get('language')
                 track_codec = track.get('codec')
-            
+
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')
             row.set_title(title)
-            
+
             # Build subtitle with language and codec info
             subtitle_parts = []
             if track_language:
@@ -1002,27 +720,21 @@ class TrackSelectionDialog(Adw.Window):
                 subtitle_parts.append(track_codec)
             if subtitle_parts:
                 row.set_subtitle(", ".join(subtitle_parts))
-            
+
             # Radio button
             check = Gtk.CheckButton()
             check.set_active(track_index == current_audio)
             check.connect("toggled", self._on_audio_track_selected, track_index)
-            
+
             # Group radio buttons
             if self.audio_check_group:
                 check.set_group(self.audio_check_group[0])
             self.audio_check_group.append(check)
-            
+
             row.add_prefix(check)
             row.set_activatable_widget(check)
-            audio_group.add(row)
-        
-        # Subtitle tracks group
-        subtitle_group = Adw.PreferencesGroup()
-        subtitle_group.set_title("Subtitle Tracks")
-        subtitle_group.set_description(f"Select a subtitle track ({len(subtitle_tracks)} available)")
-        prefs_page.add(subtitle_group)
-        
+            self.audio_group.add(row)
+
         # "None" option for subtitles
         none_row = Adw.ActionRow()
         none_row.set_title("None")
@@ -1032,14 +744,14 @@ class TrackSelectionDialog(Adw.Window):
         none_check.connect("toggled", self._on_subtitle_track_selected, -1)
         none_row.add_prefix(none_check)
         none_row.set_activatable_widget(none_check)
-        subtitle_group.add(none_row)
-        
+        self.subtitle_group.add(none_row)
+
         self.subtitle_check_group = [none_check]
-        
+
         # Create radio buttons for subtitle tracks
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
-            
+
             # Handle both TrackInfo objects and dict format
             if hasattr(track, 'to_dict'):
                 # TrackInfo object from refactored code
@@ -1053,11 +765,11 @@ class TrackSelectionDialog(Adw.Window):
                 track_title = track.get('title') or f"Track {track_index + 1}"
                 track_language = track.get('language')
                 track_codec = track.get('codec')
-            
+
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')
             row.set_title(title)
-            
+
             # Build subtitle with language and codec info
             subtitle_parts = []
             if track_language:
@@ -1066,29 +778,34 @@ class TrackSelectionDialog(Adw.Window):
                 subtitle_parts.append(track_codec)
             if subtitle_parts:
                 row.set_subtitle(", ".join(subtitle_parts))
-            
+
             # Radio button
             check = Gtk.CheckButton()
             check.set_active(track_index == current_subtitle)
             check.connect("toggled", self._on_subtitle_track_selected, track_index)
             check.set_group(none_check)
             self.subtitle_check_group.append(check)
-            
+
             row.add_prefix(check)
             row.set_activatable_widget(check)
-            subtitle_group.add(row)
-    
+            self.subtitle_group.add(row)
+
     def _on_audio_track_selected(self, check_button, track_index):
         """Handle audio track selection."""
         if check_button.get_active():
             self.selected_audio = track_index
-    
+
     def _on_subtitle_track_selected(self, check_button, track_index):
         """Handle subtitle track selection."""
         if check_button.get_active():
             self.selected_subtitle = track_index
-    
-    def _on_select_clicked(self, button):
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
+
+    @Gtk.Template.Callback()
+    def on_select_clicked(self, _button):
         """Handle select button click."""
         self.emit("tracks-selected", self.selected_audio, self.selected_subtitle)
         self.close()

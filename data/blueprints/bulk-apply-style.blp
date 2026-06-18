@@ -1,0 +1,89 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubBulkApplyStyleDialog : Adw.Dialog {
+  title: _("Bulk Apply Style");
+  content-width: 520;
+  content-height: 420;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      Adw.PreferencesGroup style_group {
+        title: _("Style");
+        description: _("Apply a style to many subtitles at once");
+
+        Adw.ComboRow style_row {
+          title: _("Style");
+          selected: 0;
+          // model is populated from code.
+        }
+      }
+
+      Adw.PreferencesGroup scope_group {
+        title: _("Scope");
+        description: _("Choose which subtitles to modify");
+
+        Adw.ActionRow scope_selected {
+          title: _("Selected subtitles");
+          subtitle: _("Apply to currently selected entries only");
+
+          [prefix]
+          Image {
+            icon-name: "edit-select-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_selected_check {
+            active: true;
+          }
+        }
+
+        Adw.ActionRow scope_all {
+          title: _("All subtitles");
+          subtitle: _("Apply to every subtitle in the document");
+
+          [prefix]
+          Image {
+            icon-name: "view-list-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_all_check {}
+        }
+
+        Adw.ActionRow scope_from {
+          title: _("From first selected to end");
+          subtitle: _("Apply to selected and all following entries");
+
+          [prefix]
+          Image {
+            icon-name: "go-next-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_from_check {}
+        }
+      }
+    };
+  };
+}
