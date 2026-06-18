@@ -1,0 +1,54 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubWindow : Adw.ApplicationWindow {
+  content: Adw.ToolbarView toolbar_view {
+    [top]
+    Adw.Banner banner {
+      revealed: false;
+    }
+
+    [top]
+    Adw.HeaderBar header_bar {
+      title-widget: Adw.WindowTitle title_widget {
+        title: _("gsub");
+      };
+
+      [end]
+      MenuButton menu_button {
+        icon-name: "open-menu-symbolic";
+        tooltip-text: _("Main Menu");
+      }
+
+      [start]
+      Stack header_start_stack {
+        transition-type: crossfade;
+        // The three per-view header layouts are added from code via
+        // add_named() so their page names resolve for set_visible_child_name().
+      }
+    }
+
+    content: Adw.ToastOverlay toast_overlay {
+      child: Adw.ViewStack view_stack {};
+    };
+
+    [bottom]
+    Box bottom_bar {
+      spacing: 6;
+      margin-start: 12;
+      margin-end: 12;
+      margin-top: 6;
+      margin-bottom: 6;
+
+      Label status_bar {
+        halign: start;
+        hexpand: true;
+        styles ["dim-label"]
+      }
+
+      Box action_box {
+        spacing: 6;
+      }
+    }
+  };
+}
