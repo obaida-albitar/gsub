@@ -20,6 +20,10 @@ template GsubVideoPlayer : Gtk.Box {
       }
 
       // Subtitle overlay (transparent drawing area, redrawn on demand).
+      // [overlay] keeps it as a GtkOverlay overlay child; without it the
+      // drawing area would replace the video Picture as the main child and
+      // the video would never be visible.
+      [overlay]
       DrawingArea subtitle_drawing_area {
         vexpand: true;
         hexpand: true;
