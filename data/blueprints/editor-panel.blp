@@ -50,32 +50,29 @@ template GsubEditorPanel : Gtk.Box {
               icon-name: "text-editor-symbolic";
             }
 
-            // Text editor row
-            Adw.ActionRow text_row {
-              activatable: false;
+            // Text editor — a full-width row of the expander (matches the
+            // original add_row(text_scroll)). It must NOT be a [suffix] of an
+            // ActionRow, which constrains it to a narrow right-aligned slot.
+            ScrolledWindow text_scroll {
+              styles ["card"]
+              min-content-height: 150;
+              max-content-height: 300;
+              hscrollbar-policy: never;
+              vscrollbar-policy: automatic;
+              margin-start: 12;
+              margin-end: 12;
+              margin-top: 6;
+              margin-bottom: 12;
 
-              [suffix]
-              ScrolledWindow text_scroll {
-                styles ["card"]
-                min-content-height: 150;
-                max-content-height: 300;
-                hscrollbar-policy: never;
-                vscrollbar-policy: automatic;
-                margin-start: 12;
-                margin-end: 12;
-                margin-top: 6;
-                margin-bottom: 12;
-
-                child: TextView text_view {
-                  wrap-mode: word_char;
-                  pixels-above-lines: 8;
-                  pixels-below-lines: 8;
-                  left-margin: 16;
-                  right-margin: 16;
-                  top-margin: 16;
-                  bottom-margin: 16;
-                };
-              }
+              child: TextView text_view {
+                wrap-mode: word_char;
+                pixels-above-lines: 8;
+                pixels-below-lines: 8;
+                left-margin: 16;
+                right-margin: 16;
+                top-margin: 16;
+                bottom-margin: 16;
+              };
             }
           }
         }
