@@ -18,6 +18,7 @@ import os
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser
 from subtitle_editor.commands import CommandManager
+from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
 from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
@@ -28,12 +29,28 @@ from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
 from subtitle_editor.widgets.batch_confirm_dialog import BatchConfirmDialog
 
 
+@Gtk.Template(resource_path=template_resource_path('window'))
 class GsubWindow(Adw.ApplicationWindow):
     """Main application window."""
-    
+
+    __gtype_name__ = 'GsubWindow'
+
+    # Template children (the static scaffold; child widgets are packed in code).
+    toolbar_view = Gtk.Template.Child()
+    banner = Gtk.Template.Child()
+    header_bar = Gtk.Template.Child()
+    menu_button = Gtk.Template.Child()
+    title_widget = Gtk.Template.Child()
+    header_start_stack = Gtk.Template.Child()
+    toast_overlay = Gtk.Template.Child()
+    view_stack = Gtk.Template.Child()
+    bottom_bar = Gtk.Template.Child()
+    status_bar = Gtk.Template.Child()
+    action_box = Gtk.Template.Child()
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        
+
         # Application state
         self.document: SubtitleDocument = None
         self.command_manager = CommandManager()
@@ -42,62 +59,32 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_visible = False
         self.current_view = "home"  # "home", "editor", or "batch"
         self.batch_format = None  # SubtitleFormat of batch files (all same format)
-        
+
         # Load saved config
         config = self._load_config()
         self.last_directory = config.get("last_directory")
-        
+
         # Set up window properties
         width = config.get("window_width", 1200)
         height = config.get("window_height", 800)
         self.set_default_size(width, height)
         if config.get("window_maximized", False):
             self.maximize()
-        self.set_title("Subtitle Editor")
+        self.set_title("Gsub")
         self.connect("close-request", self._on_close_request)
-        
-        # Build UI
+
+        # Wire the dynamic child widgets into the templated scaffold.
         self._build_ui()
         self._update_header_bar()
         self._setup_actions()
         self._update_title()
         self._update_format_actions()
         self._update_document_actions()
-    
-    def _build_ui(self):
-        """Construct the user interface."""
-        # Use Adw.ToolbarView for modern GNOME layout
-        toolbar_view = Adw.ToolbarView()
-        self.set_content(toolbar_view)
-        
-        # Toast overlay for user feedback
-        self.toast_overlay = Adw.ToastOverlay()
-        toolbar_view.set_content(self.toast_overlay)
-        
-        # Banner for important notifications (initially hidden)
-        self.banner = Adw.Banner()
-        self.banner.set_revealed(False)
-        toolbar_view.add_top_bar(self.banner)
-        
-        # Header bar
-        self.header_bar = Adw.HeaderBar()
-        toolbar_view.add_top_bar(self.header_bar)
-        
-        # Primary menu button (menu model switches per view)
-        self.menu_button = Gtk.MenuButton()
-        self.menu_button.set_icon_name("open-menu-symbolic")
-        self.menu_button.set_tooltip_text("Main Menu")
-        self.header_bar.pack_end(self.menu_button)
-        
-        # Document title - centered
-        self.title_widget = Adw.WindowTitle()
-        self.title_widget.set_title("Subtitle Editor")
-        self.header_bar.set_title_widget(self.title_widget)
 
-        # Header start buttons - use a stack to switch between views
-        self.header_start_stack = Gtk.Stack()
-        self.header_start_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-
+    def _build_header_start_stack(self):
+        """Build the three per-view header layouts and add them to the
+        header_start_stack via add_named() (Gtk.Stack page names only resolve
+        when set this way, not from the template)."""
         # Home page: empty (no start buttons)
         home_header = Gtk.Box()
         self.header_start_stack.add_named(home_header, "home")
@@ -194,17 +181,25 @@ class GsubWindow(Adw.ApplicationWindow):
         separator2.set_margin_end(4)
         batch_header.append(separator2)
 
-        batch_add_btn = Gtk.Button(label="Add Files…")
-        batch_add_btn.set_icon_name("list-add-symbolic")
+        batch_add_btn = Gtk.Button()
+        add_content = Adw.ButtonContent()
+        add_content.set_label("Add Files")
+        add_content.set_icon_name("list-add-symbolic")
+        batch_add_btn.set_child(add_content)
+        batch_add_btn.set_tooltip_text("Add subtitle files to the batch")
         batch_add_btn.connect('clicked', lambda b: self._on_batch_add_files())
         batch_header.append(batch_add_btn)
         self.header_start_stack.add_named(batch_header, "batch")
 
-        self.header_bar.pack_start(self.header_start_stack)
-        
-        # Main content - use Adw.ViewStack for different views
-        self.view_stack = Adw.ViewStack()
-        self.toast_overlay.set_child(self.view_stack)
+    def _build_ui(self):
+        """Instantiate the dynamic child widgets and pack them into the
+        templated scaffold. The static layout (toolbar view, header bar,
+        view stack, bottom bar) is defined in window.blp; the per-view
+        header layouts are built here via add_named() so their stack page
+        names resolve correctly."""
+
+        # Header start buttons - use a stack to switch between views.
+        self._build_header_start_stack()
 
         # --- Home page ---
         self.home_screen = HomeScreenView()
@@ -212,7 +207,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.home_screen.connect('open-batch', lambda w: self._navigate_to_batch())
         self.view_stack.add_titled(self.home_screen, "home", "Home")
 
-        # --- Editor page (existing single-file editing) ---
+        # --- Editor page (single-file editing) ---
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.view_stack.add_titled(main_box, "editor", "Editor")
 
@@ -327,25 +322,6 @@ class GsubWindow(Adw.ApplicationWindow):
         # Set default view to home
         self.view_stack.set_visible_child_name("home")
 
-        # Bottom bar with status and actions
-        self.bottom_bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.bottom_bar.set_margin_start(12)
-        self.bottom_bar.set_margin_end(12)
-        self.bottom_bar.set_margin_top(6)
-        self.bottom_bar.set_margin_bottom(6)
-        toolbar_view.add_bottom_bar(self.bottom_bar)
-
-        # Status label
-        self.status_bar = Gtk.Label()
-        self.status_bar.set_halign(Gtk.Align.START)
-        self.status_bar.set_hexpand(True)
-        self.status_bar.add_css_class("dim-label")
-        self.bottom_bar.append(self.status_bar)
-
-        # Action buttons in bottom bar (shared across views, updated on switch)
-        self.action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        self.bottom_bar.append(self.action_box)
-
         self._update_bottom_bar()
     
     def _create_home_menu(self):
@@ -353,7 +329,7 @@ class GsubWindow(Adw.ApplicationWindow):
         menu = Gio.Menu()
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About Subtitle Editor", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         return menu
 
@@ -366,7 +342,7 @@ class GsubWindow(Adw.ApplicationWindow):
         menu.append_section(None, nav_section)
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About Subtitle Editor", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         return menu
 
@@ -411,7 +387,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # App section
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
-        app_section.append("About Subtitle Editor", "win.about")
+        app_section.append("About Gsub", "win.about")
         menu.append_section(None, app_section)
         
         return menu
@@ -477,7 +453,7 @@ class GsubWindow(Adw.ApplicationWindow):
             else:
                 self.title_widget.set_subtitle("")
         else:
-            self.title_widget.set_title("Subtitle Editor")
+            self.title_widget.set_title("Gsub")
             self.title_widget.set_subtitle("")
     
     def _update_status(self):
@@ -587,7 +563,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Switch to the home view."""
         self.current_view = "home"
         self.view_stack.set_visible_child_name("home")
-        self.title_widget.set_title("Subtitle Editor")
+        self.title_widget.set_title("Gsub")
         self.title_widget.set_subtitle("")
         self._update_header_bar()
         self._update_bottom_bar()
@@ -1382,12 +1358,12 @@ class GsubWindow(Adw.ApplicationWindow):
         """Show about dialog."""
         about = Adw.AboutWindow(
             transient_for=self,
-            application_name="gsub",
+            application_name="Gsub",
             application_icon="app.gsub",
-            developer_name="gsub Contributors",
-            version="0.1.0",
+            developer_name="Gsub Contributors",
+            version="0.2.0",
             license_type=Gtk.License.GPL_3_0,
-            developers=["gsub Contributors"],
+            developers=["Gsub Contributors"],
             comments="A modern subtitle editor"
         )
         about.present()
@@ -1395,7 +1371,7 @@ class GsubWindow(Adw.ApplicationWindow):
     def _on_show_shortcuts(self, action, param):
         """Show keyboard shortcuts window."""
         builder = Gtk.Builder()
-        builder.add_from_string(SHORTCUTS_UI)
+        builder.add_from_resource(template_resource_path('shortcuts'))
         shortcuts = builder.get_object("shortcuts")
         shortcuts.set_transient_for(self)
         shortcuts.present()
@@ -1422,9 +1398,8 @@ class GsubWindow(Adw.ApplicationWindow):
             self._show_toast("Document is already in SRT format")
             return
         
-        # Confirm conversion
-        dialog = Adw.MessageDialog.new(
-            self,
+        # Confirm conversion (Adw.AlertDialog — the modern libadwaita API).
+        dialog = Adw.AlertDialog.new(
             "Convert to SRT?",
             "Converting to SRT will remove all styling information. This cannot be undone."
         )
@@ -1433,43 +1408,51 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.set_response_appearance("convert", Adw.ResponseAppearance.DESTRUCTIVE)
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
-        
-        dialog.connect("response", self._on_convert_response, SubtitleFormat.SRT)
-        dialog.present()
-    
+
+        def _on_srt_choose(_dialog, task):
+            response = dialog.choose_finish(task)
+            self._on_convert_response(response, SubtitleFormat.SRT)
+
+        dialog.choose(self, None, _on_srt_choose, None)
+
     def _on_convert_to_ass(self, action, param):
         """Convert current document to ASS format."""
         if not self.document:
             self._show_toast("No document loaded")
             return
-        
+
         if self.document.format == SubtitleFormat.ASS:
             self._show_toast("Document is already in ASS format")
             return
-        
+
         # Confirm conversion
-        message = "Convert to ASS format?"
+        heading = "Convert to ASS?"
         if self.document.format == SubtitleFormat.SRT:
-            message = "Converting to ASS will add default styling to all subtitles."
-        
-        dialog = Adw.MessageDialog.new(self, "Convert to ASS?", message)
+            body = "Converting to ASS will add default styling to all subtitles."
+        else:
+            body = "Convert to ASS format?"
+
+        dialog = Adw.AlertDialog.new(heading, body)
         dialog.add_response("cancel", "Cancel")
         dialog.add_response("convert", "Convert")
         dialog.set_response_appearance("convert", Adw.ResponseAppearance.SUGGESTED)
         dialog.set_default_response("convert")
         dialog.set_close_response("cancel")
-        
-        dialog.connect("response", self._on_convert_response, SubtitleFormat.ASS)
-        dialog.present()
-    
-    def _on_convert_response(self, dialog, response, target_format):
+
+        def _on_ass_choose(_dialog, task):
+            response = dialog.choose_finish(task)
+            self._on_convert_response(response, SubtitleFormat.ASS)
+
+        dialog.choose(self, None, _on_ass_choose, None)
+
+    def _on_convert_response(self, response, target_format):
         """Handle format conversion confirmation."""
         if response == "convert":
             from subtitle_editor.converters import FormatConverter
-            
+
             old_format = self.document.format.value.upper()
             self.document = FormatConverter.convert(self.document, target_format)
-            
+
             # Update UI
             self.subtitle_list.set_document(self.document)
             style_names = [s.name for s in (self.document.styles or [])] if self.document else []
@@ -1959,89 +1942,3 @@ class GsubWindow(Adw.ApplicationWindow):
         except Exception as e:
             logger.info(f"Error: {e}")
             raise
-
-
-# Keyboard shortcuts overlay UI
-SHORTCUTS_UI = """
-<?xml version="1.0" encoding="UTF-8"?>
-<interface>
-  <object class="GtkShortcutsWindow" id="shortcuts">
-    <property name="modal">1</property>
-    <child>
-      <object class="GtkShortcutsSection">
-        <property name="section-name">shortcuts</property>
-        <child>
-          <object class="GtkShortcutsGroup">
-            <property name="title" translatable="yes">File</property>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Save</property>
-                <property name="accelerator">&lt;Ctrl&gt;S</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Save As</property>
-                <property name="accelerator">&lt;Ctrl&gt;&lt;Shift&gt;S</property>
-              </object>
-            </child>
-          </object>
-        </child>
-        <child>
-          <object class="GtkShortcutsGroup">
-            <property name="title" translatable="yes">Edit</property>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Undo</property>
-                <property name="accelerator">&lt;Ctrl&gt;Z</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Redo</property>
-                <property name="accelerator">&lt;Ctrl&gt;&lt;Shift&gt;Z</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">New File</property>
-                <property name="accelerator">&lt;Ctrl&gt;N</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Open File</property>
-                <property name="accelerator">&lt;Ctrl&gt;O</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Remove Subtitle</property>
-                <property name="accelerator">Delete</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Duplicate Subtitle</property>
-                <property name="accelerator">&lt;Ctrl&gt;D</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Move Up</property>
-                <property name="accelerator">&lt;Ctrl&gt;Up</property>
-              </object>
-            </child>
-            <child>
-              <object class="GtkShortcutsShortcut">
-                <property name="title" translatable="yes">Move Down</property>
-                <property name="accelerator">&lt;Ctrl&gt;Down</property>
-              </object>
-            </child>
-          </object>
-        </child>
-      </object>
-    </child>
-  </object>
-</interface>
-"""

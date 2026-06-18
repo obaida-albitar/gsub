@@ -1,0 +1,26 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubBatchFileRow : Adw.ActionRow {
+  [prefix]
+  CheckButton check {
+    valign: center;
+  }
+
+  [suffix]
+  Label format_label {
+    styles ["badge"]
+  }
+
+  [suffix]
+  Label count_label {
+    styles ["dim-label"]
+  }
+
+  [suffix]
+  Image modified_icon {
+    icon-name: "document-saved-symbolic";
+    tooltip-text: _("Modified");
+    visible: false;
+  }
+}

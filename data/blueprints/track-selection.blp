@@ -1,0 +1,44 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubTrackSelectionDialog : Adw.Dialog {
+  title: _("Select Audio and Subtitle Tracks");
+  content-width: 500;
+  content-height: 450;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button select_button {
+        label: _("Select");
+        styles ["suggested-action"]
+        clicked => $on_select_clicked();
+      }
+    }
+
+    content: ScrolledWindow scrolled {
+      vexpand: true;
+      hscrollbar-policy: never;
+      vscrollbar-policy: automatic;
+
+      child: Adw.PreferencesPage prefs_page {
+        Adw.PreferencesGroup audio_group {
+          title: _("Audio Tracks");
+          // description + rows added from code.
+        }
+
+        Adw.PreferencesGroup subtitle_group {
+          title: _("Subtitle Tracks");
+          // rows added from code.
+        }
+      };
+    };
+  };
+}

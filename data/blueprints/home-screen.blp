@@ -1,0 +1,155 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubHomeScreen : Adw.Bin {
+  child: Box outer_box {
+    halign: center;
+    valign: center;
+    hexpand: true;
+    vexpand: true;
+    margin-start: 24;
+    margin-end: 24;
+    margin-top: 24;
+    margin-bottom: 24;
+    orientation: vertical;
+
+    Adw.Clamp clamp {
+      maximum-size: 480;
+      tightening-threshold: 360;
+
+      Box content_box {
+        orientation: vertical;
+        spacing: 24;
+
+        Box title_stack {
+          halign: center;
+          orientation: vertical;
+          spacing: 4;
+
+          Image app_icon {
+            icon-name: "accessories-text-editor-symbolic";
+            pixel-size: 64;
+            opacity: 0.5;
+          }
+
+          Label title {
+            styles ["title-1"]
+            label: _("Gsub");
+          }
+
+          Label subtitle {
+            styles ["dim-label"]
+            label: _("Create, edit, and process subtitle files");
+          }
+        }
+
+        Box cards_box {
+          orientation: vertical;
+          spacing: 12;
+          margin-top: 12;
+
+            // Open file card
+            Box open_card {
+              styles ["card"]
+              orientation: horizontal;
+              spacing: 16;
+              margin-start: 12;
+              margin-end: 12;
+              margin-top: 6;
+              margin-bottom: 6;
+
+              Image open_icon {
+                icon-name: "document-open-symbolic";
+                pixel-size: 40;
+                margin-start: 12;
+                margin-top: 14;
+                margin-bottom: 14;
+              }
+
+              Box open_text {
+                orientation: vertical;
+                spacing: 4;
+                hexpand: true;
+                valign: center;
+                margin-top: 14;
+                margin-bottom: 14;
+
+                Label {
+                  halign: start;
+                  styles ["heading"]
+                  label: _("Open a Subtitle File");
+                }
+
+                Label {
+                  halign: start;
+                  styles ["dim-label"]
+                  wrap: true;
+                  label: _("Edit a single file with video preview and undo/redo.");
+                }
+              }
+
+              Button open_button {
+                styles ["suggested-action"]
+                valign: center;
+                margin-end: 12;
+                margin-top: 14;
+                margin-bottom: 14;
+                label: _("Open File");
+                clicked => $on_open_clicked();
+              }
+            }
+
+            // Batch operations card
+            Box batch_card {
+              styles ["card"]
+              orientation: horizontal;
+              spacing: 16;
+              margin-start: 12;
+              margin-end: 12;
+              margin-top: 6;
+              margin-bottom: 6;
+
+              Image batch_icon {
+                icon-name: "folder-multiple-symbolic";
+                pixel-size: 40;
+                margin-start: 12;
+                margin-top: 14;
+                margin-bottom: 14;
+              }
+
+              Box batch_text {
+                orientation: vertical;
+                spacing: 4;
+                hexpand: true;
+                valign: center;
+                margin-top: 14;
+                margin-bottom: 14;
+
+                Label {
+                  halign: start;
+                  styles ["heading"]
+                  label: _("Batch Operations");
+                }
+
+                Label {
+                  halign: start;
+                  styles ["dim-label"]
+                  wrap: true;
+                  label: _("Apply time shifts, font, or resolution changes to multiple files.");
+                }
+              }
+
+              Button batch_button {
+                valign: center;
+                margin-end: 12;
+                margin-top: 14;
+                margin-bottom: 14;
+                label: _("Start Batch");
+                clicked => $on_batch_clicked();
+              }
+            }
+        }
+      }
+    }
+  };
+}

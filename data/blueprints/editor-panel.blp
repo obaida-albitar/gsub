@@ -1,0 +1,198 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubEditorPanel : Gtk.Box {
+  orientation: vertical;
+  spacing: 0;
+  styles ["view"]
+
+  ScrolledWindow scrolled {
+    vexpand: true;
+    hscrollbar-policy: never;
+    vscrollbar-policy: automatic;
+
+    child: Adw.Clamp clamp {
+      maximum-size: 600;
+      tightening-threshold: 400;
+
+      Box content {
+        orientation: vertical;
+        spacing: 18;
+        margin-start: 18;
+        margin-end: 18;
+        margin-top: 18;
+        margin-bottom: 18;
+
+        // --- Subtitle text ---
+        Adw.PreferencesGroup text_group {
+          title: _("Subtitle Text");
+          description: _("Edit the text content of the selected subtitle");
+
+          Adw.ComboRow style_row {
+            title: _("Style");
+            subtitle: _("Apply a predefined style to this subtitle");
+            visible: false;
+
+            [prefix]
+            Image {
+              icon-name: "applications-graphics-symbolic";
+            }
+          }
+
+          Adw.ExpanderRow text_expander {
+            title: _("Text Content");
+            subtitle: _("Edit the subtitle text");
+            expanded: true;
+            enable-expansion: true;
+
+            [prefix]
+            Image {
+              icon-name: "text-editor-symbolic";
+            }
+
+            // Text editor — a full-width row of the expander (matches the
+            // original add_row(text_scroll)). It must NOT be a [suffix] of an
+            // ActionRow, which constrains it to a narrow right-aligned slot.
+            ScrolledWindow text_scroll {
+              styles ["card"]
+              min-content-height: 150;
+              max-content-height: 300;
+              hscrollbar-policy: never;
+              vscrollbar-policy: automatic;
+              margin-start: 12;
+              margin-end: 12;
+              margin-top: 6;
+              margin-bottom: 12;
+
+              child: TextView text_view {
+                wrap-mode: word_char;
+                pixels-above-lines: 8;
+                pixels-below-lines: 8;
+                left-margin: 16;
+                right-margin: 16;
+                top-margin: 16;
+                bottom-margin: 16;
+              };
+            }
+          }
+        }
+
+        // --- Timing ---
+        Adw.PreferencesGroup timing_group {
+          title: _("Timing");
+          description: _("Adjust when the subtitle appears and disappears");
+
+          Adw.ExpanderRow start_expander {
+            title: _("Start Time");
+            subtitle: "00:00:00.000";
+            expanded: true;
+
+            [prefix]
+            Image {
+              icon-name: "media-playback-start-symbolic";
+            }
+
+            Adw.ActionRow start_input_row {
+              activatable: false;
+
+              [suffix]
+              Box start_box {
+                valign: center;
+                spacing: 4;
+
+                Label { label: "H:"; }
+                SpinButton start_hour { valign: center; }
+                Label { label: "M:"; }
+                SpinButton start_minute { valign: center; }
+                Label { label: "S:"; }
+                SpinButton start_second { valign: center; }
+                Label { label: "ms:"; }
+                SpinButton start_milli { valign: center; }
+              }
+            }
+          }
+
+          Adw.ExpanderRow end_expander {
+            title: _("End Time");
+            subtitle: "00:00:00.000";
+            expanded: true;
+
+            [prefix]
+            Image {
+              icon-name: "media-playback-stop-symbolic";
+            }
+
+            Adw.ActionRow end_input_row {
+              activatable: false;
+
+              [suffix]
+              Box end_box {
+                valign: center;
+                spacing: 4;
+
+                Label { label: "H:"; }
+                SpinButton end_hour { valign: center; }
+                Label { label: "M:"; }
+                SpinButton end_minute { valign: center; }
+                Label { label: "S:"; }
+                SpinButton end_second { valign: center; }
+                Label { label: "ms:"; }
+                SpinButton end_milli { valign: center; }
+              }
+            }
+          }
+
+          Adw.ActionRow duration_row {
+            title: _("Duration");
+            subtitle: "0.000 seconds";
+
+            [prefix]
+            Image {
+              icon-name: "alarm-symbolic";
+            }
+          }
+        }
+
+        // --- Position (ASS) ---
+        Adw.PreferencesGroup position_group {
+          title: _("Position (ASS)");
+          description: _("Override subtitle position margins (0 = use style default)");
+          visible: false;
+
+          Adw.ActionRow margin_l_row {
+            title: _("Left Margin");
+            subtitle: _("Pixels from left edge (0 = use style default)");
+
+            [prefix]
+            Image { icon-name: "go-previous-symbolic"; }
+
+            [suffix]
+            SpinButton margin_l_spin { valign: center; }
+          }
+
+          Adw.ActionRow margin_r_row {
+            title: _("Right Margin");
+            subtitle: _("Pixels from right edge (0 = use style default)");
+
+            [prefix]
+            Image { icon-name: "go-next-symbolic"; }
+
+            [suffix]
+            SpinButton margin_r_spin { valign: center; }
+          }
+
+          Adw.ActionRow margin_v_row {
+            title: _("Vertical Margin");
+            subtitle: _("Pixels from top/bottom (0 = use style default)");
+
+            [prefix]
+            Image { icon-name: "go-up-symbolic"; }
+
+            [suffix]
+            SpinButton margin_v_spin { valign: center; }
+          }
+        }
+      }
+    };
+  }
+}

@@ -12,10 +12,14 @@ gi.require_version("Adw", "1")
 from gi.repository import Adw, GLib, GObject, Gtk
 
 from subtitle_editor.models import SubtitleEntry, SubtitleFormat, TimeCode
+from subtitle_editor.resources import template_resource_path
 
 
+@Gtk.Template(resource_path=template_resource_path('editor-panel'))
 class EditorPanel(Gtk.Box):
     """Widget for editing subtitle text and timing."""
+
+    __gtype_name__ = 'GsubEditorPanel'
 
     __gsignals__ = {
         "text-changed": (GObject.SignalFlags.RUN_FIRST, None, (int, str)),
@@ -24,8 +28,28 @@ class EditorPanel(Gtk.Box):
         "position-changed": (GObject.SignalFlags.RUN_FIRST, None, (int, int, int, int)),
     }
 
+    # Template children.
+    style_row = Gtk.Template.Child()
+    text_expander = Gtk.Template.Child()
+    text_view = Gtk.Template.Child()
+    start_expander = Gtk.Template.Child()
+    start_hour = Gtk.Template.Child()
+    start_minute = Gtk.Template.Child()
+    start_second = Gtk.Template.Child()
+    start_milli = Gtk.Template.Child()
+    end_expander = Gtk.Template.Child()
+    end_hour = Gtk.Template.Child()
+    end_minute = Gtk.Template.Child()
+    end_second = Gtk.Template.Child()
+    end_milli = Gtk.Template.Child()
+    duration_row = Gtk.Template.Child()
+    position_group = Gtk.Template.Child()
+    margin_l_spin = Gtk.Template.Child()
+    margin_r_spin = Gtk.Template.Child()
+    margin_v_spin = Gtk.Template.Child()
+
     def __init__(self):
-        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        super().__init__()
 
         self.current_entry: SubtitleEntry = None
         self.current_position = -1
@@ -38,167 +62,26 @@ class EditorPanel(Gtk.Box):
         self._position_changed_id = None  # For debouncing position changes
         self._pending_position_values = None
 
-        # Add background styling
-        self.add_css_class("view")
-
-        # Scrolled window for content
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_vexpand(True)
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.append(scrolled)
-
-        # Use Adw.Clamp for better readability on wide screens
-        clamp = Adw.Clamp()
-        clamp.set_maximum_size(600)
-        clamp.set_tightening_threshold(400)
-        scrolled.set_child(clamp)
-
-        # Content box with margins
-        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        content.set_margin_start(18)
-        content.set_margin_end(18)
-        content.set_margin_top(18)
-        content.set_margin_bottom(18)
-        clamp.set_child(content)
-
-        # Text section with modern card style
-        text_group = Adw.PreferencesGroup()
-        text_group.set_title("Subtitle Text")
-        text_group.set_description("Edit the text content of the selected subtitle")
-        content.append(text_group)
-
-        # Style selection (ASS/SSA only; hidden by default)
-        self.style_row = Adw.ComboRow()
-        self.style_row.set_title("Style")
-        self.style_row.set_subtitle("Apply a predefined style to this subtitle")
-        self.style_row.set_visible(False)
-        style_icon = Gtk.Image.new_from_icon_name("applications-graphics-symbolic")
-        self.style_row.add_prefix(style_icon)
+        # Style dropdown model (ASS/SSA only; the row is hidden by default in
+        # the template).
         self.style_model = Gtk.StringList.new([])
         self.style_row.set_model(self.style_model)
         self.style_row.connect("notify::selected", self._on_style_selected)
-        text_group.add(self.style_row)
 
-        # Text editor with better styling using Adw.Clamp
-        text_expander = Adw.ExpanderRow()
-        text_expander.set_title("Text Content")
-        text_expander.set_subtitle("Edit the subtitle text")
-        text_expander.set_expanded(True)
-        text_expander.set_enable_expansion(True)
-        text_icon = Gtk.Image.new_from_icon_name("text-editor-symbolic")
-        text_expander.add_prefix(text_icon)
-        text_group.add(text_expander)
-
+        # Text buffer is created in code and bound to the templated text view.
         self.text_buffer = Gtk.TextBuffer()
         self.text_buffer.connect("changed", self._on_text_buffer_changed)
-
-        self.text_view = Gtk.TextView()
         self.text_view.set_buffer(self.text_buffer)
-        self.text_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        self.text_view.set_pixels_above_lines(8)
-        self.text_view.set_pixels_below_lines(8)
-        self.text_view.set_left_margin(16)
-        self.text_view.set_right_margin(16)
-        self.text_view.set_top_margin(16)
-        self.text_view.set_bottom_margin(16)
 
-        # Frame for text view with rounded corners
-        text_scroll = Gtk.ScrolledWindow()
-        text_scroll.set_min_content_height(150)
-        text_scroll.set_max_content_height(300)
-        text_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        text_scroll.set_child(self.text_view)
-        text_scroll.add_css_class("card")
-        text_scroll.set_margin_start(12)
-        text_scroll.set_margin_end(12)
-        text_scroll.set_margin_top(6)
-        text_scroll.set_margin_bottom(12)
-
-        text_expander.add_row(text_scroll)
-
-        # Timing section with improved layout using expander rows
-        timing_group = Adw.PreferencesGroup()
-        timing_group.set_title("Timing")
-        timing_group.set_description("Adjust when the subtitle appears and disappears")
-        content.append(timing_group)
-
-        # Start time - using expander row for better organization
-        start_expander = Adw.ExpanderRow()
-        start_expander.set_title("Start Time")
-        start_expander.set_subtitle("00:00:00.000")
-        start_expander.set_expanded(True)
-        start_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
-        start_expander.add_prefix(start_icon)
-        timing_group.add(start_expander)
-
-        # Start time inputs as action row
-        start_input_row = Adw.ActionRow()
-        start_input_row.set_activatable(False)
-
-        start_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        start_box.set_valign(Gtk.Align.CENTER)
-
-        self.start_hour = self._create_spin_button(0, 23)
-        self.start_minute = self._create_spin_button(0, 59)
-        self.start_second = self._create_spin_button(0, 59)
-        self.start_milli = self._create_spin_button(0, 999, 1)
-
-        start_box.append(Gtk.Label(label="H:"))
-        start_box.append(self.start_hour)
-        start_box.append(Gtk.Label(label="M:"))
-        start_box.append(self.start_minute)
-        start_box.append(Gtk.Label(label="S:"))
-        start_box.append(self.start_second)
-        start_box.append(Gtk.Label(label="ms:"))
-        start_box.append(self.start_milli)
-
-        start_input_row.add_suffix(start_box)
-        start_expander.add_row(start_input_row)
-
-        # End time - using expander row
-        end_expander = Adw.ExpanderRow()
-        end_expander.set_title("End Time")
-        end_expander.set_subtitle("00:00:00.000")
-        end_expander.set_expanded(True)
-        end_icon = Gtk.Image.new_from_icon_name("media-playback-stop-symbolic")
-        end_expander.add_prefix(end_icon)
-        timing_group.add(end_expander)
-
-        # End time inputs as action row
-        end_input_row = Adw.ActionRow()
-        end_input_row.set_activatable(False)
-
-        end_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        end_box.set_valign(Gtk.Align.CENTER)
-
-        self.end_hour = self._create_spin_button(0, 23)
-        self.end_minute = self._create_spin_button(0, 59)
-        self.end_second = self._create_spin_button(0, 59)
-        self.end_milli = self._create_spin_button(0, 999, 1)
-
-        end_box.append(Gtk.Label(label="H:"))
-        end_box.append(self.end_hour)
-        end_box.append(Gtk.Label(label="M:"))
-        end_box.append(self.end_minute)
-        end_box.append(Gtk.Label(label="S:"))
-        end_box.append(self.end_second)
-        end_box.append(Gtk.Label(label="ms:"))
-        end_box.append(self.end_milli)
-
-        end_input_row.add_suffix(end_box)
-        end_expander.add_row(end_input_row)
-
-        # Duration display - using ActionRow with better styling
-        self.duration_row = Adw.ActionRow()
-        self.duration_row.set_title("Duration")
-        self.duration_row.set_subtitle("0.000 seconds")
-        duration_icon = Gtk.Image.new_from_icon_name("alarm-symbolic")
-        self.duration_row.add_prefix(duration_icon)
-        timing_group.add(self.duration_row)
-
-        # Store expander rows for subtitle updates
-        self.start_expander = start_expander
-        self.end_expander = end_expander
+        # Configure the time spin buttons (adjustments + scroll-wheel disabling).
+        self._setup_spin_button(self.start_hour, 0, 23)
+        self._setup_spin_button(self.start_minute, 0, 59)
+        self._setup_spin_button(self.start_second, 0, 59)
+        self._setup_spin_button(self.start_milli, 0, 999, 1)
+        self._setup_spin_button(self.end_hour, 0, 23)
+        self._setup_spin_button(self.end_minute, 0, 59)
+        self._setup_spin_button(self.end_second, 0, 59)
+        self._setup_spin_button(self.end_milli, 0, 999, 1)
 
         # Connect timing change signals
         for spin in [
@@ -213,66 +96,13 @@ class EditorPanel(Gtk.Box):
         ]:
             spin.connect("value-changed", self._on_timing_changed)
 
-        # Position section (ASS/SSA only - hidden by default)
-        self.position_group = Adw.PreferencesGroup()
-        self.position_group.set_title("Position (ASS)")
-        self.position_group.set_description("Override subtitle position margins (0 = use style default)")
-        self.position_group.set_visible(False)
-        content.append(self.position_group)
-
-        # Left margin
-        margin_l_row = Adw.ActionRow()
-        margin_l_row.set_title("Left Margin")
-        margin_l_row.set_subtitle("Pixels from left edge (0 = use style default)")
-        margin_l_icon = Gtk.Image.new_from_icon_name("go-previous-symbolic")
-        margin_l_row.add_prefix(margin_l_icon)
-        self.position_group.add(margin_l_row)
-        
-        self.margin_l_spin = Gtk.SpinButton()
-        self.margin_l_spin.set_adjustment(Gtk.Adjustment(
-            value=0, lower=0, upper=9999, step_increment=1, page_increment=10, page_size=0
-        ))
-        self.margin_l_spin.set_numeric(True)
-        self.margin_l_spin.set_width_chars(5)
-        self.margin_l_spin.set_valign(Gtk.Align.CENTER)
+        # Position margin spin buttons (ASS/SSA only; group is hidden by default).
+        self._setup_margin_spin(self.margin_l_spin)
+        self._setup_margin_spin(self.margin_r_spin)
+        self._setup_margin_spin(self.margin_v_spin)
         self.margin_l_spin.connect("value-changed", self._on_position_changed)
-        margin_l_row.add_suffix(self.margin_l_spin)
-
-        # Right margin
-        margin_r_row = Adw.ActionRow()
-        margin_r_row.set_title("Right Margin")
-        margin_r_row.set_subtitle("Pixels from right edge (0 = use style default)")
-        margin_r_icon = Gtk.Image.new_from_icon_name("go-next-symbolic")
-        margin_r_row.add_prefix(margin_r_icon)
-        self.position_group.add(margin_r_row)
-        
-        self.margin_r_spin = Gtk.SpinButton()
-        self.margin_r_spin.set_adjustment(Gtk.Adjustment(
-            value=0, lower=0, upper=9999, step_increment=1, page_increment=10, page_size=0
-        ))
-        self.margin_r_spin.set_numeric(True)
-        self.margin_r_spin.set_width_chars(5)
-        self.margin_r_spin.set_valign(Gtk.Align.CENTER)
         self.margin_r_spin.connect("value-changed", self._on_position_changed)
-        margin_r_row.add_suffix(self.margin_r_spin)
-
-        # Vertical margin
-        margin_v_row = Adw.ActionRow()
-        margin_v_row.set_title("Vertical Margin")
-        margin_v_row.set_subtitle("Pixels from top/bottom (0 = use style default)")
-        margin_v_icon = Gtk.Image.new_from_icon_name("go-up-symbolic")
-        margin_v_row.add_prefix(margin_v_icon)
-        self.position_group.add(margin_v_row)
-        
-        self.margin_v_spin = Gtk.SpinButton()
-        self.margin_v_spin.set_adjustment(Gtk.Adjustment(
-            value=0, lower=0, upper=9999, step_increment=1, page_increment=10, page_size=0
-        ))
-        self.margin_v_spin.set_numeric(True)
-        self.margin_v_spin.set_width_chars(5)
-        self.margin_v_spin.set_valign(Gtk.Align.CENTER)
         self.margin_v_spin.connect("value-changed", self._on_position_changed)
-        margin_v_row.add_suffix(self.margin_v_spin)
 
         # Initially disabled
         self.set_sensitive(False)
@@ -281,10 +111,11 @@ class EditorPanel(Gtk.Box):
         self._format = None
         self._styles = []
 
-    def _create_spin_button(
-        self, min_val: int, max_val: int, step: int = 1
-    ) -> Gtk.SpinButton:
-        """Create a spin button for time input."""
+    def _setup_spin_button(
+        self, spin: Gtk.SpinButton, min_val: int, max_val: int, step: int = 1
+    ) -> None:
+        """Apply adjustment, numeric mode, width, and scroll-wheel disabling to a
+        templated time spin button."""
         adjustment = Gtk.Adjustment(
             value=0,
             lower=min_val,
@@ -293,11 +124,8 @@ class EditorPanel(Gtk.Box):
             page_increment=step * 10,
             page_size=0,
         )
-
-        spin = Gtk.SpinButton()
         spin.set_adjustment(adjustment)
         spin.set_numeric(True)
-        # Give more width for better spacing
         spin.set_width_chars(5 if max_val >= 100 else 4)
 
         # Disable scroll wheel to prevent accidental value changes
@@ -308,7 +136,13 @@ class EditorPanel(Gtk.Box):
         scroll_controller.connect("scroll", lambda *_: True)
         spin.add_controller(scroll_controller)
 
-        return spin
+    def _setup_margin_spin(self, spin: Gtk.SpinButton) -> None:
+        """Configure a position-margin spin button (0-9999)."""
+        spin.set_adjustment(Gtk.Adjustment(
+            value=0, lower=0, upper=9999, step_increment=1, page_increment=10, page_size=0
+        ))
+        spin.set_numeric(True)
+        spin.set_width_chars(5)
 
     def set_document_context(self, fmt: SubtitleFormat, style_names: list[str]):
         """Provide document format and styles for style dropdown."""

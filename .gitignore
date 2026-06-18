@@ -44,5 +44,11 @@ Thumbs.db
 htmlcov/
 .pytest_cache/
 
+# Meson build artifacts
+builddir/
+_build/
+# Compiled Blueprint → .ui outputs (generated at build time)
+data/blueprints/*.ui
+
 # Application specific
 *.pyc

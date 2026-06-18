@@ -1,0 +1,51 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubBatchConfirmDialog : Adw.Dialog {
+  content-width: 500;
+  content-height: 400;
+  title: _("Confirm Batch Operations");
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      Adw.PreferencesGroup summary_group {
+        title: _("Changes to Apply");
+        // description is set from code (depends on counts/format).
+      }
+
+      Adw.PreferencesGroup files_group {
+        title: _("Files Affected");
+
+        Label files_label {
+          styles ["dim-label"]
+          margin-start: 12;
+          margin-end: 12;
+          margin-bottom: 12;
+          xalign: 0.0;
+          // label text set from code.
+          label: _("");
+        }
+      }
+    };
+  };
+}

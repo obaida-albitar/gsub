@@ -1,0 +1,137 @@
+using Gtk 4.0;
+using Adw 1;
+
+template GsubTimeShiftDialog : Adw.Dialog {
+  title: _("Time Shift");
+  content-width: 520;
+  content-height: 650;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      // --- Offset ---
+      Adw.PreferencesGroup shift_group {
+        title: _("Offset");
+        description: _("Shift subtitles forward or backward in time");
+
+        Adw.SpinRow offset_row {
+          title: _("Time Offset");
+          subtitle: _("Milliseconds (negative for backward)");
+          value: 0.0;
+          digits: 0;
+          numeric: true;
+          adjustment: Adjustment {
+            lower: -3600000;
+            upper: 3600000;
+            step-increment: 100;
+            page-increment: 1000;
+          };
+        }
+      }
+
+      // --- Quick adjustments ---
+      Adw.PreferencesGroup presets_group {
+        title: _("Quick Adjustments");
+        description: _("Common time shift values");
+
+        Adw.ActionRow preset_row_back {
+          title: _("Shift Backward");
+          activatable: false;
+
+          [prefix]
+          Image {
+            icon-name: "media-seek-backward-symbolic";
+          }
+
+          [suffix]
+          Box back_box {
+            spacing: 6;
+            // Preset buttons added from code.
+          }
+        }
+
+        Adw.ActionRow preset_row_forward {
+          title: _("Shift Forward");
+          activatable: false;
+
+          [prefix]
+          Image {
+            icon-name: "media-seek-forward-symbolic";
+          }
+
+          [suffix]
+          Box forward_box {
+            spacing: 6;
+            // Preset buttons added from code.
+          }
+        }
+      }
+
+      // --- Scope ---
+      Adw.PreferencesGroup scope_group {
+        title: _("Apply To");
+        description: _("Choose which subtitles to shift");
+
+        Adw.ActionRow scope_all_row {
+          title: _("All Subtitles");
+          subtitle: _("Shift the entire subtitle track");
+
+          [prefix]
+          Image {
+            icon-name: "view-list-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_all {
+            active: true;
+          }
+        }
+
+        Adw.ActionRow scope_selected_row {
+          title: _("Selected Only");
+          subtitle: _("Shift only the currently selected subtitle");
+
+          [prefix]
+          Image {
+            icon-name: "edit-select-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_selected {}
+        }
+
+        Adw.ActionRow scope_from_row {
+          title: _("From Selected to End");
+          subtitle: _("Shift all subtitles after the selected one");
+
+          [prefix]
+          Image {
+            icon-name: "go-next-symbolic";
+          }
+
+          [prefix]
+          CheckButton scope_from {}
+        }
+      }
+    };
+  };
+}

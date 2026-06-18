@@ -9,6 +9,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GObject, GLib
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.logger import get_logger
+from subtitle_editor.resources import template_resource_path
 import os
 
 logger = get_logger(__name__)
@@ -181,41 +182,32 @@ class BatchFileList(Adw.Bin):
             self._format_badge.set_text(f"All {fmt}")
 
 
+@Gtk.Template(resource_path=template_resource_path('batch-file-row'))
 class BatchFileRow(Adw.ActionRow):
     """A single row in the batch file list."""
+
+    __gtype_name__ = 'GsubBatchFileRow'
+
+    check = Gtk.Template.Child()
+    format_label = Gtk.Template.Child()
+    count_label = Gtk.Template.Child()
+    modified_icon = Gtk.Template.Child()
 
     def __init__(self):
         super().__init__()
         self._item = None
         self._callback = None
-
-        self._check = Gtk.CheckButton()
-        self._check.set_valign(Gtk.Align.CENTER)
-        self._check.connect('toggled', self._on_toggled)
-        self.add_prefix(self._check)
-
-        self._format_label = Gtk.Label(label="")
-        self._format_label.add_css_class("badge")
-        self.add_suffix(self._format_label)
-
-        self._count_label = Gtk.Label(label="")
-        self._count_label.add_css_class("dim-label")
-        self.add_suffix(self._count_label)
-
-        self._modified_icon = Gtk.Image.new_from_icon_name("document-saved-symbolic")
-        self._modified_icon.set_tooltip_text("Modified")
-        self._modified_icon.set_visible(False)
-        self.add_suffix(self._modified_icon)
+        self.check.connect('toggled', self._on_toggled)
 
     def bind(self, item: BatchFileItem, callback):
         self._item = item
         self._callback = callback
         self.set_title(item.filename)
         self.set_subtitle(item.file_path)
-        self._check.set_active(item.selected)
-        self._format_label.set_text(item.format_name)
-        self._count_label.set_text(f"{item.entry_count} entries")
-        self._modified_icon.set_visible(item.modified)
+        self.check.set_active(item.selected)
+        self.format_label.set_text(item.format_name)
+        self.count_label.set_text(f"{item.entry_count} entries")
+        self.modified_icon.set_visible(item.modified)
 
     def unbind(self):
         self._item = None
