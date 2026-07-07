@@ -5,7 +5,7 @@ from subtitle_editor.models import SubtitleDocument, SubtitleFormat, SubtitleEnt
 from subtitle_editor.parsers import SRTParser, ASSParser
 from subtitle_editor.commands import (
     CommandManager, AddEntryCommand, EditTextCommand, TimeShiftCommand,
-    SetMetadataCommand, UpsertStyleCommand, EditStyleCommand
+    EditStyleCommand
 )
 
 
@@ -88,11 +88,6 @@ class TestASSWorkflow:
         doc.styles = [ASSStyle(name="Default"), ASSStyle(name="Title")]
         cm = CommandManager()
         
-        # Set metadata
-        cm.execute(SetMetadataCommand(doc, "Title", "Test Subtitle"))
-        cm.execute(SetMetadataCommand(doc, "Author", "Test Author"))
-        assert doc.metadata["Title"] == "Test Subtitle"
-        
         # Add entries with styles
         entry1 = SubtitleEntry(1, TimeCode(0, 0, 1, 0), TimeCode(0, 0, 2, 0), "First", style="Default")
         entry2 = SubtitleEntry(2, TimeCode(0, 0, 3, 0), TimeCode(0, 0, 4, 0), "Second", style="Title")
@@ -103,17 +98,11 @@ class TestASSWorkflow:
         cm.execute(EditStyleCommand(doc, 0, "Title"))
         assert doc.entries[0].style == "Title"
         
-        # Update style definition
-        new_style = ASSStyle(name="Title", fontsize=30, bold=True)
-        cm.execute(UpsertStyleCommand(doc, new_style))
-        assert doc.get_style_by_name("Title").fontsize == 30
-        
         # Undo all changes
-        for _ in range(6):
+        for _ in range(3):
             cm.undo()
         
         assert len(doc.entries) == 0
-        assert "Title" not in doc.metadata
 
     @pytest.mark.integration
     def test_ass_parse_edit_serialize(self, sample_ass_content):
@@ -370,9 +359,7 @@ class TestConcurrentOperations:
         cm = CommandManager()
         
         # Interleave different types of operations
-        cm.execute(SetMetadataCommand(sample_ass_document, "Key1", "Value1"))
         cm.execute(EditTextCommand(sample_ass_document, 0, "New text"))
-        cm.execute(SetMetadataCommand(sample_ass_document, "Key2", "Value2"))
         cm.execute(EditStyleCommand(sample_ass_document, 1, "Default"))
         
         # Undo in reverse order

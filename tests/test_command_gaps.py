@@ -3,7 +3,7 @@
 import pytest
 from subtitle_editor.commands import (
     CommandManager, AddEntryCommand, DuplicateEntryCommand,
-    BatchTimingCommand, EditMarginsCommand, SortByTimeCommand,
+    EditMarginsCommand, SortByTimeCommand,
     BulkEditStyleCommand,
 )
 from subtitle_editor.models import TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat
@@ -175,33 +175,6 @@ class TestAddEntryCommand:
         cmd = AddEntryCommand(sample_srt_document, entry)
         cmd.execute()
         assert sample_srt_document.entries[-1].text == "Appended"
-
-
-class TestBatchTimingCommand:
-    """Additional tests for BatchTimingCommand."""
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_batch_timing_invalid_positions(self, sample_srt_document):
-        adjustments = [
-            (999, TimeCode(0, 0, 1, 0), TimeCode(0, 0, 2, 0)),
-            (0, TimeCode(0, 0, 3, 0), TimeCode(0, 0, 4, 0)),
-        ]
-        cmd = BatchTimingCommand(sample_srt_document, adjustments)
-        cmd.execute()
-        assert sample_srt_document.entries[0].start_time.total_milliseconds == 3000
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_batch_timing_all_entries(self, sample_srt_document):
-        adjustments = [
-            (0, TimeCode(0, 0, 1, 0), TimeCode(0, 0, 2, 0)),
-            (1, TimeCode(0, 0, 3, 0), TimeCode(0, 0, 4, 0)),
-            (2, TimeCode(0, 0, 5, 0), TimeCode(0, 0, 6, 0)),
-        ]
-        cmd = BatchTimingCommand(sample_srt_document, adjustments)
-        cmd.execute()
-        assert sample_srt_document.entries[0].start_time.total_milliseconds == 1000
 
 
 class TestCommandManager:

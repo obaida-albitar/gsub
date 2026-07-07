@@ -9,17 +9,11 @@ from .subtitle_commands import (
     DuplicateEntryCommand,
     MoveEntryCommand,
     TimeShiftCommand,
-    BatchTimingCommand,
     EditMarginsCommand,
     SortByTimeCommand,
 )
 
 from .ass_commands import (
-    SetMetadataCommand,
-    RemoveMetadataCommand,
-    UpsertStyleCommand,
-    RemoveStyleCommand,
-    RenameStyleCommand,
     ReplaceASSHeaderCommand,
 )
 
@@ -41,13 +35,7 @@ __all__ = [
     'DuplicateEntryCommand',
     'MoveEntryCommand',
     'TimeShiftCommand',
-    'BatchTimingCommand',
 
-    'SetMetadataCommand',
-    'RemoveMetadataCommand',
-    'UpsertStyleCommand',
-    'RemoveStyleCommand',
-    'RenameStyleCommand',
     'ReplaceASSHeaderCommand',
 
     'EditStyleCommand',

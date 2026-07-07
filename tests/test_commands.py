@@ -4,7 +4,7 @@ import pytest
 from subtitle_editor.commands import (
     CommandManager, AddEntryCommand, RemoveEntryCommand, EditTextCommand,
     EditTimingCommand, DuplicateEntryCommand, MoveEntryCommand,
-    TimeShiftCommand, BatchTimingCommand
+    TimeShiftCommand
 )
 from subtitle_editor.models import TimeCode, SubtitleEntry
 
@@ -448,40 +448,3 @@ class TestTimeShiftCommand:
         for i, entry in enumerate(sample_srt_document.entries):
             assert entry.start_time.total_milliseconds == original_times[i][0]
             assert entry.end_time.total_milliseconds == original_times[i][1]
-
-
-class TestBatchTimingCommand:
-    """Tests for BatchTimingCommand."""
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_batch_timing_adjustment(self, sample_srt_document):
-        """Test batch timing adjustments."""
-        adjustments = [
-            (0, TimeCode(0, 0, 1, 0), TimeCode(0, 0, 2, 0)),
-            (1, TimeCode(0, 0, 3, 0), TimeCode(0, 0, 4, 0)),
-        ]
-        cmd = BatchTimingCommand(sample_srt_document, adjustments)
-        
-        cmd.execute()
-        
-        assert sample_srt_document.entries[0].start_time.total_milliseconds == 1000
-        assert sample_srt_document.entries[1].start_time.total_milliseconds == 3000
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_batch_timing_undo(self, sample_srt_document):
-        """Test undoing batch timing adjustments."""
-        original_times = [(e.start_time.total_milliseconds, e.end_time.total_milliseconds) 
-                          for e in sample_srt_document.entries[:2]]
-        adjustments = [
-            (0, TimeCode(0, 0, 1, 0), TimeCode(0, 0, 2, 0)),
-            (1, TimeCode(0, 0, 3, 0), TimeCode(0, 0, 4, 0)),
-        ]
-        cmd = BatchTimingCommand(sample_srt_document, adjustments)
-        
-        cmd.execute()
-        cmd.undo()
-        
-        assert sample_srt_document.entries[0].start_time.total_milliseconds == original_times[0][0]
-        assert sample_srt_document.entries[1].start_time.total_milliseconds == original_times[1][0]
