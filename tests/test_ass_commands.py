@@ -4,7 +4,6 @@ import pytest
 from subtitle_editor.commands import (
     SetMetadataCommand, RemoveMetadataCommand, UpsertStyleCommand,
     RemoveStyleCommand, RenameStyleCommand, ReplaceASSHeaderCommand,
-    UpdateASSHeaderCommand
 )
 from subtitle_editor.models import ASSStyle
 
@@ -352,79 +351,3 @@ class TestReplaceASSHeaderCommand:
         # All entries should use the fallback
         for entry in sample_ass_document.entries:
             assert entry.style == "OnlyStyle"
-
-
-class TestUpdateASSHeaderCommand:
-    """Tests for UpdateASSHeaderCommand."""
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_update_metadata(self, sample_ass_document):
-        """Test updating metadata keys."""
-        metadata_updates = {"Author": "New Author", "Year": "2024"}
-        cmd = UpdateASSHeaderCommand(
-            sample_ass_document,
-            metadata_updates=metadata_updates
-        )
-        
-        cmd.execute()
-        
-        assert sample_ass_document.metadata["Author"] == "New Author"
-        assert sample_ass_document.metadata["Year"] == "2024"
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_update_metadata_remove_key(self, sample_ass_document):
-        """Test removing metadata key by setting to None."""
-        sample_ass_document.metadata["ToRemove"] = "Value"
-        metadata_updates = {"ToRemove": None}
-        cmd = UpdateASSHeaderCommand(
-            sample_ass_document,
-            metadata_updates=metadata_updates
-        )
-        
-        cmd.execute()
-        
-        assert "ToRemove" not in sample_ass_document.metadata
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_update_styles(self, sample_ass_document):
-        """Test upserting styles."""
-        new_style = ASSStyle(name="NewStyle", fontsize=22)
-        updated_style = ASSStyle(name="Default", fontsize=30)
-        cmd = UpdateASSHeaderCommand(
-            sample_ass_document,
-            style_upserts=[new_style, updated_style]
-        )
-        
-        initial_count = len(sample_ass_document.styles)
-        cmd.execute()
-        
-        # One new style added, one updated
-        assert len(sample_ass_document.styles) == initial_count + 1
-        assert sample_ass_document.get_style_by_name("NewStyle") is not None
-        assert sample_ass_document.get_style_by_name("Default").fontsize == 30
-
-    @pytest.mark.unit
-    @pytest.mark.command
-    def test_update_header_undo(self, sample_ass_document):
-        """Test undoing header update."""
-        original_metadata = dict(sample_ass_document.metadata)
-        original_styles = len(sample_ass_document.styles)
-        
-        metadata_updates = {"NewKey": "NewValue"}
-        new_style = ASSStyle(name="NewStyle")
-        cmd = UpdateASSHeaderCommand(
-            sample_ass_document,
-            metadata_updates=metadata_updates,
-            style_upserts=[new_style]
-        )
-        
-        cmd.execute()
-        cmd.undo()
-        
-        # Check metadata restored
-        assert "NewKey" not in sample_ass_document.metadata
-        # Check styles restored
-        assert len(sample_ass_document.styles) == original_styles

@@ -49,70 +49,65 @@ class SubtitleListRow(Adw.ActionRow):
     index_label = Gtk.Template.Child()
 
 
+@Gtk.Template(resource_path=template_resource_path('subtitle-list'))
 class SubtitleListView(Gtk.ScrolledWindow):
     """Widget displaying a list of subtitle entries with virtualized rendering."""
-    
+
+    __gtype_name__ = 'GsubSubtitleListView'
+
     __gsignals__ = {
         'entry-selected': (GObject.SignalFlags.RUN_FIRST, None, (int,)),
         'entry-activated': (GObject.SignalFlags.RUN_FIRST, None, (int,)),
         'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, ())
     }
-    
+
+    list_view = Gtk.Template.Child()
+
     def __init__(self):
         super().__init__()
-        
+
         self.document: SubtitleDocument = None
         self._selected_positions = []
-        
+
         # Performance optimization: debounce refresh operations
         self._refresh_timeout_id = None
         self._pending_refresh_positions = set()
         self._refresh_debounce_delay = 50  # 50ms debounce
-        
-        
-        # Set up scrolled window with modern styling
-        self.set_hexpand(True)
-        self.set_vexpand(True)
-        self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        self.set_has_frame(True)
-        
+
         # Create GListStore to hold subtitle entries
         # We'll store position indices wrapped in GObject instances
         self.list_store = Gio.ListStore.new(SubtitleListItem)
-        
+
         # Create selection model supporting multiple selection
         self.selection_model = Gtk.MultiSelection.new(self.list_store)
         self.selection_model.connect('selection-changed', self._on_selection_changed)
-        
+
         # Create factory for list items
         self.factory = Gtk.SignalListItemFactory()
         self.factory.connect('setup', self._on_factory_setup)
         self.factory.connect('bind', self._on_factory_bind)
         self.factory.connect('unbind', self._on_factory_unbind)
-        
-        # Create the ListView with virtualization
-        self.list_view = Gtk.ListView()
+
         self.list_view.set_model(self.selection_model)
         self.list_view.set_factory(self.factory)
         self.list_view.set_single_click_activate(False)
-        self.list_view.add_css_class("navigation-sidebar")
-        
+
         # Add empty-state placeholder
         placeholder = Adw.StatusPage()
         placeholder.set_icon_name("text-x-generic-symbolic")
         placeholder.set_title("No Subtitles")
         placeholder.set_description("Open a subtitle file or add your first subtitle entry")
-        
+
         add_button = Gtk.Button(label="Add Subtitle")
         add_button.add_css_class("pill")
         add_button.add_css_class("suggested-action")
         add_button.set_action_name("win.add-entry")
         add_button.set_halign(Gtk.Align.CENTER)
         placeholder.set_child(add_button)
-        
+
         if hasattr(self.list_view, 'set_placeholder'):
             self.list_view.set_placeholder(placeholder)
-        
+
         # Make ListView the direct child of the ScrolledWindow so that
         # the ScrolledWindow uses the ListView's own Gtk.Scrollable
         # implementation for adjustment communication.
@@ -120,24 +115,23 @@ class SubtitleListView(Gtk.ScrolledWindow):
         self.list_view.set_margin_end(12)
         self.list_view.set_margin_top(12)
         self.list_view.set_margin_bottom(12)
-        self.set_child(self.list_view)
-        
+
         # Create context menu (rebuilt based on document format)
         self.context_menu = Gio.Menu()
         self._rebuild_context_menu()
-        
+
         # Add activation gesture (double-click)
         activation = Gtk.GestureClick.new()
         activation.set_button(1)
         activation.connect('pressed', self._on_click_pressed)
         self.list_view.add_controller(activation)
-        
+
         # Add right-click gesture
         right_click = Gtk.GestureClick.new()
         right_click.set_button(3)
         right_click.connect('pressed', self._on_right_click)
         self.list_view.add_controller(right_click)
-        
+
         # Add key controller for activation (Enter key)
         key_controller = Gtk.EventControllerKey.new()
         key_controller.connect('key-pressed', self._on_key_pressed)

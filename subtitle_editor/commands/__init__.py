@@ -21,7 +21,6 @@ from .ass_commands import (
     RemoveStyleCommand,
     RenameStyleCommand,
     ReplaceASSHeaderCommand,
-    UpdateASSHeaderCommand,
 )
 
 from .style_commands import (
@@ -50,7 +49,6 @@ __all__ = [
     'RemoveStyleCommand',
     'RenameStyleCommand',
     'ReplaceASSHeaderCommand',
-    'UpdateASSHeaderCommand',
 
     'EditStyleCommand',
     'BulkEditStyleCommand',

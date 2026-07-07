@@ -40,74 +40,35 @@ class BatchFileItem(GObject.GObject):
         return len(self.document.entries)
 
 
+@Gtk.Template(resource_path=template_resource_path('batch-file-list'))
 class BatchFileList(Adw.Bin):
     """
     Widget displaying a list of loaded subtitle files with checkboxes.
     Shows filename, format badge, entry count, and modified status.
     """
 
+    __gtype_name__ = 'GsubBatchFileList'
+
     __gsignals__ = {
         'selection-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
         'files-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
+    stack = Gtk.Template.Child()
+    file_count_label = Gtk.Template.Child()
+    format_badge = Gtk.Template.Child()
+    list_view = Gtk.Template.Child()
+    empty_page = Gtk.Template.Child()
+
     def __init__(self):
         super().__init__()
         self._files: list[BatchFileItem] = []
-        self._build_ui()
-
-    def _build_ui(self):
-        self._outer_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-
-        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        header_box.set_margin_start(12)
-        header_box.set_margin_end(12)
-        header_box.set_margin_top(12)
-        header_box.set_margin_bottom(6)
-
-        header_label = Gtk.Label(label="Files")
-        header_label.add_css_class("heading")
-        header_box.append(header_label)
-
-        self._file_count_label = Gtk.Label(label="0 files")
-        self._file_count_label.add_css_class("dim-label")
-        header_box.append(self._file_count_label)
-
-        header_box.append(Gtk.Label(label=""))  # spacer
-        header_box.set_hexpand(True)
-
-        self._format_badge = Gtk.Label(label="")
-        self._format_badge.add_css_class("dim-label")
-        header_box.append(self._format_badge)
-
-        self._outer_box.append(header_box)
 
         self._list_store = Gio.ListStore.new(BatchFileItem)
+        self.list_view.set_model(Gtk.SingleSelection.new(self._list_store))
+        self.list_view.set_factory(self._create_factory())
 
-        self._list_view = Gtk.ListView.new(
-            Gtk.SingleSelection.new(self._list_store),
-            self._create_factory()
-        )
-        self._list_view.set_vexpand(True)
-
-        scrolled = Gtk.ScrolledWindow()
-        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        scrolled.set_vexpand(True)
-        scrolled.set_child(self._list_view)
-        self._outer_box.append(scrolled)
-
-        self._empty_page = Adw.StatusPage()
-        self._empty_page.set_title("No Files Loaded")
-        self._empty_page.set_description("Add subtitle files to begin batch processing")
-        self._empty_page.set_icon_name("folder-multiple-symbolic")
-
-        self._stack = Gtk.Stack()
-        self._stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
-        self._stack.add_named(self._outer_box, "list")
-        self._stack.add_named(self._empty_page, "empty")
-        self._stack.set_visible_child_name("empty")
-
-        self.set_child(self._stack)
+        self.update_ui()
 
     def _create_factory(self):
         factory = Gtk.SignalListItemFactory()
@@ -171,15 +132,14 @@ class BatchFileList(Adw.Bin):
     def update_ui(self):
         """Refresh the UI state (file count, format badge, visibility)."""
         count = len(self._files)
-        self._file_count_label.set_text(f"{count} file{'s' if count != 1 else ''}")
+        self.file_count_label.set_text(f"{count} file{'s' if count != 1 else ''}")
 
         if count == 0:
-            self._stack.set_visible_child_name("empty")
-            self._format_badge.set_text("")
+            self.stack.set_visible_child_name("empty")
+            self.format_badge.set_text("")
         else:
-            self._stack.set_visible_child_name("list")
-            fmt = self._files[0].format_name
-            self._format_badge.set_text(f"All {fmt}")
+            self.stack.set_visible_child_name("list")
+            self.format_badge.set_text(f"All {fmt}")
 
 
 @Gtk.Template(resource_path=template_resource_path('batch-file-row'))

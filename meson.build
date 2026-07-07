@@ -22,13 +22,11 @@ python_dir = python.get_install_dir()
 pkgdatadir = get_option('datadir') / 'gsub'
 
 # --- blueprint-compiler -----------------------------------------------------
-# Prefer a system blueprint-compiler; fall back to the subproject wrap so the
-# build works on systems that ship it as a wrap rather than a distro package.
-blueprint_compiler = find_program('blueprint-compiler', required: false)
-if not blueprint_compiler.found()
-  subdir('subprojects')
-  blueprint_compiler = find_program('blueprint-compiler')
-endif
+# blueprint-compiler is required to compile the .blp templates. It is normally
+# provided by the distribution (e.g. `blueprint-compiler` on Fedora/Debian); on
+# systems that vendor it as a meson subproject wrap, add the wrap file under
+# subprojects/ and this find_program will pick it up automatically.
+blueprint_compiler = find_program('blueprint-compiler', required: true)
 
 # --- Compile .blp -> .ui ----------------------------------------------------
 # Each template's .ui is produced by compiling its .blp. The generated .ui files
@@ -48,6 +46,8 @@ blueprint_names = [
   'video-player',
   'editor-panel',
   'subtitle-list-row',
+  'subtitle-list',
+  'batch-file-list',
   'shortcuts',
 ]
 

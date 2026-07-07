@@ -245,7 +245,6 @@ class GsubWindow(Adw.ApplicationWindow):
         video_container.set_visible(False)  # Hide container by default
         self.video_container = video_container  # Store reference
         self.video_player = VideoPlayerWidget()
-        self.video_player.connect('position-changed', self._on_video_position_changed)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
 
@@ -1728,11 +1727,6 @@ class GsubWindow(Adw.ApplicationWindow):
             # Collapse the paned when hiding video
             self.right_paned.set_position(0)
     
-    def _on_video_position_changed(self, player, position_sec):
-        """Handle video position changes to update UI."""
-        # Could be used to highlight current subtitle in the list
-        pass
-    
     def _on_select_tracks(self, action, param):
         """Manually open track selection dialog."""
         if not self.current_video_file:
@@ -1858,7 +1852,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     self._show_toast(f"Error loading extracted subtitles: {e}")
                     try:
                         os.remove(temp_path)
-                    except:
+                    except OSError:
                         pass
             else:
                 self._show_toast(f"Extraction failed: {error_msg}")

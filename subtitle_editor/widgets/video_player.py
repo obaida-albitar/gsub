@@ -1127,10 +1127,6 @@ class VideoPlayerWidget(Gtk.Box):
     def current_subtitle_track(self):
         return self._current_subtitle_track
 
-    @property
-    def media_extractor(self):
-        return None
-
     def queue_subtitle_redraw(self):
         self.subtitle_drawing_area.queue_draw()
 

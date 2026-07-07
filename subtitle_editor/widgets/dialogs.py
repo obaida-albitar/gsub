@@ -693,19 +693,12 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
 
-            # Handle both TrackInfo objects and dict format
-            if hasattr(track, 'to_dict'):
-                # TrackInfo object from refactored code
-                track_index = track.index
-                track_title = track.title or f"Track {track_index + 1}"
-                track_language = track.language
-                track_codec = track.codec
-            else:
-                # Dict format from old code
-                track_index = track.get('index', 0)
-                track_title = track.get('title') or f"Track {track_index + 1}"
-                track_language = track.get('language')
-                track_codec = track.get('codec')
+            # Track dictionaries are produced by GStreamer track discovery
+            # (see VideoPlayerWidget.get_available_tracks).
+            track_index = track.get('index', 0)
+            track_title = track.get('title') or f"Track {track_index + 1}"
+            track_language = track.get('language')
+            track_codec = track.get('codec')
 
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')
@@ -751,19 +744,12 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
 
-            # Handle both TrackInfo objects and dict format
-            if hasattr(track, 'to_dict'):
-                # TrackInfo object from refactored code
-                track_index = track.index
-                track_title = track.title or f"Track {track_index + 1}"
-                track_language = track.language
-                track_codec = track.codec
-            else:
-                # Dict format from old code
-                track_index = track.get('index', 0)
-                track_title = track.get('title') or f"Track {track_index + 1}"
-                track_language = track.get('language')
-                track_codec = track.get('codec')
+            # Track dictionaries are produced by GStreamer track discovery
+            # (see VideoPlayerWidget.get_available_tracks).
+            track_index = track.get('index', 0)
+            track_title = track.get('title') or f"Track {track_index + 1}"
+            track_language = track.get('language')
+            track_codec = track.get('codec')
 
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')

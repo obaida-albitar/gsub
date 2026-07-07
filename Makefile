@@ -4,12 +4,22 @@ PYTHON ?= python3
 
 all: install
 
-install: install-pip install-desktop install-icon update-cache
+install: install-pip build-resources install-desktop install-icon update-cache
 	@echo "gsub installed. You can now launch it from the GNOME app grid."
 	@echo "Run 'gsub' from the terminal."
 
 install-pip:
 	$(PYTHON) -m pip install -e .
+
+build-resources:
+	@command -v blueprint-compiler >/dev/null 2>&1 || { echo "blueprint-compiler not found; install it (e.g. blueprint-compiler) before building resources."; exit 1; }
+	@command -v glib-compile-resources >/dev/null 2>&1 || { echo "glib-compile-resources not found; install gtk4 dev tools before building resources."; exit 1; }
+	@for f in data/blueprints/*.blp; do \
+		blueprint-compiler compile --output "$${f%.blp}.ui" "$$f"; \
+	done
+	glib-compile-resources --target subtitle_editor/app.gsub.gresource \
+		--sourcedir data/blueprints --sourcedir data data/app.gsub.gresource.xml
+	@echo "Built subtitle_editor/app.gsub.gresource"
 
 install-desktop:
 	install -d $(PREFIX)/share/applications
@@ -33,4 +43,4 @@ uninstall:
 
 reinstall: uninstall install
 
-.PHONY: all install install-pip install-desktop install-icon update-cache uninstall reinstall
+.PHONY: all install install-pip build-resources install-desktop install-icon update-cache uninstall reinstall
