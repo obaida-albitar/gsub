@@ -104,7 +104,7 @@ class GsubWindow(Adw.ApplicationWindow):
         nav_box.append(home_btn)
 
         batch_btn = Gtk.Button()
-        batch_btn.set_icon_name("folder-multiple-symbolic")
+        batch_btn.set_icon_name("folder-documents-symbolic")
         batch_btn.set_tooltip_text("Batch Operations")
         batch_btn.connect('clicked', lambda b: self._navigate_to_batch())
         nav_box.append(batch_btn)
@@ -172,7 +172,7 @@ class GsubWindow(Adw.ApplicationWindow):
         batch_home_btn.connect('clicked', lambda b: self._navigate_to_home())
         batch_nav_box.append(batch_home_btn)
         batch_editor_btn = Gtk.Button()
-        batch_editor_btn.set_icon_name("accessories-text-editor-symbolic")
+        batch_editor_btn.set_icon_name("document-edit-symbolic")
         batch_editor_btn.set_tooltip_text("Editor")
         batch_editor_btn.connect('clicked', lambda b: self._navigate_to_editor(show_open=False))
         batch_nav_box.append(batch_editor_btn)
