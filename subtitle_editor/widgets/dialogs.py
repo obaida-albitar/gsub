@@ -797,68 +797,50 @@ class TrackSelectionDialog(Adw.Dialog):
 
 
 # (section_title, [(action_title, accelerator_display), ...])
+# Accelerators use GTK accelerator syntax (see gtk_accelerator_parse), which
+# AdwShortcutsItem renders with proper Adwaita keycaps.
 SHORTCUTS = [
     (_("File"), [
-        (_("New"), "Ctrl+N"),
-        (_("Open…"), "Ctrl+O"),
-        (_("Save"), "Ctrl+S"),
-        (_("Save As…"), "Ctrl+Shift+S"),
+        (_("New"), "<Ctrl>N"),
+        (_("Open…"), "<Ctrl>O"),
+        (_("Save"), "<Ctrl>S"),
+        (_("Save As…"), "<Ctrl><Shift>S"),
     ]),
     (_("Editing"), [
-        (_("Undo"), "Ctrl+Z"),
-        (_("Redo"), "Ctrl+Shift+Z"),
-        (_("Add Subtitle"), "Ctrl+Shift+N"),
+        (_("Undo"), "<Ctrl>Z"),
+        (_("Redo"), "<Ctrl><Shift>Z"),
+        (_("Add Subtitle"), "<Ctrl><Shift>N"),
         (_("Remove Subtitle"), "Delete"),
-        (_("Duplicate Subtitle"), "Ctrl+D"),
-        (_("Move Up"), "Ctrl+↑"),
-        (_("Move Down"), "Ctrl+↓"),
+        (_("Duplicate Subtitle"), "<Ctrl>D"),
+        (_("Move Up"), "<Ctrl>Up"),
+        (_("Move Down"), "<Ctrl>Down"),
     ]),
     (_("Video"), [
-        (_("Open Video…"), "Ctrl+Shift+O"),
-        (_("Toggle Video Player"), "Ctrl+V"),
-        (_("Select Audio/Subtitle Tracks…"), "Ctrl+Shift+T"),
+        (_("Open Video…"), "<Ctrl><Shift>O"),
+        (_("Toggle Video Player"), "<Ctrl>V"),
+        (_("Select Audio/Subtitle Tracks…"), "<Ctrl><Shift>T"),
     ]),
     (_("Navigation"), [
-        (_("Home"), "Alt+Home"),
-        (_("Keyboard Shortcuts"), "Ctrl+?"),
+        (_("Home"), "<Alt>Home"),
+        (_("Keyboard Shortcuts"), "<Ctrl>question"),
     ]),
 ]
 
 
-@Gtk.Template(resource_path=template_resource_path('shortcuts'))
-class GsubShortcutsDialog(Adw.Dialog):
-    """Keyboard shortcuts help dialog (GTK 4 / GTK 5 safe)."""
+def build_shortcuts_dialog() -> Adw.ShortcutsDialog:
+    """Build a keyboard shortcuts dialog using libadwaita's AdwShortcutsDialog.
 
-    __gtype_name__ = 'GsubShortcutsDialog'
+    AdwShortcutsDialog is a final type and cannot be subclassed, so the dialog
+    is constructed directly and populated with sections and items. This follows
+    the Adwaita design (GNOME 49 / libadwaita 1.8+): proper keycap rendering
+    via AdwShortcutLabel and an integrated search field.
+    """
+    dialog = Adw.ShortcutsDialog(title=_("Keyboard Shortcuts"))
 
-    shortcuts_list = Gtk.Template.Child()
+    for section_title, items in SHORTCUTS:
+        section = Adw.ShortcutsSection(title=section_title)
+        for title, accel in items:
+            section.add(Adw.ShortcutsItem(title=title, accelerator=accel))
+        dialog.add(section)
 
-    def __init__(self):
-        super().__init__()
-
-        for section_title, items in SHORTCUTS:
-            header = Gtk.Label(label=section_title)
-            header.set_halign(Gtk.Align.START)
-            header.add_css_class("heading")
-            header.set_margin_top(6)
-            header.set_margin_bottom(6)
-            header.set_margin_start(6)
-
-            header_row = Gtk.ListBoxRow()
-            header_row.set_child(header)
-            header_row.set_activatable(False)
-            header_row.set_selectable(False)
-            self.shortcuts_list.append(header_row)
-
-            for title, accel in items:
-                row = Adw.ActionRow(title=title)
-                row.set_activatable(False)
-                accel_label = Gtk.Label(label=accel)
-                accel_label.add_css_class("dim-label")
-                accel_label.set_selectable(False)
-                row.add_suffix(accel_label)
-                self.shortcuts_list.append(row)
-
-    @Gtk.Template.Callback()
-    def on_close(self, _button):
-        self.close()
+    return dialog

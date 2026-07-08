@@ -21,7 +21,7 @@ from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog, GsubShortcutsDialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -1369,7 +1369,7 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _on_show_shortcuts(self, action, param):
         """Show keyboard shortcuts dialog."""
-        shortcuts = GsubShortcutsDialog()
+        shortcuts = build_shortcuts_dialog()
         shortcuts.present(self)
     
     def _on_home(self, action, param):

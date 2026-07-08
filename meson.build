@@ -9,7 +9,7 @@ project(
 )
 
 # --- Dependencies / pkg-config ----------------------------------------------
-dependency('libadwaita-1', version: '>= 1.6')
+dependency('libadwaita-1', version: '>= 1.8')
 dependency('gtk4', version: '>= 4.14')
 dependency('glib-2.0')
 
@@ -48,7 +48,6 @@ blueprint_names = [
   'subtitle-list-row',
   'subtitle-list',
   'batch-file-list',
-  'shortcuts',
 ]
 
 compiled_ui = []
