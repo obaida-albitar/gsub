@@ -291,12 +291,10 @@ class GsubWindow(Adw.ApplicationWindow):
         self.batch_operations.connect('operations-changed', self._on_batch_ops_changed)
         batch_ops_container.append(self.batch_operations)
 
-        # Batch action buttons below operations
+        # Batch action buttons live inside the operations panel, under the
+        # Resolution section (see batch-operations-panel.blp action_box).
         batch_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-        batch_button_box.set_margin_start(12)
-        batch_button_box.set_margin_end(12)
-        batch_button_box.set_margin_top(18)
-        batch_button_box.set_margin_bottom(12)
+        batch_button_box.set_hexpand(True)
 
         batch_apply_btn = Gtk.Button(label="Apply Operations")
         batch_apply_btn.add_css_class("suggested-action")
@@ -317,7 +315,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.batch_save_as_btn.set_sensitive(False)
         batch_button_box.append(batch_save_as_btn)
 
-        batch_ops_container.append(batch_button_box)
+        self.batch_operations.action_box.append(batch_button_box)
         self.batch_paned.set_end_child(batch_ops_container)
 
         # Set default view to home
@@ -1099,7 +1097,43 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_batch_files_changed(self, widget):
         """Handle batch file list changes."""
+        self._refresh_batch_context()
         self._update_batch_action_buttons()
+
+    def _refresh_batch_context(self):
+        """Update batch panel context from the currently loaded files.
+
+        - Shared styles: intersection of style names across all loaded ASS/SSA
+          files (used by the Font Size operation).
+        - Resolution: prefill PlayResX/PlayResY if every loaded ASS/SSA file
+          shares the same values, so the user can see the previous resolution.
+        """
+        ass_docs = [
+            item.document for item in self.batch_file_list.get_all_files()
+            if item.document.format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
+        ]
+
+        # Shared styles (intersection of style names across all ASS/SSA docs)
+        if ass_docs:
+            shared = set(doc.styles[0].name for doc in ass_docs if doc.styles)
+            for doc in ass_docs:
+                shared &= {s.name for s in doc.styles}
+            self.batch_operations.set_shared_styles(sorted(shared))
+        else:
+            self.batch_operations.set_shared_styles([])
+
+        # Resolution prefill when all ASS/SSA docs agree
+        widths = {doc.metadata.get("PlayResX") for doc in ass_docs if doc.metadata.get("PlayResX")}
+        heights = {doc.metadata.get("PlayResY") for doc in ass_docs if doc.metadata.get("PlayResY")}
+        if len(widths) == 1 and len(heights) == 1:
+            try:
+                self.batch_operations.res_width_row.set_value(int(next(iter(widths))))
+                self.batch_operations.res_height_row.set_value(int(next(iter(heights))))
+            except (ValueError, TypeError):
+                pass
+        else:
+            self.batch_operations.res_width_row.set_value(0)
+            self.batch_operations.res_height_row.set_value(0)
 
     def _on_batch_ops_changed(self, widget):
         """Handle batch operations changes."""
@@ -1256,9 +1290,14 @@ class GsubWindow(Adw.ApplicationWindow):
             # Apply font size change (ASS/SSA only)
             if self.batch_operations.has_font_size_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
                 new_size = int(self.batch_operations.font_size_row.get_value())
+                selected_styles = set(self.batch_operations.get_selected_style_names())
+                applied = False
                 for style in doc.styles:
-                    style.fontsize = new_size
-                changed = True
+                    if style.name in selected_styles:
+                        style.fontsize = new_size
+                        applied = True
+                if applied:
+                    changed = True
 
             # Apply resolution change (ASS/SSA only)
             if self.batch_operations.has_resolution_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
