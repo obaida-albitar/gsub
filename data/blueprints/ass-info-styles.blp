@@ -32,7 +32,19 @@ template $GsubASSInfoStylesDialog : Adw.Dialog {
       Adw.PreferencesGroup info_group {
         title: _("Script Info");
         description: _("Metadata stored in the [Script Info] section");
-        // Common-key EntryRows + dynamic kv editors are added from code.
+        // Common-key EntryRows are added from code.
+      }
+
+      // --- Additional Script Info ---
+      Adw.PreferencesGroup info_extra_group {
+        title: _("Additional Script Info");
+        description: _("Extra [Script Info] keys such as PlayResX, PlayResY, WrapStyle");
+      }
+
+      // --- Aegisub Project Garbage ---
+      Adw.PreferencesGroup aegisub_group {
+        title: _("Aegisub Project Garbage");
+        description: _("Project data used by Aegisub (interface layout, automation). Safe to leave empty.");
       }
 
       // --- Styles ---
