@@ -36,13 +36,14 @@ def _candidate_paths() -> list[str]:
     here = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(here)
     candidates = [
-        # 1. Next to the running package (dev convenience / installed alongside).
-        os.path.join(here, _GRESOURCE_FILENAME),
-        # 2. meson build directories at the project root.
-        os.path.join(project_root, _GRESOURCE_FILENAME),
+        # 1. meson build directories at the project root (preferred for dev,
+        #    always reflects the latest compiled .ui templates).
         os.path.join(project_root, "builddir", _GRESOURCE_FILENAME),
         os.path.join(project_root, "build", _GRESOURCE_FILENAME),
         os.path.join(project_root, "_build", _GRESOURCE_FILENAME),
+        # 2. Next to the running package (installed alongside).
+        os.path.join(here, _GRESOURCE_FILENAME),
+        os.path.join(project_root, _GRESOURCE_FILENAME),
         # 3. Installed datadir (PREFIX/share/gsub) — the meson install location.
         os.path.join(project_root, "data", _GRESOURCE_FILENAME),
         os.path.join("/usr/share/gsub", _GRESOURCE_FILENAME),

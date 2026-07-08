@@ -2,7 +2,7 @@
 Concrete command implementations for subtitle editing operations.
 """
 
-from typing import List, Tuple
+from typing import List
 from subtitle_editor.commands.command import Command
 from subtitle_editor.models import SubtitleEntry, SubtitleDocument, TimeCode
 
@@ -281,46 +281,6 @@ class TimeShiftCommand(Command):
         count = len(self.positions)
         direction = "forward" if self.offset_ms > 0 else "backward"
         return f"Shift {count} subtitle(s) {direction} by {abs(self.offset_ms)}ms"
-
-
-class BatchTimingCommand(Command):
-    """Command to adjust timing for a batch of subtitles."""
-    
-    def __init__(self, document: SubtitleDocument, 
-                 adjustments: List[Tuple[int, TimeCode, TimeCode]]):
-        """
-        Initialize the batch timing command.
-        
-        Args:
-            document: The subtitle document
-            adjustments: List of (position, new_start, new_end) tuples
-        """
-        self.document = document
-        self.adjustments = adjustments
-        self.old_timings = []
-    
-    def execute(self):
-        """Apply all timing adjustments."""
-        self.old_timings = []
-        for position, new_start, new_end in self.adjustments:
-            if 0 <= position < len(self.document.entries):
-                entry = self.document.entries[position]
-                self.old_timings.append((position, entry.start_time, entry.end_time))
-                entry.start_time = new_start
-                entry.end_time = new_end
-        self.document.modified = True
-    
-    def undo(self):
-        """Restore original timings."""
-        for position, old_start, old_end in self.old_timings:
-            if 0 <= position < len(self.document.entries):
-                entry = self.document.entries[position]
-                entry.start_time = old_start
-                entry.end_time = old_end
-        self.document.modified = True
-    
-    def description(self) -> str:
-        return f"Adjust timing of {len(self.adjustments)} subtitle(s)"
 
 
 class EditMarginsCommand(Command):

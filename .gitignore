@@ -49,6 +49,8 @@ builddir/
 _build/
 # Compiled Blueprint → .ui outputs (generated at build time)
 data/blueprints/*.ui
+# Compiled gresource bundle (generated at build time)
+subtitle_editor/app.gsub.gresource
 
 # Application specific
 *.pyc

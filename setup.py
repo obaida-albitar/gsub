@@ -1,9 +1,86 @@
 #!/usr/bin/env python3
 """
 Setup script for Gsub.
+
+This builds the GTK/Blueprint gresource bundle so the application is runnable
+after ``pip install`` (the meson build does the same for system installs). It
+requires the following tools on the build machine:
+
+  * blueprint-compiler  (compiles data/blueprints/*.blp -> .ui)
+  * glib-compile-resources (bundles the .ui files + style.css + icon)
+
+These are typically provided by your distribution's GTK4 / libadwaita dev
+packages. At runtime the app also needs PyGObject plus the system libraries
+libadwaita-1, gtk4 and gstreamer-1.0 (the ``[video]`` extra documents the
+GStreamer requirement).
 """
 
+import os
+import shutil
+import subprocess
+import sys
+
 from setuptools import setup, find_packages
+from setuptools.command.build_py import build_py
+
+HERE = os.path.abspath(os.path.dirname(__file__))
+PACKAGE_DIR = os.path.join(HERE, "subtitle_editor")
+GRESOURCE_FILENAME = "app.gsub.gresource"
+GRESOURCE_TARGET = os.path.join(PACKAGE_DIR, GRESOURCE_FILENAME)
+
+
+def _have(cmd):
+    return shutil.which(cmd) is not None
+
+
+def build_gresource():
+    """Compile Blueprint templates and bundle them into the gresource.
+
+    The resulting ``app.gsub.gresource`` is written into the subtitle_editor
+    package directory so ``resources.register_resources()`` can locate it at
+    runtime (it is the first candidate path searched).
+    """
+    if not (_have("blueprint-compiler") and _have("glib-compile-resources")):
+        print(
+            "WARNING: blueprint-compiler and/or glib-compile-resources not "
+            "found; the gresource was not built. Install them and rebuild, or "
+            "build with meson instead (`meson setup build && meson compile -C "
+            "build`). The app will fail to start without it.",
+            file=sys.stderr,
+        )
+        return
+
+    blueprints_dir = os.path.join(HERE, "data", "blueprints")
+    data_dir = os.path.join(HERE, "data")
+    xml = os.path.join(data_dir, "app.gsub.gresource.xml")
+
+    # Compile each .blp -> .ui alongside it.
+    for name in os.listdir(blueprints_dir):
+        if not name.endswith(".blp"):
+            continue
+        ui_path = os.path.join(blueprints_dir, name[:-4] + ".ui")
+        subprocess.run(
+            ["blueprint-compiler", "compile", "--output", ui_path,
+             os.path.join(blueprints_dir, name)],
+            check=True,
+        )
+
+    subprocess.run(
+        ["glib-compile-resources",
+         "--target", GRESOURCE_TARGET,
+         "--sourcedir", blueprints_dir,
+         "--sourcedir", data_dir,
+         xml],
+        check=True,
+    )
+    print(f"Built gresource: {GRESOURCE_TARGET}")
+
+
+class BuildPyCommand(build_py):
+    def run(self):
+        build_gresource()
+        super().run()
+
 
 try:
     with open("README.md", "r", encoding="utf-8") as fh:
@@ -35,7 +112,9 @@ setup(
     ],
     extras_require={
         "video": [
-            "PyGObject>=3.42",  # Includes GStreamer bindings
+            # GStreamer bindings are part of PyGObject; the system library
+            # gstreamer-1.0 must be installed for video playback/extraction.
+            "PyGObject>=3.42",
         ],
     },
     entry_points={
@@ -44,4 +123,10 @@ setup(
         ],
     },
     include_package_data=True,
+    package_data={"subtitle_editor": [GRESOURCE_FILENAME]},
+    data_files=[
+        ("share/applications", ["data/app.gsub.desktop"]),
+        ("share/icons/hicolor/scalable/apps", ["data/app.gsub.svg"]),
+    ],
+    cmdclass={"build_py": BuildPyCommand},
 )

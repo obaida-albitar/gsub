@@ -21,7 +21,7 @@ from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -245,7 +245,6 @@ class GsubWindow(Adw.ApplicationWindow):
         video_container.set_visible(False)  # Hide container by default
         self.video_container = video_container  # Store reference
         self.video_player = VideoPlayerWidget()
-        self.video_player.connect('position-changed', self._on_video_position_changed)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
 
@@ -703,6 +702,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.document.modified = False
             self.document.file_path = file_path
             self.current_file = file_path
+            self._hide_banner()
             self._update_title()
             self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Saved {os.path.basename(file_path)}")
@@ -763,6 +763,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_status()
         self._update_format_actions()
         self._update_document_actions()
+        self._hide_banner()
         self._navigate_to_editor(show_open=False)
     
     def _on_open(self, action, param):
@@ -804,6 +805,7 @@ class GsubWindow(Adw.ApplicationWindow):
             file = dialog.open_finish(result)
             if file:
                 self.open_file(file)
+                self._hide_banner()
         except Exception as e:
             pass  # User cancelled
     
@@ -1369,12 +1371,9 @@ class GsubWindow(Adw.ApplicationWindow):
         about.present()
     
     def _on_show_shortcuts(self, action, param):
-        """Show keyboard shortcuts window."""
-        builder = Gtk.Builder()
-        builder.add_from_resource(template_resource_path('shortcuts'))
-        shortcuts = builder.get_object("shortcuts")
-        shortcuts.set_transient_for(self)
-        shortcuts.present()
+        """Show keyboard shortcuts dialog."""
+        shortcuts = build_shortcuts_dialog()
+        shortcuts.present(self)
     
     def _on_home(self, action, param):
         """Navigate to home view."""
@@ -1409,7 +1408,7 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
 
-        def _on_srt_choose(_dialog, task):
+        def _on_srt_choose(_dialog, task, _user_data):
             response = dialog.choose_finish(task)
             self._on_convert_response(response, SubtitleFormat.SRT)
 
@@ -1439,7 +1438,7 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.set_default_response("convert")
         dialog.set_close_response("cancel")
 
-        def _on_ass_choose(_dialog, task):
+        def _on_ass_choose(_dialog, task, _user_data):
             response = dialog.choose_finish(task)
             self._on_convert_response(response, SubtitleFormat.ASS)
 
@@ -1728,11 +1727,6 @@ class GsubWindow(Adw.ApplicationWindow):
             # Collapse the paned when hiding video
             self.right_paned.set_position(0)
     
-    def _on_video_position_changed(self, player, position_sec):
-        """Handle video position changes to update UI."""
-        # Could be used to highlight current subtitle in the list
-        pass
-    
     def _on_select_tracks(self, action, param):
         """Manually open track selection dialog."""
         if not self.current_video_file:
@@ -1858,7 +1852,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     self._show_toast(f"Error loading extracted subtitles: {e}")
                     try:
                         os.remove(temp_path)
-                    except:
+                    except OSError:
                         pass
             else:
                 self._show_toast(f"Extraction failed: {error_msg}")

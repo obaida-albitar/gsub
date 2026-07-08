@@ -191,6 +191,8 @@ class ASSInfoStylesDialog(Adw.Dialog):
 
     # Template children (static editor rows).
     info_group = Gtk.Template.Child()
+    info_extra_group = Gtk.Template.Child()
+    aegisub_group = Gtk.Template.Child()
     styles_group = Gtk.Template.Child()
     style_combo = Gtk.Template.Child()
     style_name = Gtk.Template.Child()
@@ -232,52 +234,23 @@ class ASSInfoStylesDialog(Adw.Dialog):
             self.info_group.add(row)
             self._info_rows[key] = row
 
-        # Full Script Info editor (dynamic fields)
-        full_info_row = Adw.ExpanderRow()
-        full_info_row.set_title("All Script Info")
-        full_info_row.set_subtitle("Edit all keys including PlayResX/PlayResY")
-        full_info_row.set_expanded(True)
-        self.info_group.add(full_info_row)
+        # Additional Script Info editor (key/value list, excluding common keys)
+        self._script_info_rows = []  # list of (key_entry, value_entry, row)
+        common_keys = {k for k, _ in self.COMMON_KEYS}
+        self._build_kv_section(
+            self.info_extra_group,
+            self._script_info_rows,
+            {k: v for k, v in self._metadata.items() if k not in common_keys},
+        )
 
-        self._script_info_rows = []  # list of (key_entry, value_entry)
-
-        add_info_row = Adw.ActionRow()
-        add_info_row.set_title("Add Script Info key")
-        add_btn = Gtk.Button()
-        add_btn.set_icon_name("list-add-symbolic")
-        add_btn.add_css_class("flat")
-        add_btn.add_css_class("circular")
-        add_btn.connect('clicked', lambda b: self._add_kv_row(full_info_row, self._script_info_rows, "", ""))
-        add_info_row.add_suffix(add_btn)
-        add_info_row.set_activatable(False)
-        full_info_row.add_row(add_info_row)
-
-        for k in sorted(self._metadata.keys()):
-            self._add_kv_row(full_info_row, self._script_info_rows, k, self._metadata[k])
-
-        # Aegisub Project Garbage editor (dynamic fields)
-        aeg_row = Adw.ExpanderRow()
-        aeg_row.set_title("Aegisub Project Garbage")
-        aeg_row.set_subtitle("Optional section used by Aegisub")
-        aeg_row.set_expanded(False)
-        self.info_group.add(aeg_row)
-
+        # Aegisub Project Garbage editor (key/value list)
         self._aegisub_rows = []
         self._aegisub_garbage = copy.deepcopy(getattr(self.document, 'aegisub_project_garbage', {}) or {})
-
-        add_aeg_row = Adw.ActionRow()
-        add_aeg_row.set_title("Add Aegisub key")
-        add_aeg_btn = Gtk.Button()
-        add_aeg_btn.set_icon_name("list-add-symbolic")
-        add_aeg_btn.add_css_class("flat")
-        add_aeg_btn.add_css_class("circular")
-        add_aeg_btn.connect('clicked', lambda b: self._add_kv_row(aeg_row, self._aegisub_rows, "", ""))
-        add_aeg_row.add_suffix(add_aeg_btn)
-        add_aeg_row.set_activatable(False)
-        aeg_row.add_row(add_aeg_row)
-
-        for k in sorted(self._aegisub_garbage.keys()):
-            self._add_kv_row(aeg_row, self._aegisub_rows, k, self._aegisub_garbage[k])
+        self._build_kv_section(
+            self.aegisub_group,
+            self._aegisub_rows,
+            self._aegisub_garbage,
+        )
 
         # --- Styles: models + signal wiring on the templated rows ---
         # Keep a persistent model to avoid signal feedback loops / freezes.
@@ -558,49 +531,99 @@ class ASSInfoStylesDialog(Adw.Dialog):
         except Exception:
             self.preview_label.set_attributes(None)
 
-    def _add_kv_row(self, container_row: Adw.ExpanderRow, store_list: list, key: str, value: str) -> None:
-        row = Adw.ActionRow()
+    def _make_kv_listbox(self) -> Gtk.ListBox:
+        listbox = Gtk.ListBox()
+        listbox.add_css_class("boxed-list")
+        listbox.set_selection_mode(Gtk.SelectionMode.NONE)
+        return listbox
+
+    def _build_kv_section(self, group: Adw.PreferencesGroup, store_list: list, initial: dict) -> Gtk.ListBox:
+        """Create a key/value ListBox, add it to the group, and populate it."""
+        listbox = self._make_kv_listbox()
+        group.add(listbox)
+        add_row = self._make_add_row(listbox, store_list)
+        for k in sorted(initial.keys()):
+            self._add_kv_row(listbox, store_list, k, initial[k], add_row)
+        listbox.append(add_row)
+        return listbox
+
+    def _make_add_row(self, listbox: Gtk.ListBox, store_list: list) -> Gtk.ListBoxRow:
+        """Create the persistent 'Add key' row for a key/value ListBox."""
+        add_row = Gtk.ListBoxRow()
+        add_row.set_activatable(False)
+        add_row.set_selectable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
+
+        label = Gtk.Label(label=_("Add key"))
+        label.set_hexpand(True)
+        label.set_xalign(0.0)
+
+        add_btn = Gtk.Button()
+        add_btn.set_icon_name("list-add-symbolic")
+        add_btn.add_css_class("flat")
+        add_btn.add_css_class("circular")
+        add_btn.set_valign(Gtk.Align.CENTER)
+        add_btn.connect('clicked', lambda _b: self._add_kv_row(listbox, store_list, "", "", add_row))
+
+        box.append(label)
+        box.append(add_btn)
+        add_row.set_child(box)
+        return add_row
+
+    def _add_kv_row(self, listbox: Gtk.ListBox, store_list: list, key: str, value: str, add_row: Gtk.ListBoxRow) -> None:
+        """Append a key/value row to a ListBox, inserting it before the Add row."""
+        row = Gtk.ListBoxRow()
         row.set_activatable(False)
+        row.set_selectable(False)
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        box.set_margin_top(6)
+        box.set_margin_bottom(6)
+        box.set_margin_start(8)
+        box.set_margin_end(8)
 
         key_entry = Gtk.Entry()
-        key_entry.set_hexpand(True)
-        key_entry.set_text(str(key or ""))
-        key_entry.set_placeholder_text("Key")
+        key_entry.set_hexpand(False)
         key_entry.set_width_chars(18)
+        key_entry.set_placeholder_text(_("Key"))
+        key_entry.set_text(str(key or ""))
 
         value_entry = Gtk.Entry()
         value_entry.set_hexpand(True)
+        value_entry.set_placeholder_text(_("Value"))
         value_entry.set_text(str(value or ""))
-        value_entry.set_placeholder_text("Value")
-        value_entry.set_width_chars(26)
 
         del_btn = Gtk.Button()
         del_btn.set_icon_name("user-trash-symbolic")
         del_btn.add_css_class("flat")
         del_btn.add_css_class("circular")
+        del_btn.set_valign(Gtk.Align.CENTER)
+        del_btn.connect('clicked', lambda _b: self._remove_kv_row(listbox, store_list, row))
 
-        def _remove(_btn):
-            try:
-                container_row.remove(row)
-            except Exception:
-                # Fallback if remove() isn't available
-                row.set_visible(False)
-            # keep store_list consistent
-            store_list[:] = [pair for pair in store_list if pair[0] is not key_entry]
+        box.append(key_entry)
+        box.append(value_entry)
+        box.append(del_btn)
+        row.set_child(box)
 
-        del_btn.connect('clicked', _remove)
+        add_index = add_row.get_index()
+        listbox.insert(row, add_index if add_index >= 0 else -1)
+        store_list.append((key_entry, value_entry, row))
 
-        # Put Key first, then Value
-        row.add_prefix(value_entry)
-        row.add_prefix(key_entry)
-        row.add_suffix(del_btn)
-
-        container_row.add_row(row)
-        store_list.append((key_entry, value_entry))
+    def _remove_kv_row(self, listbox: Gtk.ListBox, store_list: list, row: Gtk.ListBoxRow) -> None:
+        listbox.remove(row)
+        for i, entry in enumerate(store_list):
+            if entry[2] is row:
+                store_list.pop(i)
+                break
 
     def _collect_kv_rows(self, rows: list) -> dict:
         out = {}
-        for key_entry, value_entry in rows:
+        for key_entry, value_entry, _row in rows:
             k = key_entry.get_text().strip()
             if not k:
                 continue
@@ -693,19 +716,12 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
 
-            # Handle both TrackInfo objects and dict format
-            if hasattr(track, 'to_dict'):
-                # TrackInfo object from refactored code
-                track_index = track.index
-                track_title = track.title or f"Track {track_index + 1}"
-                track_language = track.language
-                track_codec = track.codec
-            else:
-                # Dict format from old code
-                track_index = track.get('index', 0)
-                track_title = track.get('title') or f"Track {track_index + 1}"
-                track_language = track.get('language')
-                track_codec = track.get('codec')
+            # Track dictionaries are produced by GStreamer track discovery
+            # (see VideoPlayerWidget.get_available_tracks).
+            track_index = track.get('index', 0)
+            track_title = track.get('title') or f"Track {track_index + 1}"
+            track_language = track.get('language')
+            track_codec = track.get('codec')
 
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')
@@ -751,19 +767,12 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
 
-            # Handle both TrackInfo objects and dict format
-            if hasattr(track, 'to_dict'):
-                # TrackInfo object from refactored code
-                track_index = track.index
-                track_title = track.title or f"Track {track_index + 1}"
-                track_language = track.language
-                track_codec = track.codec
-            else:
-                # Dict format from old code
-                track_index = track.get('index', 0)
-                track_title = track.get('title') or f"Track {track_index + 1}"
-                track_language = track.get('language')
-                track_codec = track.get('codec')
+            # Track dictionaries are produced by GStreamer track discovery
+            # (see VideoPlayerWidget.get_available_tracks).
+            track_index = track.get('index', 0)
+            track_title = track.get('title') or f"Track {track_index + 1}"
+            track_language = track.get('language')
+            track_codec = track.get('codec')
 
             # Escape ampersands in title to prevent markup parsing errors
             title = track_title.replace('&', '&amp;')
@@ -808,3 +817,53 @@ class TrackSelectionDialog(Adw.Dialog):
         """Handle select button click."""
         self.emit("tracks-selected", self.selected_audio, self.selected_subtitle)
         self.close()
+
+
+# (section_title, [(action_title, accelerator_display), ...])
+# Accelerators use GTK accelerator syntax (see gtk_accelerator_parse), which
+# AdwShortcutsItem renders with proper Adwaita keycaps.
+SHORTCUTS = [
+    (_("File"), [
+        (_("New"), "<Ctrl>N"),
+        (_("Open…"), "<Ctrl>O"),
+        (_("Save"), "<Ctrl>S"),
+        (_("Save As…"), "<Ctrl><Shift>S"),
+    ]),
+    (_("Editing"), [
+        (_("Undo"), "<Ctrl>Z"),
+        (_("Redo"), "<Ctrl><Shift>Z"),
+        (_("Add Subtitle"), "<Ctrl><Shift>N"),
+        (_("Remove Subtitle"), "Delete"),
+        (_("Duplicate Subtitle"), "<Ctrl>D"),
+        (_("Move Up"), "<Ctrl>Up"),
+        (_("Move Down"), "<Ctrl>Down"),
+    ]),
+    (_("Video"), [
+        (_("Open Video…"), "<Ctrl><Shift>O"),
+        (_("Toggle Video Player"), "<Ctrl>V"),
+        (_("Select Audio/Subtitle Tracks…"), "<Ctrl><Shift>T"),
+    ]),
+    (_("Navigation"), [
+        (_("Home"), "<Alt>Home"),
+        (_("Keyboard Shortcuts"), "<Ctrl>question"),
+    ]),
+]
+
+
+def build_shortcuts_dialog() -> Adw.ShortcutsDialog:
+    """Build a keyboard shortcuts dialog using libadwaita's AdwShortcutsDialog.
+
+    AdwShortcutsDialog is a final type and cannot be subclassed, so the dialog
+    is constructed directly and populated with sections and items. This follows
+    the Adwaita design (GNOME 49 / libadwaita 1.8+): proper keycap rendering
+    via AdwShortcutLabel and an integrated search field.
+    """
+    dialog = Adw.ShortcutsDialog(title=_("Keyboard Shortcuts"))
+
+    for section_title, items in SHORTCUTS:
+        section = Adw.ShortcutsSection(title=section_title)
+        for title, accel in items:
+            section.add(Adw.ShortcutsItem(title=title, accelerator=accel))
+        dialog.add(section)
+
+    return dialog

@@ -1,3 +1,11 @@
+# Test dependencies
 pytest>=7.4.0
 pytest-cov>=4.1.0
 pytest-mock>=3.11.0
+
+# Build tooling (Python-side). The remaining tools are provided by the system:
+#   * blueprint-compiler      (compile data/blueprints/*.blp -> .ui)
+#   * glib-compile-resources  (bundle the gresource)
+#   * meson                   (alternative, canonical system build)
+# Runtime system libraries (not pip-installable): libadwaita-1, gtk4, gstreamer-1.0
+meson>=1.0.0

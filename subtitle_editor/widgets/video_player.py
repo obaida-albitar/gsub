@@ -378,6 +378,7 @@ class VideoPlayerWidget(Gtk.Box):
     timeline_scale = Gtk.Template.Child()
     duration_label = Gtk.Template.Child()
     volume_button = Gtk.Template.Child()
+    volume_scale = Gtk.Template.Child()
     subtitle_size_button = Gtk.Template.Child()
 
     def __init__(self):
@@ -504,9 +505,10 @@ class VideoPlayerWidget(Gtk.Box):
         self.timeline_scale.set_value(0)
         self.timeline_scale.connect("change-value", self._on_timeline_seek)
 
-        # Volume button
-        self.volume_button.set_value(1.0)
-        self.volume_button.connect("value-changed", self._on_volume_changed)
+        # Volume control
+        self.volume_scale.set_range(0, 1)
+        self.volume_scale.set_value(1.0)
+        self.volume_scale.connect("value-changed", self._on_volume_changed)
 
         # Subtitle size popover (built in code; the MenuButton is templated).
         popover = Gtk.Popover()
@@ -873,8 +875,9 @@ class VideoPlayerWidget(Gtk.Box):
         self.seek(value)
         return False
 
-    def _on_volume_changed(self, button, value):
+    def _on_volume_changed(self, scale):
         """Handle volume change."""
+        value = scale.get_value()
         if self.player:
             self.player.set_property("volume", value)
 
@@ -1126,10 +1129,6 @@ class VideoPlayerWidget(Gtk.Box):
     @property
     def current_subtitle_track(self):
         return self._current_subtitle_track
-
-    @property
-    def media_extractor(self):
-        return None
 
     def queue_subtitle_redraw(self):
         self.subtitle_drawing_area.queue_draw()

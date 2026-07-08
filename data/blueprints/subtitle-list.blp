@@ -1,0 +1,16 @@
+using Gtk 4.0;
+
+// Container list view for subtitle entries. The GsubSubtitleListRow rows are
+// produced by a SignalListItemFactory wired up in code; this template only
+// provides the scrollable ListView shell and its virtualized rendering.
+template $GsubSubtitleListView : Gtk.ScrolledWindow {
+  hexpand: true;
+  vexpand: true;
+  hscrollbar-policy: never;
+  vscrollbar-policy: automatic;
+  has-frame: true;
+
+  ListView list_view {
+    styles ["navigation-sidebar"]
+  }
+}

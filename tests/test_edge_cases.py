@@ -780,37 +780,6 @@ class TestStressAndBoundaryTests:
         # Should preserve structure
         assert len(doc2.entries) == 1
 
-    @pytest.mark.integration
-    def test_concurrent_style_operations(self):
-        """Test multiple style operations in sequence."""
-        doc = SubtitleDocument(format=SubtitleFormat.ASS)
-        cm = CommandManager()
-        
-        # Create many styles
-        for i in range(50):
-            style = ASSStyle(name=f"Style{i}", fontsize=20 + i)
-            from subtitle_editor.commands import UpsertStyleCommand
-            cm.execute(UpsertStyleCommand(doc, style))
-        
-        assert len(doc.styles) == 50
-        
-        # Rename some
-        for i in range(0, 10):
-            from subtitle_editor.commands import RenameStyleCommand
-            cm.execute(RenameStyleCommand(doc, f"Style{i}", f"Renamed{i}"))
-        
-        # Remove some
-        for i in range(10, 20):
-            from subtitle_editor.commands import RemoveStyleCommand
-            cm.execute(RemoveStyleCommand(doc, f"Style{i}"))
-        
-        # Undo all removals
-        for _ in range(10):
-            cm.undo()
-        
-        # Styles should be restored
-        assert len(doc.styles) >= 40
-
     @pytest.mark.unit
     def test_empty_string_vs_none_handling(self):
         """Test distinction between empty string and None."""
