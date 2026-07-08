@@ -139,7 +139,11 @@ class BatchFileList(Adw.Bin):
             self.format_badge.set_text("")
         else:
             self.stack.set_visible_child_name("list")
-            self.format_badge.set_text(f"All {fmt}")
+            formats = {f.format_name for f in self._files}
+            if len(formats) == 1:
+                self.format_badge.set_text(f"All {next(iter(formats))}")
+            else:
+                self.format_badge.set_text("Mixed")
 
 
 @Gtk.Template(resource_path=template_resource_path('batch-file-row'))
