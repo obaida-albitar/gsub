@@ -15,6 +15,13 @@ from gi.repository import Gtk, Adw, Gio, GLib
 import json
 import os
 
+from subtitle_editor.batch_logic import (
+    apply_font_size,
+    apply_resolution,
+    collect_style_font_sizes,
+    common_resolution,
+    compute_shared_styles,
+)
 from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser
@@ -1120,45 +1127,23 @@ class GsubWindow(Adw.ApplicationWindow):
             if item.document.format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
         ]
 
-        # Shared styles (intersection of style names across all ASS/SSA docs)
-        # plus the current font size of each, used to prefill the spin.
-        self._batch_style_fonts: dict[str, int | None] = {}
-        if ass_docs:
-            shared = {s.name for s in ass_docs[0].styles}
-            for doc in ass_docs[1:]:
-                shared &= {s.name for s in doc.styles}
-
-            sizes: dict[str, set[int]] = {}
-            for doc in ass_docs:
-                for s in doc.styles:
-                    sizes.setdefault(s.name, set()).add(s.fontsize)
-            self._batch_style_fonts = {
-                name: (next(iter(v)) if len(v) == 1 else None)
-                for name, v in sizes.items()
-            }
-
-            self.batch_operations.set_shared_styles(sorted(shared))
-            self._sync_selected_style_font_size()
-        else:
-            self.batch_operations.set_shared_styles([])
+        # Shared styles (intersection across ASS/SSA docs) plus the current font
+        # size of each, used to prefill the spin.
+        self._batch_style_fonts = collect_style_font_sizes(ass_docs)
+        self.batch_operations.set_shared_styles(compute_shared_styles(ass_docs))
+        self._sync_selected_style_font_size()
 
         # Resolution prefill when all ASS/SSA docs agree
-        widths = {doc.metadata.get("PlayResX") for doc in ass_docs if doc.metadata.get("PlayResX")}
-        heights = {doc.metadata.get("PlayResY") for doc in ass_docs if doc.metadata.get("PlayResY")}
-        if len(widths) == 1 and len(heights) == 1:
-            try:
-                self.batch_operations.res_width_row.set_value(int(next(iter(widths))))
-                self.batch_operations.res_height_row.set_value(int(next(iter(heights))))
-            except (ValueError, TypeError):
-                pass
+        width, height = common_resolution(ass_docs)
+        if width is not None and height is not None:
+            self.batch_operations.res_width_row.set_value(width)
+            self.batch_operations.res_height_row.set_value(height)
         else:
             self.batch_operations.res_width_row.set_value(0)
             self.batch_operations.res_height_row.set_value(0)
 
     def _sync_selected_style_font_size(self):
         """Prefill the font size spin with the selected style's current size."""
-        if not hasattr(self, "_batch_style_fonts"):
-            return
         target = self.batch_operations.get_selected_style_name()
         if target is None:
             return
@@ -1321,22 +1306,15 @@ class GsubWindow(Adw.ApplicationWindow):
             if self.batch_operations.has_font_size_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
                 new_size = int(self.batch_operations.font_size_row.get_value())
                 target_style = self.batch_operations.get_selected_style_name()
-                applied = False
-                if target_style:
-                    for style in doc.styles:
-                        if style.name == target_style:
-                            style.fontsize = new_size
-                            applied = True
-                if applied:
+                if apply_font_size(doc, new_size, target_style):
                     changed = True
 
             # Apply resolution change (ASS/SSA only)
             if self.batch_operations.has_resolution_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
-                new_w = str(int(self.batch_operations.res_width_row.get_value()))
-                new_h = str(int(self.batch_operations.res_height_row.get_value()))
-                doc.metadata["PlayResX"] = new_w
-                doc.metadata["PlayResY"] = new_h
-                changed = True
+                new_w = int(self.batch_operations.res_width_row.get_value())
+                new_h = int(self.batch_operations.res_height_row.get_value())
+                if apply_resolution(doc, new_w, new_h):
+                    changed = True
 
             if changed:
                 doc.modified = True

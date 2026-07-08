@@ -86,11 +86,16 @@ class BatchOperationsPanel(Adw.Bin):
         The previously selected style is restored if it is still present.
         """
         self._style_names = list(style_names)
+        # Capture the current selection before swapping the model: setting the
+        # model resets the combo's selection and fires notify::selected, which
+        # would otherwise clear our remembered selection.
+        previous = self._selected_style
         self.style_combo_row.set_model(Gtk.StringList.new(self._style_names))
         self.style_combo_row.set_sensitive(bool(self._style_names))
 
-        if self._selected_style in self._style_names:
-            self.style_combo_row.set_selected(self._style_names.index(self._selected_style))
+        if previous in self._style_names:
+            self._selected_style = previous
+            self.style_combo_row.set_selected(self._style_names.index(previous))
         else:
             self._selected_style = self._style_names[0] if self._style_names else None
             if self._style_names:
