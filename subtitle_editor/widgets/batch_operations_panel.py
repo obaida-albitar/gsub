@@ -31,7 +31,7 @@ class BatchOperationsPanel(Adw.Bin):
     font_enable_row = Gtk.Template.Child()
     font_enable_switch = Gtk.Template.Child()
     font_size_row = Gtk.Template.Child()
-    styles_box = Gtk.Template.Child()
+    style_combo_row = Gtk.Template.Child()
     res_enable_row = Gtk.Template.Child()
     res_enable_switch = Gtk.Template.Child()
     res_width_row = Gtk.Template.Child()
@@ -40,7 +40,8 @@ class BatchOperationsPanel(Adw.Bin):
 
     def __init__(self):
         super().__init__()
-        self._style_checks: list[tuple[str, Gtk.CheckButton]] = []
+        self._style_names: list[str] = []
+        self._selected_style: str | None = None
         self._build_presets()
         self._connect_signals()
 
@@ -63,55 +64,44 @@ class BatchOperationsPanel(Adw.Bin):
         self.res_height_row.connect('notify::value', lambda *a: self.emit('operations-changed'))
         self.font_enable_switch.connect('toggled', self._on_font_enable_toggled)
         self.res_enable_switch.connect('toggled', self._on_res_enable_toggled)
+        self.style_combo_row.connect('notify::selected', self._on_style_selected)
 
     def _on_font_enable_toggled(self, switch):
         enabled = switch.get_active()
         self.font_size_row.set_sensitive(enabled)
-        self.styles_box.set_visible(enabled)
+        self.style_combo_row.set_visible(enabled)
+        self.emit('operations-changed')
+
+    def _on_style_selected(self, combo, *args):
+        idx = combo.get_selected()
+        if 0 <= idx < len(self._style_names):
+            self._selected_style = self._style_names[idx]
+        else:
+            self._selected_style = None
         self.emit('operations-changed')
 
     def set_shared_styles(self, style_names: list[str]):
-        """Populate the shared-style list with checkable rows.
+        """Populate the shared-style dropdown (intersection of all ASS/SSA files).
 
-        All styles start checked (so font size applies to every shared style
-        by default). Previously chosen selections are preserved across rebuilds.
+        The previously selected style is restored if it is still present.
         """
-        previously_selected = {name for name, check in self._style_checks if check.get_active()}
-        for child in self._iter_children(self.styles_box):
-            self.styles_box.remove(child)
-        self._style_checks = []
+        self._style_names = list(style_names)
+        self.style_combo_row.set_model(Gtk.StringList.new(self._style_names))
+        self.style_combo_row.set_sensitive(bool(self._style_names))
 
-        if not style_names:
-            label = Gtk.Label(label=_("No shared ASS styles found"))
-            label.set_sensitive(False)
-            label.set_margin_top(6)
-            label.set_margin_bottom(6)
-            self.styles_box.append(label)
-            return
+        if self._selected_style in self._style_names:
+            self.style_combo_row.set_selected(self._style_names.index(self._selected_style))
+        else:
+            self._selected_style = self._style_names[0] if self._style_names else None
+            if self._style_names:
+                self.style_combo_row.set_selected(0)
 
-        for name in sorted(style_names):
-            row = Adw.ActionRow(title=name)
-            check = Gtk.CheckButton()
-            check.set_active(name in previously_selected or not previously_selected)
-            check.connect('toggled', self._on_style_toggled)
-            row.add_suffix(check)
-            row.set_activatable_widget(check)
-            self.styles_box.append(row)
-            self._style_checks.append((name, check))
-
-    def get_selected_style_names(self) -> list[str]:
-        """Return the names of currently checked shared styles."""
-        return [name for name, check in self._style_checks if check.get_active()]
-
-    def _on_style_toggled(self, check):
-        self.emit('operations-changed')
-
-    @staticmethod
-    def _iter_children(box):
-        child = box.get_first_child()
-        while child is not None:
-            yield child
-            child = child.get_next_sibling()
+    def get_selected_style_name(self) -> str | None:
+        """Return the name of the currently selected shared style, if any."""
+        idx = self.style_combo_row.get_selected()
+        if 0 <= idx < len(self._style_names):
+            return self._style_names[idx]
+        return None
 
     def _on_res_enable_toggled(self, switch):
         enabled = switch.get_active()
@@ -157,10 +147,10 @@ class BatchOperationsPanel(Adw.Bin):
         self.offset_row.set_value(0)
         self.font_size_row.set_value(0)
         self.font_enable_switch.set_active(False)
-        self.styles_box.set_visible(False)
-        for child in self._iter_children(self.styles_box):
-            self.styles_box.remove(child)
-        self._style_checks = []
+        self.style_combo_row.set_visible(False)
+        self._style_names = []
+        self._selected_style = None
+        self.style_combo_row.set_model(Gtk.StringList.new([]))
         self.res_width_row.set_value(0)
         self.res_height_row.set_value(0)
         self.res_enable_switch.set_active(False)

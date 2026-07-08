@@ -295,6 +295,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # Resolution section (see batch-operations-panel.blp action_box).
         batch_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         batch_button_box.set_hexpand(True)
+        batch_button_box.set_homogeneous(True)
 
         batch_apply_btn = Gtk.Button(label="Apply Operations")
         batch_apply_btn.add_css_class("suggested-action")
@@ -1290,12 +1291,13 @@ class GsubWindow(Adw.ApplicationWindow):
             # Apply font size change (ASS/SSA only)
             if self.batch_operations.has_font_size_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
                 new_size = int(self.batch_operations.font_size_row.get_value())
-                selected_styles = set(self.batch_operations.get_selected_style_names())
+                target_style = self.batch_operations.get_selected_style_name()
                 applied = False
-                for style in doc.styles:
-                    if style.name in selected_styles:
-                        style.fontsize = new_size
-                        applied = True
+                if target_style:
+                    for style in doc.styles:
+                        if style.name == target_style:
+                            style.fontsize = new_size
+                            applied = True
                 if applied:
                     changed = True
 
