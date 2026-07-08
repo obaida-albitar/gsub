@@ -702,6 +702,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.document.modified = False
             self.document.file_path = file_path
             self.current_file = file_path
+            self._hide_banner()
             self._update_title()
             self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Saved {os.path.basename(file_path)}")
@@ -762,6 +763,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_status()
         self._update_format_actions()
         self._update_document_actions()
+        self._hide_banner()
         self._navigate_to_editor(show_open=False)
     
     def _on_open(self, action, param):
@@ -803,6 +805,7 @@ class GsubWindow(Adw.ApplicationWindow):
             file = dialog.open_finish(result)
             if file:
                 self.open_file(file)
+                self._hide_banner()
         except Exception as e:
             pass  # User cancelled
     
@@ -1405,7 +1408,7 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.set_default_response("cancel")
         dialog.set_close_response("cancel")
 
-        def _on_srt_choose(_dialog, task):
+        def _on_srt_choose(_dialog, task, _user_data):
             response = dialog.choose_finish(task)
             self._on_convert_response(response, SubtitleFormat.SRT)
 
@@ -1435,7 +1438,7 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.set_default_response("convert")
         dialog.set_close_response("cancel")
 
-        def _on_ass_choose(_dialog, task):
+        def _on_ass_choose(_dialog, task, _user_data):
             response = dialog.choose_finish(task)
             self._on_convert_response(response, SubtitleFormat.ASS)
 
