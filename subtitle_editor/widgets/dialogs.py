@@ -794,3 +794,71 @@ class TrackSelectionDialog(Adw.Dialog):
         """Handle select button click."""
         self.emit("tracks-selected", self.selected_audio, self.selected_subtitle)
         self.close()
+
+
+# (section_title, [(action_title, accelerator_display), ...])
+SHORTCUTS = [
+    (_("File"), [
+        (_("New"), "Ctrl+N"),
+        (_("Open…"), "Ctrl+O"),
+        (_("Save"), "Ctrl+S"),
+        (_("Save As…"), "Ctrl+Shift+S"),
+    ]),
+    (_("Editing"), [
+        (_("Undo"), "Ctrl+Z"),
+        (_("Redo"), "Ctrl+Shift+Z"),
+        (_("Add Subtitle"), "Ctrl+Shift+N"),
+        (_("Remove Subtitle"), "Delete"),
+        (_("Duplicate Subtitle"), "Ctrl+D"),
+        (_("Move Up"), "Ctrl+↑"),
+        (_("Move Down"), "Ctrl+↓"),
+    ]),
+    (_("Video"), [
+        (_("Open Video…"), "Ctrl+Shift+O"),
+        (_("Toggle Video Player"), "Ctrl+V"),
+        (_("Select Audio/Subtitle Tracks…"), "Ctrl+Shift+T"),
+    ]),
+    (_("Navigation"), [
+        (_("Home"), "Alt+Home"),
+        (_("Keyboard Shortcuts"), "Ctrl+?"),
+    ]),
+]
+
+
+@Gtk.Template(resource_path=template_resource_path('shortcuts'))
+class GsubShortcutsDialog(Adw.Dialog):
+    """Keyboard shortcuts help dialog (GTK 4 / GTK 5 safe)."""
+
+    __gtype_name__ = 'GsubShortcutsDialog'
+
+    shortcuts_list = Gtk.Template.Child()
+
+    def __init__(self):
+        super().__init__()
+
+        for section_title, items in SHORTCUTS:
+            header = Gtk.Label(label=section_title)
+            header.set_halign(Gtk.Align.START)
+            header.add_css_class("heading")
+            header.set_margin_top(6)
+            header.set_margin_bottom(6)
+            header.set_margin_start(6)
+
+            header_row = Gtk.ListBoxRow()
+            header_row.set_child(header)
+            header_row.set_activatable(False)
+            header_row.set_selectable(False)
+            self.shortcuts_list.append(header_row)
+
+            for title, accel in items:
+                row = Adw.ActionRow(title=title)
+                row.set_activatable(False)
+                accel_label = Gtk.Label(label=accel)
+                accel_label.add_css_class("dim-label")
+                accel_label.set_selectable(False)
+                row.add_suffix(accel_label)
+                self.shortcuts_list.append(row)
+
+    @Gtk.Template.Callback()
+    def on_close(self, _button):
+        self.close()

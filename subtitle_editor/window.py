@@ -21,7 +21,7 @@ from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog, GsubShortcutsDialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -1368,12 +1368,9 @@ class GsubWindow(Adw.ApplicationWindow):
         about.present()
     
     def _on_show_shortcuts(self, action, param):
-        """Show keyboard shortcuts window."""
-        builder = Gtk.Builder()
-        builder.add_from_resource(template_resource_path('shortcuts'))
-        shortcuts = builder.get_object("shortcuts")
-        shortcuts.set_transient_for(self)
-        shortcuts.present()
+        """Show keyboard shortcuts dialog."""
+        shortcuts = GsubShortcutsDialog()
+        shortcuts.present(self)
     
     def _on_home(self, action, param):
         """Navigate to home view."""

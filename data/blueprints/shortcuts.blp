@@ -1,111 +1,34 @@
 using Gtk 4.0;
+using Adw 1;
 
-// Keyboard shortcuts help overlay (GtkShortcutsWindow). Loaded via the
-// win.show-help-overlay action and the help-overlay.ui gresource alias.
-Gtk.ShortcutsWindow shortcuts {
-  modal: true;
+// Keyboard shortcuts help dialog (GTK 4 / GTK 5 safe). The list of shortcuts
+// is populated from code (see GsubShortcutsDialog in widgets/dialogs.py).
+template $GsubShortcutsDialog : Adw.Dialog {
+  title: _("Keyboard Shortcuts");
+  content-width: 480;
+  content-height: 520;
 
-  Gtk.ShortcutsSection {
-    section-name: "shortcuts";
-
-    // --- File ---
-    Gtk.ShortcutsGroup {
-      title: _("File");
-
-      Gtk.ShortcutsShortcut {
-        title: _("New");
-        accelerator: "<Ctrl>N";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Open…");
-        accelerator: "<Ctrl>O";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Save");
-        accelerator: "<Ctrl>S";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Save As…");
-        accelerator: "<Ctrl><Shift>S";
-      }
-    }
-
-    // --- Editing ---
-    Gtk.ShortcutsGroup {
-      title: _("Editing");
-
-      Gtk.ShortcutsShortcut {
-        title: _("Undo");
-        accelerator: "<Ctrl>Z";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Redo");
-        accelerator: "<Ctrl><Shift>Z";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Add Subtitle");
-        accelerator: "<Ctrl><Shift>N";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Remove Subtitle");
-        accelerator: "Delete";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Duplicate Subtitle");
-        accelerator: "<Ctrl>D";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Move Up");
-        accelerator: "<Ctrl>Up";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Move Down");
-        accelerator: "<Ctrl>Down";
-      }
-    }
-
-    // --- Video ---
-    Gtk.ShortcutsGroup {
-      title: _("Video");
-
-      Gtk.ShortcutsShortcut {
-        title: _("Open Video…");
-        accelerator: "<Ctrl><Shift>O";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Toggle Video Player");
-        accelerator: "<Ctrl>V";
-      }
-
-      Gtk.ShortcutsShortcut {
-        title: _("Select Audio/Subtitle Tracks…");
-        accelerator: "<Ctrl><Shift>T";
-      }
-    }
-
-    // --- Navigation ---
-    Gtk.ShortcutsGroup {
-      title: _("Navigation");
-
-      Gtk.ShortcutsShortcut {
-        title: _("Home");
-        accelerator: "<Alt>Home";
-      }
-
-      Gtk.ShortcutsShortcut {
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header_bar {
+      title-widget: Adw.WindowTitle {
         title: _("Keyboard Shortcuts");
-        accelerator: "<Ctrl>question";
+      };
+
+      [end]
+      Button close_button {
+        icon-name: "window-close-symbolic";
+        tooltip-text: _("Close");
+        clicked => $on_close();
       }
     }
-  }
+
+    content: Gtk.ScrolledWindow {
+      vexpand: true;
+      child: Gtk.ListBox shortcuts_list {
+        selection-mode: none;
+        styles ["boxed-list"]
+      };
+    };
+  };
 }

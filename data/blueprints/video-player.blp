@@ -1,7 +1,6 @@
 using Gtk 4.0;
-using Adw 1;
 
-template GsubVideoPlayer : Gtk.Box {
+template $GsubVideoPlayer : Gtk.Box {
   orientation: vertical;
   spacing: 0;
 
@@ -83,8 +82,25 @@ template GsubVideoPlayer : Gtk.Box {
       label: "0:00";
     }
 
-    VolumeButton volume_button {
+    MenuButton volume_button {
+      icon-name: "audio-volume-high-symbolic";
       tooltip-text: _("Volume");
+
+      popover: Popover {
+        child: Scale volume_scale {
+          orientation: horizontal;
+          width-request: 120;
+          hexpand: true;
+          draw-value: false;
+          adjustment: Adjustment {
+            lower: 0.0;
+            upper: 1.0;
+            value: 1.0;
+            step-increment: 0.05;
+            page-increment: 0.1;
+          };
+        };
+      };
     }
 
     // Subtitle-size popover button (popover content built from code).
