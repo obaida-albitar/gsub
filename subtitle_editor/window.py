@@ -18,6 +18,7 @@ import os
 from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser
+from subtitle_editor.parsers.encoding import decode_subtitle_text
 from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
@@ -644,7 +645,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 self._show_error("Failed to load file")
                 return
             
-            content = contents.decode('utf-8')
+            content = decode_subtitle_text(contents)
             file_path = gfile.get_path()
             
             # Detect format by extension
@@ -1177,7 +1178,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     if not success:
                         continue
 
-                    content = contents.decode('utf-8')
+                    content = decode_subtitle_text(contents)
                     ext = os.path.splitext(file_path)[1].lower()
 
                     # Parse based on format
@@ -1892,8 +1893,8 @@ class GsubWindow(Adw.ApplicationWindow):
         import re
         
         try:
-            with open(subtitle_path, 'r', encoding='utf-8') as f:
-                content = f.read()
+            with open(subtitle_path, 'rb') as f:
+                content = decode_subtitle_text(f.read())
             
             # Remove common HTML tags while preserving text
             # Pattern matches: <tag attr="value">text</tag> -> text

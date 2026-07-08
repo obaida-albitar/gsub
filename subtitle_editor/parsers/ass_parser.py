@@ -24,6 +24,10 @@ class ASSParser:
     @classmethod
     def parse(cls, content: str) -> SubtitleDocument:
         """Parse ASS/SSA content into a SubtitleDocument."""
+        # Drop a leading UTF-8 BOM if a caller passed raw text, so the first
+        # '[Script Info]' section header is detected correctly.
+        if content and content[0] == '\ufeff':
+            content = content[1:]
         content = content.replace('\r\n', '\n').replace('\r', '\n')
         lines = content.split('\n')
         
