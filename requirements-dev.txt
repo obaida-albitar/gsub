@@ -9,3 +9,9 @@ pytest-mock>=3.11.0
 #   * meson                   (alternative, canonical system build)
 # Runtime system libraries (not pip-installable): libadwaita-1, gtk4, gstreamer-1.0
 meson>=1.0.0
+
+# Subtitle extraction backend (bundles FFmpeg, no system FFmpeg needed)
+av>=11.0
+
+# Best-effort detection of non-UTF-8 subtitle encodings
+charset-normalizer>=3.0

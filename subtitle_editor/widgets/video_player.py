@@ -15,12 +15,18 @@ gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 gi.require_version("GstVideo", "1.0")
 
+import os
 import re
 from typing import List, Optional
 
 import cairo
 from gi.repository import Adw, Gdk, GLib, GObject, Gst, GstVideo, Gtk, Pango, PangoCairo
 
+from subtitle_editor.extractors import (
+    ExtractionError,
+    detect_format as _detect_extract_format,
+    extract_track_by_gst as _extract_track_by_gst,
+)
 from subtitle_editor.models import (
     ASSStyle,
     SubtitleDocument,
@@ -1196,90 +1202,75 @@ class VideoPlayerWidget(Gtk.Box):
         
         return (n_audio > 0, n_text > 0)
     
+    def _local_path(self):
+        """Return the local filesystem path for the loaded video, or ``None``."""
+        if not self.video_uri:
+            return None
+        if self.video_uri.startswith("file://"):
+            return self.video_uri[7:]
+        return self.video_uri
+
+    def subtitle_track_format(self, track_index):
+        """Return the output format of a subtitle track.
+
+        Returns one of ``'ass'``, ``'ssa'``, ``'srt'`` or ``None``. The format
+        is resolved from the container so the caller can pick a matching file
+        extension and avoid needless re-encoding.
+        """
+        if track_index < 0 or track_index >= len(self._subtitle_tracks):
+            return None
+        video_path = self._local_path()
+        if not video_path:
+            return None
+        gst_info = self._subtitle_tracks[track_index]
+        try:
+            return _detect_extract_format(video_path, gst_info)
+        except ExtractionError as exc:
+            logger.debug(f"Could not detect subtitle format: {exc}")
+            return None
+
     def extract_subtitle_track(self, track_index, output_path, callback=None):
         """Extract a subtitle track from the video to a file.
-        
+
+        The source format is preserved (ASS/SSA keep all styling, SubRip stays
+        SRT) instead of being transcoded to SRT. Extraction happens in a
+        background thread so the UI never blocks.
+
         Args:
-            track_index: Index of the subtitle track to extract
+            track_index: Index of the subtitle track (GStreamer text index)
             output_path: Path where to save the extracted subtitle file
-            callback: Optional callback function(success, error_message) when done
+            callback: Optional callback ``(success, error_message, format)``
         """
         if not self.player or not self.video_uri:
             if callback:
-                callback(False, "No video loaded")
+                callback(False, "No video loaded", None)
             return
-        
+
         if track_index < 0 or track_index >= len(self._subtitle_tracks):
             if callback:
-                callback(False, "Invalid track index")
+                callback(False, "Invalid track index", None)
             return
-        
+
+        video_path = self._local_path()
+        if not video_path:
+            if callback:
+                callback(False, "No video loaded", None)
+            return
+
+        gst_info = self._subtitle_tracks[track_index]
+
         # Extract subtitle in a background thread to avoid blocking UI
         import threading
-        
+
         def extract_thread():
             try:
-                success = self._extract_using_playbin(track_index, output_path)
+                fmt = _extract_track_by_gst(video_path, gst_info, output_path)
                 if callback:
-                    GLib.idle_add(callback, success, None if success else "Extraction failed")
+                    GLib.idle_add(callback, True, None, fmt)
             except Exception as e:
+                logger.error(f"Extraction failed: {e}")
                 if callback:
-                    GLib.idle_add(callback, False, str(e))
-        
+                    GLib.idle_add(callback, False, str(e), None)
+
         thread = threading.Thread(target=extract_thread, daemon=True)
         thread.start()
-    
-
-    def _extract_using_playbin(self, track_index, output_path):
-        """Extract subtitle by reading from playbin text pad.
-        
-        This is a workaround since direct subtitle extraction from containers
-        is complex in GStreamer.
-        """
-        import subprocess
-        
-        # Use ffmpeg for reliable subtitle extraction
-        # This is more reliable than pure GStreamer for this use case
-        if self.video_uri.startswith("file://"):
-            video_path = self.video_uri[7:]
-        else:
-            video_path = self.video_uri
-        
-        try:
-            # ffmpeg command to extract subtitle track
-            # -map 0:s:track_index selects the subtitle track
-            # For ASS/SSA subtitles, we need special handling to preserve formatting
-            cmd = [
-                'ffmpeg',
-                '-i', video_path,
-                '-map', f'0:s:{track_index}',
-                '-c:s', 'srt',  # Convert to SRT format
-                '-f', 'srt',     # Force SRT output format
-                '-y',  # Overwrite output
-                output_path
-            ]
-            
-            
-            result = subprocess.run(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=30
-            )
-            
-            if result.returncode == 0:
-                return True
-            else:
-                error = result.stderr.decode('utf-8', errors='ignore')
-                logger.error(f"Failed: {error}")
-                return False
-                
-        except FileNotFoundError:
-            logger.debug("ffmpeg not found. Please install ffmpeg.")
-            return False
-        except subprocess.TimeoutExpired:
-            logger.debug("Timeout extracting subtitle)")
-            return False
-        except Exception as e:
-            logger.error(f"Error: {e}")
-            return False

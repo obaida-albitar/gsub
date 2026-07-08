@@ -15,6 +15,7 @@ from gi.repository import Gtk, Adw, Gio, GLib
 import json
 import os
 
+from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser
 from subtitle_editor.commands import CommandManager
@@ -1814,30 +1815,38 @@ class GsubWindow(Adw.ApplicationWindow):
             return
         
         track_info = subtitle_tracks[track_index]
-        track_name = track_info.get('title', f"Track {track_index + 1}")
+        track_name = track_info.get('title') or f"Track {track_index + 1}"
         language = track_info.get('language', 'unknown')
-        
+
+        # Detect the source format so the temp file keeps the correct extension
+        # (e.g. .ass for ASS/SSA tracks) and styles are preserved.
+        fmt = self.video_player.subtitle_track_format(track_index) or 'srt'
+        suffix = EXTENSION_FOR_FORMAT.get(fmt, '.srt')
+
         # Create temp file for extraction
         import tempfile
-        temp_fd, temp_path = tempfile.mkstemp(suffix='.srt', prefix=f'subtitle_{language}_')
+        temp_fd, temp_path = tempfile.mkstemp(suffix=suffix, prefix=f'subtitle_{language}_')
         os.close(temp_fd)
-        
+
         # Show progress toast
         self._show_toast(f"Extracting '{track_name}'...")
-        
+
         # Extract subtitle
-        def on_extract_complete(success, error_msg):
+        def on_extract_complete(success, error_msg, format_=None):
             if success:
-                # Clean up HTML tags from the extracted subtitle file
-                try:
-                    self._clean_subtitle_html(temp_path)
-                except Exception as e:
-                    logger.info(f"Warning: Failed to clean HTML: {e}")
-                
+                # HTML stripping is only meaningful for SRT. For ASS/SSA the
+                # override codes ({...}) and \N line breaks are part of the
+                # styling and must be preserved.
+                if format_ == 'srt':
+                    try:
+                        self._clean_subtitle_html(temp_path)
+                    except Exception as e:
+                        logger.info(f"Warning: Failed to clean HTML: {e}")
+
                 # IMPORTANT: Disable embedded subtitle track before loading external file
                 # This prevents double subtitles (embedded + external)
                 self.video_player.set_subtitle_track(-1)
-                
+
                 # Load the extracted subtitle file
                 try:
                     gfile = Gio.File.new_for_path(temp_path)
@@ -1845,7 +1854,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     # Escape ampersands for markup
                     safe_track_name = track_name.replace('&', '&amp;')
                     self._show_toast(f"Loaded extracted subtitles: {safe_track_name}")
-                    
+
                     # Optionally clean up temp file after loading
                     # (for now, keep it as it becomes the working file)
                 except Exception as e:
@@ -1860,7 +1869,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     os.remove(temp_path)
                 except:
                     pass
-        
+
         # Start extraction
         self.video_player.extract_subtitle_track(track_index, temp_path, on_extract_complete)
     

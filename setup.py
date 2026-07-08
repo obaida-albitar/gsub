@@ -109,6 +109,12 @@ setup(
     install_requires=[
         "PyGObject>=3.42",
         "pycairo>=1.20",
+        # PyAV bundles FFmpeg's shared libraries in its wheel, so subtitle
+        # extraction works with no system FFmpeg installation required.
+        "av>=11.0",
+        # Best-effort detection of non-UTF-8 subtitle encodings (cp1252,
+        # Shift-JIS, ...). Pure-Python; stdlib fallback if unavailable.
+        "charset-normalizer>=3.0",
     ],
     extras_require={
         "video": [
