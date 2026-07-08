@@ -1413,7 +1413,7 @@ class GsubWindow(Adw.ApplicationWindow):
             application_name="Gsub",
             application_icon="app.gsub",
             developer_name="Gsub Contributors",
-            version="0.2.0",
+            version="0.3",
             license_type=Gtk.License.GPL_3_0,
             developers=["Gsub Contributors"],
             comments="A modern subtitle editor"
