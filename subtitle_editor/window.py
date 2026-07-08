@@ -1116,8 +1116,8 @@ class GsubWindow(Adw.ApplicationWindow):
 
         # Shared styles (intersection of style names across all ASS/SSA docs)
         if ass_docs:
-            shared = set(doc.styles[0].name for doc in ass_docs if doc.styles)
-            for doc in ass_docs:
+            shared = {s.name for s in ass_docs[0].styles}
+            for doc in ass_docs[1:]:
                 shared &= {s.name for s in doc.styles}
             self.batch_operations.set_shared_styles(sorted(shared))
         else:
