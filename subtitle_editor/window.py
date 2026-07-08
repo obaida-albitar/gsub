@@ -61,6 +61,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_visible = False
         self.current_view = "home"  # "home", "editor", or "batch"
         self.batch_format = None  # SubtitleFormat of batch files (all same format)
+        self._batch_style_fonts: dict[str, int | None] = {}  # style name -> current font size
 
         # Load saved config
         config = self._load_config()
@@ -289,6 +290,11 @@ class GsubWindow(Adw.ApplicationWindow):
         batch_ops_container.add_css_class("background")
         self.batch_operations = BatchOperationsPanel()
         self.batch_operations.connect('operations-changed', self._on_batch_ops_changed)
+        # Prefill the font size spin with the selected style's current size.
+        self.batch_operations.style_combo_row.connect(
+            'notify::selected', lambda *a: self._sync_selected_style_font_size())
+        self.batch_operations.font_enable_switch.connect(
+            'notify::active', lambda *a: self._sync_selected_style_font_size())
         batch_ops_container.append(self.batch_operations)
 
         # Batch action buttons live inside the operations panel, under the
@@ -1115,11 +1121,24 @@ class GsubWindow(Adw.ApplicationWindow):
         ]
 
         # Shared styles (intersection of style names across all ASS/SSA docs)
+        # plus the current font size of each, used to prefill the spin.
+        self._batch_style_fonts: dict[str, int | None] = {}
         if ass_docs:
             shared = {s.name for s in ass_docs[0].styles}
             for doc in ass_docs[1:]:
                 shared &= {s.name for s in doc.styles}
+
+            sizes: dict[str, set[int]] = {}
+            for doc in ass_docs:
+                for s in doc.styles:
+                    sizes.setdefault(s.name, set()).add(s.fontsize)
+            self._batch_style_fonts = {
+                name: (next(iter(v)) if len(v) == 1 else None)
+                for name, v in sizes.items()
+            }
+
             self.batch_operations.set_shared_styles(sorted(shared))
+            self._sync_selected_style_font_size()
         else:
             self.batch_operations.set_shared_styles([])
 
@@ -1135,6 +1154,16 @@ class GsubWindow(Adw.ApplicationWindow):
         else:
             self.batch_operations.res_width_row.set_value(0)
             self.batch_operations.res_height_row.set_value(0)
+
+    def _sync_selected_style_font_size(self):
+        """Prefill the font size spin with the selected style's current size."""
+        if not hasattr(self, "_batch_style_fonts"):
+            return
+        target = self.batch_operations.get_selected_style_name()
+        if target is None:
+            return
+        current = self._batch_style_fonts.get(target)
+        self.batch_operations.font_size_row.set_value(current if current is not None else 0)
 
     def _on_batch_ops_changed(self, widget):
         """Handle batch operations changes."""
