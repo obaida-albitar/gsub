@@ -198,6 +198,10 @@ class VideoPlayerWidget(Gtk.Box):
         self._pyav_track_map = {}
         # Path the mapping was built for, so we only probe the file once.
         self._pyav_video_path = None
+        # Generation token: bumped on every (re)schedule so a stale background
+        # build (e.g. one kicked off with an empty track list) cannot overwrite
+        # a newer, correct mapping.
+        self._pyav_mapping_gen = 0
 
         # Editor subtitle feeding
         self._temp_sub_path: Optional[str] = None
@@ -327,6 +331,10 @@ class VideoPlayerWidget(Gtk.Box):
         self._subtitle_tracks = []
         self._mpv_track_list = []
         self._tracks_detected = False
+        # Reset the user's track selection so a fresh video starts clean
+        # (editor document selected by default, no stale embedded track).
+        self._current_audio_track = -1
+        self._current_subtitle_track = -1
 
         try:
             self._mpv.loadfile(file_path)
@@ -346,7 +354,6 @@ class VideoPlayerWidget(Gtk.Box):
 
         # Feed the editor document (if any) as an external subtitle track.
         self._sync_editor_sub()
-        self._schedule_pyav_mapping()
         GLib.idle_add(self.video_area.queue_render)
 
     def play(self):
@@ -471,10 +478,14 @@ class VideoPlayerWidget(Gtk.Box):
         except Exception:
             pass
 
-    def _update_tracks(self, track_list):
-        if self._disposed:
-            return
-        self._mpv_track_list = track_list
+    @staticmethod
+    def _parse_tracks(track_list):
+        """Split an mpv ``track-list`` into (audio, subtitle) info dicts.
+
+        External subtitle tracks are excluded (they are the editor document,
+        added separately). Each dict mirrors the keys returned by
+        :meth:`get_available_tracks`.
+        """
         audio = []
         sub = []
         for t in track_list:
@@ -495,8 +506,13 @@ class VideoPlayerWidget(Gtk.Box):
                     "language": t.get("lang"),
                     "codec": t.get("codec"),
                 })
-        self._audio_tracks = audio
-        self._subtitle_tracks = sub
+        return audio, sub
+
+    def _update_tracks(self, track_list):
+        if self._disposed:
+            return
+        self._mpv_track_list = track_list
+        self._audio_tracks, self._subtitle_tracks = self._parse_tracks(track_list)
         self._tracks_detected = True
         # Build the PyAV stream mapping in the background (it opens & probes the
         # file, which must not block the GTK main thread / contend with mpv).
@@ -526,22 +542,34 @@ class VideoPlayerWidget(Gtk.Box):
 
     def _schedule_pyav_mapping(self):
         """Build the PyAV stream mapping once per loaded video, off the UI thread."""
-        if self._disposed or not self._video_path:
+        if self._disposed or not self._video_path or not self._subtitle_tracks:
             return
         if self._pyav_video_path == self._video_path and self._pyav_track_map:
             return  # already built for this video
         self._pyav_video_path = self._video_path
         snapshot = list(self._subtitle_tracks)
         path = self._video_path
+        # Capture the current generation so an older build (started before the
+        # tracks were fully populated) cannot clobber this one.
+        gen = self._pyav_mapping_gen + 1
+        self._pyav_mapping_gen = gen
 
         def build():
+            if self._disposed or self._pyav_mapping_gen != gen:
+                return
             mapping = self._build_pyav_mapping(snapshot, path)
-            if mapping is not None and not self._disposed and self._video_path == path:
+            if (
+                mapping
+                and not self._disposed
+                and self._video_path == path
+                and self._pyav_mapping_gen == gen
+            ):
                 self._pyav_track_map = mapping
 
         threading.Thread(target=build, daemon=True).start()
 
-    def _build_pyav_mapping(self, sub_tracks, path):
+    @staticmethod
+    def _build_pyav_mapping(sub_tracks, path):
         """Associate each mpv subtitle track with its PyAV container stream.
 
         Both mpv and PyAV enumerate subtitle streams in container order, so the
@@ -744,7 +772,7 @@ class VideoPlayerWidget(Gtk.Box):
 
     def set_subtitle_track(self, track_index):
         """Select a subtitle track by mpv track id (-1 shows the editor doc)."""
-        self._current_subtitle_track = track_index
+        self._current_subtitle_track = -1 if track_index is None else track_index
         if self._mpv is None:
             return
         if track_index is None or track_index < 0:
@@ -785,14 +813,15 @@ class VideoPlayerWidget(Gtk.Box):
         """Return the local filesystem path for the loaded video, or ``None``."""
         return self._video_path
 
-    def _subtitle_track_pos(self, track_id):
-        """Map an mpv subtitle track ``id`` to its position in ``_subtitle_tracks``.
+    @staticmethod
+    def _subtitle_track_pos(tracks, track_id):
+        """Map an mpv subtitle track ``id`` to its position in *tracks*.
 
         Track-selection dialogs hand back the mpv track id (``track-list``
         ``id``), which is not the same as the list position, so callers must
         resolve it before indexing ``_subtitle_tracks`` / ``_pyav_track_map``.
         """
-        for pos, t in enumerate(self._subtitle_tracks):
+        for pos, t in enumerate(tracks):
             if t.get("id") == track_id or t.get("index") == track_id:
                 return pos
         return None
@@ -803,7 +832,7 @@ class VideoPlayerWidget(Gtk.Box):
         *track_id* is the mpv subtitle track id (as returned by the selection
         dialog), not a list position.
         """
-        pos = self._subtitle_track_pos(track_id)
+        pos = self._subtitle_track_pos(self._subtitle_tracks, track_id)
         if pos is None:
             return None
         mapped = self._pyav_track_map.get(pos)
@@ -822,7 +851,7 @@ class VideoPlayerWidget(Gtk.Box):
                 callback(False, "No video loaded", None)
             return
 
-        pos = self._subtitle_track_pos(track_id)
+        pos = self._subtitle_track_pos(self._subtitle_tracks, track_id)
         if pos is None or pos >= len(self._subtitle_tracks):
             if callback:
                 callback(False, "Invalid track index", None)
@@ -886,7 +915,7 @@ class VideoPlayerWidget(Gtk.Box):
 
         scale_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         self.subtitle_scale_slider = Gtk.Scale()
-        self.subtitle_scale_slider.set_range(0.1, 1.5)
+        self.subtitle_scale_slider.set_range(0.5, 1.5)
         saved_scale = self._load_subtitle_scale_preference()
         self.subtitle_scale_slider.set_value(saved_scale)
         self.subtitle_scale_slider.set_draw_value(True)
@@ -895,7 +924,7 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_scale_slider.set_size_request(200, -1)
         self.subtitle_scale_slider.connect("value-changed", self._on_subtitle_scale_changed)
 
-        self.subtitle_scale_slider.add_mark(0.1, Gtk.PositionType.BOTTOM, None)
+        self.subtitle_scale_slider.add_mark(0.5, Gtk.PositionType.BOTTOM, None)
         self.subtitle_scale_slider.add_mark(0.75, Gtk.PositionType.BOTTOM, "Default")
         self.subtitle_scale_slider.add_mark(1.5, Gtk.PositionType.BOTTOM, None)
 
@@ -930,7 +959,8 @@ class VideoPlayerWidget(Gtk.Box):
             self.controls_box.set_visible(False)
         self.append(status_page)
 
-    def _format_time(self, seconds: float) -> str:
+    @staticmethod
+    def _format_time(seconds: float) -> str:
         seconds = float(seconds)
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
@@ -994,7 +1024,8 @@ class VideoPlayerWidget(Gtk.Box):
             return True
         return False
 
-    def _load_subtitle_scale_preference(self):
+    @staticmethod
+    def _load_subtitle_scale_preference():
         try:
             config_dir = os.path.expanduser("~/.config/subtitle-editor")
             config_file = os.path.join(config_dir, "preferences.conf")
@@ -1002,13 +1033,17 @@ class VideoPlayerWidget(Gtk.Box):
                 with open(config_file, "r") as f:
                     for line in f:
                         if line.startswith("subtitle_scale="):
-                            value = float(line.split("=")[1].strip())
+                            try:
+                                value = float(line.split("=")[1].strip())
+                            except (ValueError, IndexError):
+                                continue
                             return max(0.5, min(1.5, value))
         except Exception as e:
             logger.warning(f"Could not load subtitle scale: {e}")
         return 0.75
 
-    def _save_subtitle_scale_preference(self, value: float):
+    @staticmethod
+    def _save_subtitle_scale_preference(value: float):
         try:
             config_dir = os.path.expanduser("~/.config/subtitle-editor")
             config_file = os.path.join(config_dir, "preferences.conf")
