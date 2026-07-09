@@ -96,6 +96,7 @@ class TimeShiftDialog(Adw.Dialog):
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
         self.parent_window._update_undo_redo_buttons()
+        self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Time shifted by {offset_ms}ms")
 
         self.close()
@@ -170,6 +171,7 @@ class BulkApplyStyleDialog(Adw.Dialog):
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
         self.parent_window._update_undo_redo_buttons()
+        self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Applied style '{style_name}'")
 
         self.close()
@@ -665,6 +667,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
         self.parent_window._update_undo_redo_buttons()
+        self.parent_window._refresh_video_preview()
         self.parent_window._show_toast("Updated ASS metadata/styles")
 
         self.close()
@@ -716,7 +719,7 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(audio_tracks):
             row = Adw.ActionRow()
 
-            # Track dictionaries are produced by GStreamer track discovery
+            # Track dictionaries are produced by libmpv track discovery
             # (see VideoPlayerWidget.get_available_tracks).
             track_index = track.get('index', 0)
             track_title = track.get('title') or f"Track {track_index + 1}"
@@ -767,7 +770,7 @@ class TrackSelectionDialog(Adw.Dialog):
         for i, track in enumerate(subtitle_tracks):
             row = Adw.ActionRow()
 
-            # Track dictionaries are produced by GStreamer track discovery
+            # Track dictionaries are produced by libmpv track discovery
             # (see VideoPlayerWidget.get_available_tracks).
             track_index = track.get('index', 0)
             track_title = track.get('title') or f"Track {track_index + 1}"

@@ -4,30 +4,15 @@ template $GsubVideoPlayer : Gtk.Box {
   orientation: vertical;
   spacing: 0;
 
-  // Video display area. The paintable (from the GStreamer gtk4paintablesink)
-  // is assigned from code once the pipeline is built.
+  // Video display area. mpv (libmpv) renders the video and subtitles directly
+  // into this Gtk.GLArea via its OpenGL render context (see video_player.py).
   Frame video_frame {
     styles ["view"]
     vexpand: true;
 
-    child: Overlay overlay {
-      // Gtk.Picture for the video; paintable set from code.
-      Picture video_picture {
-        content-fit: contain;
-        vexpand: true;
-        can-shrink: true;
-      }
-
-      // Subtitle overlay (transparent drawing area, redrawn on demand).
-      // [overlay] keeps it as a GtkOverlay overlay child; without it the
-      // drawing area would replace the video Picture as the main child and
-      // the video would never be visible.
-      [overlay]
-      DrawingArea subtitle_drawing_area {
-        vexpand: true;
-        hexpand: true;
-        opacity: 1.0;
-      }
+    child: GLArea video_area {
+      vexpand: true;
+      hexpand: true;
     };
   }
 

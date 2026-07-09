@@ -9,10 +9,10 @@ requires the following tools on the build machine:
   * blueprint-compiler  (compiles data/blueprints/*.blp -> .ui)
   * glib-compile-resources (bundles the .ui files + style.css + icon)
 
-These are typically provided by your distribution's GTK4 / libadwaita dev
-packages. At runtime the app also needs PyGObject plus the system libraries
-libadwaita-1, gtk4 and gstreamer-1.0 (the ``[video]`` extra documents the
-GStreamer requirement).
+    These are typically provided by your distribution's GTK4 / libadwaita dev
+    packages. At runtime the app also needs PyGObject plus the system libraries
+    libadwaita-1, gtk4 and libmpv (the ``[video]`` extra documents the libmpv
+    requirement).
 """
 
 import os
@@ -90,7 +90,7 @@ except FileNotFoundError:
 
 setup(
     name="gsub",
-    version="0.3",
+    version="0.4",
     author="Gsub Contributors",
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,
@@ -109,6 +109,12 @@ setup(
     install_requires=[
         "PyGObject>=3.42",
         "pycairo>=1.20",
+        # mpv (libmpv) powers video playback and subtitle rendering. The Python
+        # bindings are pure ctypes; the actual libmpv shared library must be
+        # installed on the system (e.g. the `mpv` / `libmpv` distribution package).
+        "python-mpv>=1.0",
+        # PyOpenGL bridges mpv's render context with the Gtk.GLArea's GL context.
+        "PyOpenGL>=3.1",
         # PyAV bundles FFmpeg's shared libraries in its wheel, so subtitle
         # extraction works with no system FFmpeg installation required.
         "av>=11.0",
@@ -118,9 +124,11 @@ setup(
     ],
     extras_require={
         "video": [
-            # GStreamer bindings are part of PyGObject; the system library
-            # gstreamer-1.0 must be installed for video playback/extraction.
-            "PyGObject>=3.42",
+            # python-mpv is the runtime binding; libmpv itself is a system
+            # dependency (not pip-installable). Install e.g. `libmpv` via your
+            # distribution's package manager.
+            "python-mpv>=1.0",
+            "PyOpenGL>=3.1",
         ],
     },
     entry_points={
