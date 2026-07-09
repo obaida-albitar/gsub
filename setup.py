@@ -95,7 +95,7 @@ setup(
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="",
+    url="https://github.com/obaida-albitar/gsub",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",
