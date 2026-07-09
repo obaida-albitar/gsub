@@ -773,6 +773,8 @@ class GsubWindow(Adw.ApplicationWindow):
         style_names = [s.name for s in (self.document.styles or [])] if self.document else []
         self.editor_panel.set_document_context(self.document.format, style_names)
         self.editor_panel.clear()
+        if self.video_player:
+            self.video_player.set_document(self.document)
         self._update_title()
         self._update_status()
         self._update_format_actions()
@@ -920,7 +922,8 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_title()
             self._update_status()
             self._update_undo_redo_buttons()
-    
+            self._refresh_video_preview()
+
     def _on_redo(self, action, param):
         """Redo the last undone action."""
         if self.command_manager.redo():
@@ -929,6 +932,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_title()
             self._update_status()
             self._update_undo_redo_buttons()
+            self._refresh_video_preview()
     
     def _update_editor_after_change(self):
         """Update the editor panel after undo/redo or other changes."""
@@ -968,6 +972,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
+        self._refresh_video_preview()
         self._show_toast("Subtitle added")
     
     def _on_remove_entry(self, action, param):
@@ -993,6 +998,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
+        self._refresh_video_preview()
         
         count = len(positions)
         self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} removed")
@@ -1024,6 +1030,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
+        self._refresh_video_preview()
         
         count = len(positions)
         self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} duplicated")
@@ -1043,6 +1050,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.refresh()
             self.subtitle_list.select_entry(position - 1)
             self._update_title()
+            self._refresh_video_preview()
     
     def _on_move_down(self, action, param):
         """Move the selected entry down."""
@@ -1059,6 +1067,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.refresh()
             self.subtitle_list.select_entry(position + 1)
             self._update_title()
+            self._refresh_video_preview()
     
     def _on_time_shift(self, action, param):
         """Show time shift dialog."""
@@ -1101,6 +1110,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.refresh(preserve_selection=True)
             self._update_title()
             self._update_undo_redo_buttons()
+            self._refresh_video_preview()
             self._show_toast("Subtitles sorted by time")
     
     # --- Batch operation handlers ---
@@ -1556,6 +1566,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()
+        if self.video_player:
+            self.video_player.queue_subtitle_redraw()
     
     def _on_timing_changed(self, widget, position, start_time, end_time):
         """Handle timing change in editor panel."""
@@ -1570,6 +1582,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()
+        if self.video_player:
+            self.video_player.queue_subtitle_redraw()
 
     def _on_style_changed(self, widget, position, new_style):
         """Handle style change in editor panel (ASS/SSA only)."""
@@ -1586,6 +1600,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self.subtitle_list.refresh_entry(position)
         self._update_title()
         self._update_undo_redo_buttons()
+        if self.video_player:
+            self.video_player.queue_subtitle_redraw()
 
     def _on_position_changed(self, widget, position, margin_l, margin_r, margin_v):
         """Handle position (margin) change in editor panel (ASS/SSA only)."""
@@ -1607,7 +1623,12 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_undo_redo_buttons()
     
     # Video player handlers
-    
+
+    def _refresh_video_preview(self):
+        """Ask the video player to reload the editor subtitle (debounced)."""
+        if self.video_player:
+            self.video_player.queue_subtitle_redraw()
+
     def _on_open_video(self, action, param):
         """Open a video file."""
         dialog = Gtk.FileDialog()
@@ -1818,10 +1839,14 @@ class GsubWindow(Adw.ApplicationWindow):
         # Set subtitle track
         if subtitle_track >= 0:
             self.video_player.set_subtitle_track(subtitle_track)
-            
+
             # Ask user if they want to extract and edit the subtitle track
             audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-            track_info = subtitle_tracks[subtitle_track] if subtitle_track < len(subtitle_tracks) else {}
+            pos = next(
+                (i for i, t in enumerate(subtitle_tracks) if t.get("id") == subtitle_track),
+                None,
+            )
+            track_info = subtitle_tracks[pos] if pos is not None else {}
             track_name = track_info.get('title', f"Track {subtitle_track + 1}")
             
             extract_dialog = Adw.MessageDialog.new(
@@ -1855,16 +1880,25 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.close()
     
     def _extract_and_load_subtitle(self, track_index):
-        """Extract a subtitle track and load it for editing."""
+        """Extract a subtitle track and load it for editing.
+
+        *track_index* is the mpv subtitle track id returned by the selection
+        dialog, not a list position.
+        """
         # Get track info
         audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-        
-        if track_index >= len(subtitle_tracks):
+
+        # Resolve the mpv track id to its position in the track list.
+        pos = next(
+            (i for i, t in enumerate(subtitle_tracks) if t.get("id") == track_index),
+            None,
+        )
+        if pos is None:
             self._show_toast("Invalid track index")
             return
-        
-        track_info = subtitle_tracks[track_index]
-        track_name = track_info.get('title') or f"Track {track_index + 1}"
+
+        track_info = subtitle_tracks[pos]
+        track_name = track_info.get('title') or f"Track {pos + 1}"
         language = track_info.get('language', 'unknown')
 
         # Detect the source format so the temp file keeps the correct extension

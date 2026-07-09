@@ -72,7 +72,7 @@ def _gst_family(gst_codec: Optional[str]) -> Optional[str]:
     if not gst_codec:
         return None
     g = gst_codec.lower()
-    # ASS / SSA: GStreamer may report "SubStation Alpha", "application/x-ass",
+    # ASS / SSA: track discovery (mpv/GStreamer) may report "SubStation Alpha", "application/x-ass",
     # "application/x-ssa", etc.
     if "ssa" in g or "substation" in g or "ass" in g:
         return "ass"
@@ -105,7 +105,7 @@ def list_subtitle_tracks(path: str) -> List[SubtitleTrack]:
 
 
 def detect_format(path: str, gst_track_info: dict) -> Optional[str]:
-    """Determine the output format for a track identified by GStreamer info.
+    """Determine the output format for a track identified by generic track info
 
     *gst_track_info* is the dict produced by the video player
     (``{'index': ..., 'language': ..., 'codec': ...}``). The matching
@@ -153,7 +153,7 @@ def _match_track(tracks: List[SubtitleTrack], gst_track_info: dict) -> Optional[
                 return track
 
     # Fallbacks when language/codec metadata is missing or unrecognised.
-    # GStreamer's text-track index maps to the Nth subtitle stream in the
+    # The text-track index maps to the Nth subtitle stream in the
     # container, so use it positionally when available.
     idx = gst_track_info.get("index")
     if isinstance(idx, int) and 0 <= idx < len(tracks):
@@ -181,7 +181,7 @@ def extract_track(path: str, track_index: int, out_path: str) -> str:
 
 
 def extract_track_by_gst(path: str, gst_track_info: dict, out_path: str) -> str:
-    """Extract a subtitle track identified by GStreamer track info.
+    """Extract a subtitle track identified by generic track info.
 
     The matching container track is located by language and/or codec family
     (see :func:`_match_track`) and then extracted.
