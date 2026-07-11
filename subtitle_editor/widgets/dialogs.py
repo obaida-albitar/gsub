@@ -177,11 +177,11 @@ class BulkApplyStyleDialog(Adw.Dialog):
         self.close()
 
 
-@Gtk.Template(resource_path=template_resource_path('ass-info-styles'))
-class ASSInfoStylesDialog(Adw.Dialog):
-    """Dialog to edit ASS/SSA Script Info metadata and style definitions."""
+@Gtk.Template(resource_path=template_resource_path('ass-info'))
+class ASSInfoDialog(Adw.Dialog):
+    """Dialog to edit ASS/SSA Script Info metadata (no styles)."""
 
-    __gtype_name__ = 'GsubASSInfoStylesDialog'
+    __gtype_name__ = 'GsubASSInfoDialog'
 
     COMMON_KEYS = [
         ('Title', 'Title'),
@@ -195,23 +195,6 @@ class ASSInfoStylesDialog(Adw.Dialog):
     info_group = Gtk.Template.Child()
     info_extra_group = Gtk.Template.Child()
     aegisub_group = Gtk.Template.Child()
-    styles_group = Gtk.Template.Child()
-    style_combo = Gtk.Template.Child()
-    style_name = Gtk.Template.Child()
-    style_font = Gtk.Template.Child()
-    style_fontsize = Gtk.Template.Child()
-    primary_color_btn = Gtk.Template.Child()
-    outline_color_btn = Gtk.Template.Child()
-    back_color_btn = Gtk.Template.Child()
-    style_bold = Gtk.Template.Child()
-    style_italic = Gtk.Template.Child()
-    style_outline_width = Gtk.Template.Child()
-    style_shadow = Gtk.Template.Child()
-    style_alignment = Gtk.Template.Child()
-    preview_expander = Gtk.Template.Child()
-    preview_label = Gtk.Template.Child()
-    preview_frame = Gtk.Template.Child()
-    preview_scroller = Gtk.Template.Child()
 
     def __init__(self, parent_window):
         super().__init__()
@@ -220,12 +203,6 @@ class ASSInfoStylesDialog(Adw.Dialog):
 
         # Local editable copies
         self._metadata = copy.deepcopy(self.document.metadata or {})
-        self._styles = [copy.deepcopy(s) for s in (self.document.styles or [])]
-        if not self._styles:
-            self._styles = [ASSStyle()]
-
-        self._selected_style_index = 0
-        self._updating_style_ui = False
 
         # --- Script Info: common keys (built in a loop) ---
         self._info_rows = {}
@@ -254,284 +231,9 @@ class ASSInfoStylesDialog(Adw.Dialog):
             self._aegisub_garbage,
         )
 
-        # --- Styles: models + signal wiring on the templated rows ---
-        # Keep a persistent model to avoid signal feedback loops / freezes.
-        self._style_model = Gtk.StringList.new([s.name for s in self._styles])
-        self.style_combo.set_model(self._style_model)
-        self.style_combo.set_selected(self._selected_style_index)
-        self.style_combo.connect('notify::selected', self._on_style_selected)
-
-        self.style_name.connect('notify::text', self._on_style_field_changed)
-
-        # Font family dropdown
-        self._font_families = sorted(
-            [f.get_name() for f in PangoCairo.FontMap.get_default().list_families()]
-        )
-        self._font_model = Gtk.StringList.new(self._font_families)
-        self.style_font.set_model(self._font_model)
-        self.style_font.connect('notify::selected', self._on_style_field_changed)
-
-        self.style_fontsize.connect('notify::value', self._on_style_field_changed)
-
-        # Color pickers — the ColorDialogButton + ColorDialog(with-alpha) are
-        # declared in the template; here we only wire the change handlers.
-        self._primary_color_btn = self.primary_color_btn
-        self._outline_color_btn = self.outline_color_btn
-        self._back_color_btn = self.back_color_btn
-        self._primary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('primary'))
-        self._outline_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('outline'))
-        self._back_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('back'))
-
-        self.style_bold.connect('notify::active', self._on_style_field_changed)
-        self.style_italic.connect('notify::active', self._on_style_field_changed)
-        self.style_outline_width.connect('notify::value', self._on_style_field_changed)
-        self.style_shadow.connect('notify::value', self._on_style_field_changed)
-        self.style_alignment.connect('notify::value', self._on_style_field_changed)
-
-        self._load_style_into_editor()
-        self._update_preview()
-
     @Gtk.Template.Callback()
     def on_cancel_clicked(self, _button):
         self.close()
-
-    def _set_selected_style_index(self, idx: int) -> None:
-        if not (0 <= idx < len(self._styles)):
-            return
-        self._selected_style_index = idx
-        self._updating_style_ui = True
-        try:
-            self.style_combo.set_selected(idx)
-        finally:
-            self._updating_style_ui = False
-
-    def _sync_style_model_full(self) -> None:
-        """Full resync of the style model (used after bulk changes)."""
-        names = [s.name for s in self._styles]
-        # Replace all contents
-        self._style_model.splice(0, self._style_model.get_n_items(), names)
-        self._set_selected_style_index(min(self._selected_style_index, len(self._styles) - 1))
-
-    def _on_style_selected(self, _row, _pspec):
-        if self._updating_style_ui:
-            return
-        idx = int(self.style_combo.get_selected())
-        if 0 <= idx < len(self._styles):
-            self._selected_style_index = idx
-            self._load_style_into_editor()
-
-    def _load_style_into_editor(self):
-        style = self._styles[self._selected_style_index]
-        self._updating_style_ui = True
-        try:
-            self.style_name.set_text(style.name)
-            # Select font in dropdown (fallback to first item)
-            try:
-                font_idx = self._font_families.index(style.fontname)
-            except ValueError:
-                font_idx = 0
-            self.style_font.set_selected(font_idx)
-            self.style_fontsize.set_value(style.fontsize)
-            # Colors
-            self._primary_color_btn.set_rgba(self._ass_color_to_rgba(style.primary_color) or Gdk.RGBA(1, 1, 1, 1))
-            self._outline_color_btn.set_rgba(self._ass_color_to_rgba(style.outline_color) or Gdk.RGBA(0, 0, 0, 1))
-            self._back_color_btn.set_rgba(self._ass_color_to_rgba(style.back_color) or Gdk.RGBA(0.95, 0.95, 0.95, 1))
-            self.style_bold.set_active(bool(style.bold))
-            self.style_italic.set_active(bool(style.italic))
-            self.style_outline_width.set_value(float(style.outline))
-            self.style_shadow.set_value(float(style.shadow))
-            self.style_alignment.set_value(int(style.alignment))
-        finally:
-            self._updating_style_ui = False
-
-        self._update_preview()
-
-    def _on_style_field_changed(self, *args):
-        if self._updating_style_ui:
-            return
-
-        style = self._styles[self._selected_style_index]
-        prev_name = style.name
-
-        name = self.style_name.get_text().strip()
-        new_name = name or prev_name or "Default"
-        style.name = new_name
-        # Read font from dropdown
-        font_idx = int(self.style_font.get_selected())
-        if 0 <= font_idx < len(self._font_families):
-            style.fontname = self._font_families[font_idx]
-        style.fontsize = int(self.style_fontsize.get_value())
-        style.bold = bool(self.style_bold.get_active())
-        style.italic = bool(self.style_italic.get_active())
-        style.outline = float(self.style_outline_width.get_value())
-        style.shadow = float(self.style_shadow.get_value())
-        style.alignment = int(self.style_alignment.get_value())
-
-        # Only update the model label when the name changes.
-        if new_name != prev_name:
-            self._style_model.splice(self._selected_style_index, 1, [new_name])
-
-        self._update_preview()
-
-    @Gtk.Template.Callback()
-    def on_add_style(self, _button):
-        new_style = ASSStyle(name=f"Style{len(self._styles) + 1}")
-        self._styles.append(new_style)
-        self._style_model.splice(self._style_model.get_n_items(), 0, [new_style.name])
-        self._set_selected_style_index(len(self._styles) - 1)
-        self._load_style_into_editor()
-
-    @Gtk.Template.Callback()
-    def on_remove_style(self, _button):
-        if len(self._styles) <= 1:
-            return
-        idx = self._selected_style_index
-        self._styles.pop(idx)
-        self._style_model.splice(idx, 1, [])
-        self._set_selected_style_index(max(0, idx - 1))
-        self._load_style_into_editor()
-
-    def _on_color_changed(self, which: str) -> None:
-        if self._updating_style_ui:
-            return
-        style = self._styles[self._selected_style_index]
-        if which == 'primary':
-            rgba = self._primary_color_btn.get_rgba()
-            style.primary_color = self._rgba_to_ass_color(rgba)
-        elif which == 'outline':
-            rgba = self._outline_color_btn.get_rgba()
-            style.outline_color = self._rgba_to_ass_color(rgba)
-        elif which == 'back':
-            rgba = self._back_color_btn.get_rgba()
-            style.back_color = self._rgba_to_ass_color(rgba)
-        self._update_preview()
-
-    def _ass_color_to_rgba(self, ass_color: str) -> Gdk.RGBA | None:
-        """Parse ASS color string (&HAABBGGRR or &HBBGGRR) to Gdk.RGBA.
-
-        ASS uses BBGGRR order, and AA is inverted alpha (00=opaque, FF=transparent).
-        """
-        if not ass_color:
-            return None
-        s = str(ass_color).strip().upper()
-        if not s.startswith('&H'):
-            return None
-        hexpart = s[2:]
-        # strip any trailing &
-        if hexpart.endswith('&'):
-            hexpart = hexpart[:-1]
-        # pad
-        if len(hexpart) <= 6:
-            aa = 0
-            hexpart = hexpart.zfill(6)
-        else:
-            aa = int(hexpart[:-6].zfill(2)[-2:], 16)
-            hexpart = hexpart[-6:]
-
-        bb = int(hexpart[0:2], 16)
-        gg = int(hexpart[2:4], 16)
-        rr = int(hexpart[4:6], 16)
-        alpha = 1.0 - (aa / 255.0)
-
-        rgba = Gdk.RGBA()
-        rgba.red = rr / 255.0
-        rgba.green = gg / 255.0
-        rgba.blue = bb / 255.0
-        rgba.alpha = alpha
-        return rgba
-
-    def _rgba_to_css(self, rgba: Gdk.RGBA) -> str:
-        r = int(rgba.red * 255)
-        g = int(rgba.green * 255)
-        b = int(rgba.blue * 255)
-        a = rgba.alpha
-        return f"rgba({r},{g},{b},{a:.3f})"
-
-    def _rgba_to_ass_color(self, rgba: Gdk.RGBA) -> str:
-        """Convert RGBA to ASS &HAABBGGRR (AA inverted alpha)."""
-        rr = int(max(0, min(255, round(rgba.red * 255))))
-        gg = int(max(0, min(255, round(rgba.green * 255))))
-        bb = int(max(0, min(255, round(rgba.blue * 255))))
-        aa = int(max(0, min(255, round((1.0 - rgba.alpha) * 255))))
-        return f"&H{aa:02X}{bb:02X}{gg:02X}{rr:02X}"
-
-    def _update_preview(self) -> None:
-        if not hasattr(self, 'preview_label'):
-            return
-        try:
-            style = self._styles[self._selected_style_index]
-
-            # Font attributes
-            attrs = Pango.AttrList()
-            attrs.insert(Pango.attr_family_new(style.fontname))
-            attrs.insert(Pango.attr_size_new(int(style.fontsize * Pango.SCALE)))
-            if style.bold:
-                attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
-            if style.italic:
-                attrs.insert(Pango.attr_style_new(Pango.Style.ITALIC))
-            self.preview_label.set_attributes(attrs)
-
-            # Colors (best-effort)
-            fg = self._ass_color_to_rgba(getattr(style, 'primary_color', None) or '')
-            # If no bg is set, use a light gray default so shadow/outline are visible.
-            bg = self._ass_color_to_rgba(getattr(style, 'back_color', None) or '') or Gdk.RGBA(0.95, 0.95, 0.95, 1)
-            outline_col = self._ass_color_to_rgba(getattr(style, 'outline_color', None) or '') or Gdk.RGBA(0, 0, 0, 1)
-
-            css = ""
-
-            label_props = []
-            if fg is not None:
-                label_props.append(f"color: {self._rgba_to_css(fg)}")
-
-            # Approximate ASS outline + shadow using layered CSS text-shadow
-            try:
-                outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
-            except Exception:
-                outline_px = 0.0
-            try:
-                shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
-            except Exception:
-                shadow_px = 0.0
-
-            # Background behind the preview text
-            if bg is not None:
-                css += f".ass-preview-frame {{ background-color: {self._rgba_to_css(bg)}; padding: 12px; border-radius: 8px; }}\n"
-
-            shadows = []
-            ocss = self._rgba_to_css(outline_col) if outline_col is not None else None
-
-            if outline_px > 0 and ocss is not None:
-                o = outline_px
-                # 8-direction outline
-                for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
-                    shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
-
-            if shadow_px > 0 and ocss is not None:
-                # Use outline color as shadow color (common ASS usage)
-                shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
-
-            if shadows:
-                label_props.append(f"text-shadow: {', '.join(shadows)}")
-
-            if label_props:
-                # GTK4: label text styling often needs to target the 'text' node
-                props = '; '.join(label_props)
-                css += f".ass-preview-label {{ {props}; }}\n"
-                css += f".ass-preview-label > text {{ {props}; }}\n"
-
-            # Apply CSS (register provider for display so it affects our custom classes)
-            if not hasattr(self, '_preview_css_provider'):
-                self._preview_css_provider = Gtk.CssProvider()
-                Gtk.StyleContext.add_provider_for_display(
-                    Gdk.Display.get_default(),
-                    self._preview_css_provider,
-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-                )
-
-            self._preview_css_provider.load_from_data(css.encode('utf-8'))
-
-        except Exception:
-            self.preview_label.set_attributes(None)
 
     def _make_kv_listbox(self) -> Gtk.ListBox:
         listbox = Gtk.ListBox()
@@ -646,16 +348,404 @@ class ASSInfoStylesDialog(Adw.Dialog):
         # Aegisub Project Garbage
         aegisub_garbage = self._collect_kv_rows(self._aegisub_rows)
 
+        # Preserve the existing styles (edited via the separate Styles dialog).
+        cmd = ReplaceASSHeaderCommand(
+            self.document,
+            metadata=metadata,
+            aegisub_project_garbage=aegisub_garbage,
+            styles=self.document.styles,
+            fallback_style='Default',
+        )
+        self.parent_window.command_manager.execute(cmd)
+
+        self.parent_window.subtitle_list.refresh(preserve_selection=True)
+        self.parent_window._update_title()
+        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._refresh_video_preview()
+        self.parent_window._show_toast("Updated ASS metadata")
+
+        self.close()
+
+
+@Gtk.Template(resource_path=template_resource_path('ass-styles'))
+class ASSStylesDialog(Adw.Dialog):
+    """Dialog to edit ASS/SSA style definitions ([V4+ Styles])."""
+
+    __gtype_name__ = 'GsubASSStylesDialog'
+
+    # Template children (static editor rows).
+    style_editor_group = Gtk.Template.Child()
+    style_combo = Gtk.Template.Child()
+    style_name = Gtk.Template.Child()
+    style_font = Gtk.Template.Child()
+    style_fontsize = Gtk.Template.Child()
+    primary_color_btn = Gtk.Template.Child()
+    outline_color_btn = Gtk.Template.Child()
+    back_color_btn = Gtk.Template.Child()
+    style_bold = Gtk.Template.Child()
+    style_italic = Gtk.Template.Child()
+    style_scale_x = Gtk.Template.Child()
+    style_scale_y = Gtk.Template.Child()
+    style_outline_width = Gtk.Template.Child()
+    style_shadow = Gtk.Template.Child()
+    style_alignment = Gtk.Template.Child()
+    preview_expander = Gtk.Template.Child()
+    preview_label = Gtk.Template.Child()
+    preview_frame = Gtk.Template.Child()
+    preview_scroller = Gtk.Template.Child()
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.document = parent_window.document
+
+        # Local editable copies of the styles.
+        self._styles = [copy.deepcopy(s) for s in (self.document.styles or [])]
+        if not self._styles:
+            self._styles = [ASSStyle()]
+
+        self._selected_style_index = 0
+        self._updating_style_ui = False
+
+        # --- Style selector (dropdown) ---
+        self._style_model = Gtk.StringList.new([s.name for s in self._styles])
+        self.style_combo.set_model(self._style_model)
+        self.style_combo.set_selected(self._selected_style_index)
+        self.style_combo.connect('notify::selected', self._on_style_selected)
+
+        # Font family dropdown
+        self._font_families = sorted(
+            [f.get_name() for f in PangoCairo.FontMap.get_default().list_families()]
+        )
+        self._font_model = Gtk.StringList.new(self._font_families)
+        self.style_font.set_model(self._font_model)
+        self.style_font.connect('notify::selected', self._on_style_field_changed)
+
+        self.style_name.connect('notify::text', self._on_style_field_changed)
+        self.style_fontsize.connect('notify::value', self._on_style_field_changed)
+
+        # Color pickers — wired here; the ColorDialog(with-alpha) is in the template.
+        self._primary_color_btn = self.primary_color_btn
+        self._outline_color_btn = self.outline_color_btn
+        self._back_color_btn = self.back_color_btn
+        self._primary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('primary'))
+        self._outline_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('outline'))
+        self._back_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('back'))
+
+        self.style_bold.connect('notify::active', self._on_style_field_changed)
+        self.style_italic.connect('notify::active', self._on_style_field_changed)
+        self.style_scale_x.connect('notify::value', self._on_style_field_changed)
+        self.style_scale_y.connect('notify::value', self._on_style_field_changed)
+        self.style_outline_width.connect('notify::value', self._on_style_field_changed)
+        self.style_shadow.connect('notify::value', self._on_style_field_changed)
+        self.style_alignment.connect('notify::value', self._on_style_field_changed)
+
+        self._load_style_into_editor()
+        self._update_preview()
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
+
+    # --- Style selection (dropdown) --------------------------------------
+
+    def _set_selected_style_index(self, idx: int) -> None:
+        if not (0 <= idx < len(self._styles)):
+            return
+        self._selected_style_index = idx
+        self._updating_style_ui = True
+        try:
+            self.style_combo.set_selected(idx)
+        finally:
+            self._updating_style_ui = False
+
+    def _on_style_selected(self, _row, _pspec) -> None:
+        if self._updating_style_ui:
+            return
+        idx = int(self.style_combo.get_selected())
+        if 0 <= idx < len(self._styles):
+            self._selected_style_index = idx
+            self._load_style_into_editor()
+
+    # --- Editor loading / field changes -----------------------------------
+
+    def _load_style_into_editor(self):
+        style = self._styles[self._selected_style_index]
+        self._updating_style_ui = True
+        try:
+            self.style_name.set_text(style.name)
+            try:
+                font_idx = self._font_families.index(style.fontname)
+            except ValueError:
+                font_idx = 0
+            self.style_font.set_selected(font_idx)
+            self.style_fontsize.set_value(style.fontsize)
+            # Colors
+            self._primary_color_btn.set_rgba(self._ass_color_to_rgba(style.primary_color) or Gdk.RGBA(1, 1, 1, 1))
+            self._outline_color_btn.set_rgba(self._ass_color_to_rgba(style.outline_color) or Gdk.RGBA(0, 0, 0, 1))
+            self._back_color_btn.set_rgba(self._ass_color_to_rgba(style.back_color) or Gdk.RGBA(0.95, 0.95, 0.95, 1))
+            self.style_bold.set_active(bool(style.bold))
+            self.style_italic.set_active(bool(style.italic))
+            self.style_scale_x.set_value(float(style.scale_x))
+            self.style_scale_y.set_value(float(style.scale_y))
+            self.style_outline_width.set_value(float(style.outline))
+            self.style_shadow.set_value(float(style.shadow))
+            self.style_alignment.set_value(int(style.alignment))
+        finally:
+            self._updating_style_ui = False
+
+        self._update_preview()
+
+    def _on_style_field_changed(self, *args):
+        if self._updating_style_ui:
+            return
+
+        style = self._styles[self._selected_style_index]
+        prev_name = style.name
+
+        name = self.style_name.get_text().strip()
+        new_name = name or prev_name or "Default"
+        style.name = new_name
+
+        font_idx = int(self.style_font.get_selected())
+        if 0 <= font_idx < len(self._font_families):
+            style.fontname = self._font_families[font_idx]
+        style.fontsize = int(self.style_fontsize.get_value())
+        style.bold = bool(self.style_bold.get_active())
+        style.italic = bool(self.style_italic.get_active())
+        style.scale_x = float(self.style_scale_x.get_value())
+        style.scale_y = float(self.style_scale_y.get_value())
+        style.outline = float(self.style_outline_width.get_value())
+        style.shadow = float(self.style_shadow.get_value())
+        style.alignment = int(self.style_alignment.get_value())
+
+        # Keep the dropdown label in sync when the name changes.
+        if new_name != prev_name:
+            self._style_model.splice(self._selected_style_index, 1, [new_name])
+
+        self._update_preview()
+
+    # --- Add / remove ------------------------------------------------------
+
+    @Gtk.Template.Callback()
+    def on_add_style(self, _button):
+        new_style = ASSStyle(name=f"Style{len(self._styles) + 1}")
+        self._styles.append(new_style)
+        self._style_model.splice(self._style_model.get_n_items(), 0, [new_style.name])
+        self._set_selected_style_index(len(self._styles) - 1)
+        self._load_style_into_editor()
+
+    @Gtk.Template.Callback()
+    def on_remove_style(self, _button):
+        if len(self._styles) <= 1:
+            self.parent_window._show_toast("At least one style is required")
+            return
+        self._confirm_remove_style()
+
+    def _fallback_style_name(self) -> str:
+        return next((s.name for s in self._styles if s.name == 'Default'),
+                    self._styles[0].name if self._styles else 'Default')
+
+    def _confirm_remove_style(self) -> None:
+        style = self._styles[self._selected_style_index]
+        fallback = self._fallback_style_name()
+        dialog = Adw.AlertDialog(
+            heading=_("Remove style “%s”?") % style.name,
+            body=_("Subtitles that use this style will switch to “%s”. "
+                   "You can undo this after applying.") % fallback,
+        )
+        dialog.add_response("cancel", _("Cancel"))
+        dialog.add_response("remove", _("Remove"))
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_remove_response)
+        dialog.present(self)
+
+    def _on_remove_response(self, _dialog, response: str) -> None:
+        if response != "remove":
+            return
+        if len(self._styles) <= 1:
+            return
+        idx = self._selected_style_index
+        self._styles.pop(idx)
+        self._style_model.splice(idx, 1, [])
+        self._set_selected_style_index(max(0, idx - 1))
+        self._load_style_into_editor()
+
+    def _on_color_changed(self, which: str) -> None:
+        if self._updating_style_ui:
+            return
+        style = self._styles[self._selected_style_index]
+        if which == 'primary':
+            style.primary_color = self._rgba_to_ass_color(self._primary_color_btn.get_rgba())
+        elif which == 'outline':
+            style.outline_color = self._rgba_to_ass_color(self._outline_color_btn.get_rgba())
+        elif which == 'back':
+            style.back_color = self._rgba_to_ass_color(self._back_color_btn.get_rgba())
+        self._update_preview()
+
+    # --- Colour helpers ----------------------------------------------------
+
+    def _ass_color_to_rgba(self, ass_color: str) -> Gdk.RGBA | None:
+        """Parse ASS color string (&HAABBGGRR or &HBBGGRR) to Gdk.RGBA."""
+        if not ass_color:
+            return None
+        s = str(ass_color).strip().upper()
+        if not s.startswith('&H'):
+            return None
+        hexpart = s[2:]
+        if hexpart.endswith('&'):
+            hexpart = hexpart[:-1]
+        if len(hexpart) <= 6:
+            aa = 0
+            hexpart = hexpart.zfill(6)
+        else:
+            aa = int(hexpart[:-6].zfill(2)[-2:], 16)
+            hexpart = hexpart[-6:]
+
+        bb = int(hexpart[0:2], 16)
+        gg = int(hexpart[2:4], 16)
+        rr = int(hexpart[4:6], 16)
+        alpha = 1.0 - (aa / 255.0)
+
+        rgba = Gdk.RGBA()
+        rgba.red = rr / 255.0
+        rgba.green = gg / 255.0
+        rgba.blue = bb / 255.0
+        rgba.alpha = alpha
+        return rgba
+
+    def _rgba_to_css(self, rgba: Gdk.RGBA) -> str:
+        r = int(rgba.red * 255)
+        g = int(rgba.green * 255)
+        b = int(rgba.blue * 255)
+        a = rgba.alpha
+        return f"rgba({r},{g},{b},{a:.3f})"
+
+    def _rgba_to_ass_color(self, rgba: Gdk.RGBA) -> str:
+        """Convert RGBA to ASS &HAABBGGRR (AA inverted alpha)."""
+        rr = int(max(0, min(255, round(rgba.red * 255))))
+        gg = int(max(0, min(255, round(rgba.green * 255))))
+        bb = int(max(0, min(255, round(rgba.blue * 255))))
+        aa = int(max(0, min(255, round((1.0 - rgba.alpha) * 255))))
+        return f"&H{aa:02X}{bb:02X}{gg:02X}{rr:02X}"
+
+    # --- Preview -----------------------------------------------------------
+
+    def _update_preview(self) -> None:
+        if not hasattr(self, 'preview_label'):
+            return
+        try:
+            style = self._styles[self._selected_style_index]
+
+            attrs = Pango.AttrList()
+            attrs.insert(Pango.attr_family_new(style.fontname))
+            attrs.insert(Pango.attr_size_new(int(style.fontsize * Pango.SCALE)))
+            if style.bold:
+                attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
+            if style.italic:
+                attrs.insert(Pango.attr_style_new(Pango.Style.ITALIC))
+            self.preview_label.set_attributes(attrs)
+
+            fg = self._ass_color_to_rgba(getattr(style, 'primary_color', None) or '')
+            bg = self._ass_color_to_rgba(getattr(style, 'back_color', None) or '') or Gdk.RGBA(0.95, 0.95, 0.95, 1)
+            outline_col = self._ass_color_to_rgba(getattr(style, 'outline_color', None) or '') or Gdk.RGBA(0, 0, 0, 1)
+
+            css = ""
+
+            label_props = []
+            if fg is not None:
+                label_props.append(f"color: {self._rgba_to_css(fg)}")
+
+            try:
+                outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
+            except Exception:
+                outline_px = 0.0
+            try:
+                shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
+            except Exception:
+                shadow_px = 0.0
+
+            if bg is not None:
+                css += f".ass-preview-frame {{ background-color: {self._rgba_to_css(bg)}; padding: 12px; border-radius: 8px; }}\n"
+
+            shadows = []
+            ocss = self._rgba_to_css(outline_col) if outline_col is not None else None
+
+            if outline_px > 0 and ocss is not None:
+                o = outline_px
+                for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
+                    shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
+
+            if shadow_px > 0 and ocss is not None:
+                shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
+
+            if shadows:
+                label_props.append(f"text-shadow: {', '.join(shadows)}")
+
+            if label_props:
+                props = '; '.join(label_props)
+                css += f".ass-preview-label {{ {props}; }}\n"
+                css += f".ass-preview-label > text {{ {props}; }}\n"
+
+            if not hasattr(self, '_preview_css_provider'):
+                self._preview_css_provider = Gtk.CssProvider()
+                Gtk.StyleContext.add_provider_for_display(
+                    Gdk.Display.get_default(),
+                    self._preview_css_provider,
+                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+                )
+
+            self._preview_css_provider.load_from_data(css.encode('utf-8'))
+
+        except Exception:
+            self.preview_label.set_attributes(None)
+
+    # --- Apply -------------------------------------------------------------
+
+    @Gtk.Template.Callback()
+    def on_apply(self, _button):
         names = [s.name.strip() for s in self._styles if s.name and s.name.strip()]
         if len(set(names)) != len(names):
             self.parent_window._show_toast("Style names must be unique")
             return
 
+        # Sanitize every edited style defensively before applying.
+        sanitized = []
+        for style in self._styles:
+            fields = {
+                'name': style.name,
+                'fontname': style.fontname,
+                'fontsize': str(style.fontsize),
+                'primarycolour': style.primary_color,
+                'secondarycolour': style.secondary_color,
+                'outlinecolour': style.outline_color,
+                'backcolour': style.back_color,
+                'bold': '-1' if style.bold else '0',
+                'italic': '-1' if style.italic else '0',
+                'underline': '-1' if style.underline else '0',
+                'strikeout': '-1' if style.strikeout else '0',
+                'scalex': str(style.scale_x),
+                'scaley': str(style.scale_y),
+                'spacing': str(style.spacing),
+                'angle': str(style.angle),
+                'borderstyle': str(style.border_style),
+                'outline': str(style.outline),
+                'shadow': str(style.shadow),
+                'alignment': str(style.alignment),
+                'marginl': str(style.margin_l),
+                'marginr': str(style.margin_r),
+                'marginv': str(style.margin_v),
+                'encoding': str(style.encoding),
+            }
+            sanitized.append(ASSStyle.from_fields(fields))
+
         cmd = ReplaceASSHeaderCommand(
             self.document,
-            metadata=metadata,
-            aegisub_project_garbage=aegisub_garbage,
-            styles=self._styles,
+            metadata=self.document.metadata,
+            aegisub_project_garbage=getattr(self.document, 'aegisub_project_garbage', {}),
+            styles=sanitized,
             fallback_style='Default',
         )
         self.parent_window.command_manager.execute(cmd)
@@ -668,7 +758,7 @@ class ASSInfoStylesDialog(Adw.Dialog):
         self.parent_window._update_title()
         self.parent_window._update_undo_redo_buttons()
         self.parent_window._refresh_video_preview()
-        self.parent_window._show_toast("Updated ASS metadata/styles")
+        self.parent_window._show_toast("Updated ASS styles")
 
         self.close()
 

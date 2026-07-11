@@ -18,7 +18,8 @@
     <file alias="time-shift.ui">time-shift.ui</file>
     <file alias="bulk-apply-style.ui">bulk-apply-style.ui</file>
     <file alias="track-selection.ui">track-selection.ui</file>
-    <file alias="ass-info-styles.ui">ass-info-styles.ui</file>
+    <file alias="ass-info.ui">ass-info.ui</file>
+    <file alias="ass-styles.ui">ass-styles.ui</file>
     <file alias="video-player.ui">video-player.ui</file>
     <file alias="editor-panel.ui">editor-panel.ui</file>
     <file alias="subtitle-list-row.ui">subtitle-list-row.ui</file>

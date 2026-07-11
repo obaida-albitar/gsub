@@ -30,7 +30,7 @@ from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoStylesDialog, build_shortcuts_dialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoDialog, ASSStylesDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -392,7 +392,8 @@ class GsubWindow(Adw.ApplicationWindow):
         # Edit section
         edit_section = Gio.Menu()
         edit_section.append("Time Shift…", "win.time-shift")
-        edit_section.append("ASS/SSA Info & Styles…", "win.ass-info-styles")
+        edit_section.append("ASS/SSA Info…", "win.ass-info-styles")
+        edit_section.append("ASS/SSA Styles…", "win.ass-styles")
         edit_section.append("Bulk Apply Style…", "win.bulk-apply-style")
         edit_section.append("Sort by Time", "win.sort-by-time")
         menu.append_section(None, edit_section)
@@ -435,6 +436,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("move-down", self._on_move_down, ["<Ctrl>Down"])
         self._create_action("time-shift", self._on_time_shift)
         self._create_action("ass-info-styles", self._on_ass_info_styles)
+        self._create_action("ass-styles", self._on_ass_styles)
         self._create_action("bulk-apply-style", self._on_bulk_apply_style)
         self._create_action("sort-by-time", self._on_sort_by_time)
         
@@ -488,7 +490,7 @@ class GsubWindow(Adw.ApplicationWindow):
         fmt = self.document.format if self.document else None
         is_ass = fmt in (SubtitleFormat.ASS, SubtitleFormat.SSA)
 
-        for name in ("ass-info-styles", "bulk-apply-style"):
+        for name in ("ass-info-styles", "ass-styles", "bulk-apply-style"):
             action = getattr(self, '_actions', {}).get(name)
             if action is not None:
                 action.set_enabled(bool(is_ass))
@@ -666,7 +668,8 @@ class GsubWindow(Adw.ApplicationWindow):
             if ext == '.srt':
                 self.document = SRTParser.parse(content)
             elif ext in ['.ass', '.ssa']:
-                self.document = ASSParser.parse(content)
+                parse_warnings: list[str] = []
+                self.document = ASSParser.parse(content, parse_warnings)
             else:
                 self._show_error("Unsupported file format")
                 return
@@ -691,6 +694,9 @@ class GsubWindow(Adw.ApplicationWindow):
                 self.video_player.set_document(self.document)
             
             self._save_last_directory(os.path.dirname(file_path))
+            if parse_warnings:
+                self._show_toast(
+                    f"Fixed {len(parse_warnings)} invalid style value(s) — review Styles")
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             self._navigate_to_editor(show_open=False)
 
@@ -1078,14 +1084,25 @@ class GsubWindow(Adw.ApplicationWindow):
         dialog.present()
 
     def _on_ass_info_styles(self, action, param):
-        """Show ASS/SSA info & styles dialog."""
+        """Show ASS/SSA Script Info dialog."""
         if not self.document:
             return
         if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
             self._show_toast("This is only available for ASS/SSA files")
             return
 
-        dialog = ASSInfoStylesDialog(self)
+        dialog = ASSInfoDialog(self)
+        dialog.present()
+
+    def _on_ass_styles(self, action, param):
+        """Show ASS/SSA styles dialog."""
+        if not self.document:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            self._show_toast("This is only available for ASS/SSA files")
+            return
+
+        dialog = ASSStylesDialog(self)
         dialog.present()
 
     def _on_bulk_apply_style(self, action, param):

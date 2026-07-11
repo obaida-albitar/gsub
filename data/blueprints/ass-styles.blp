@@ -1,8 +1,8 @@
 using Gtk 4.0;
 using Adw 1;
 
-template $GsubASSInfoStylesDialog : Adw.Dialog {
-  title: _("ASS/SSA Info & Styles");
+template $GsubASSStylesDialog : Adw.Dialog {
+  title: _("ASS/SSA Styles");
   content-width: 700;
   content-height: 720;
 
@@ -28,54 +28,14 @@ template $GsubASSInfoStylesDialog : Adw.Dialog {
     content: Adw.PreferencesPage prefs_page {
       vexpand: true;
 
-      // --- Script Info ---
-      Adw.PreferencesGroup info_group {
-        title: _("Script Info");
-        description: _("Metadata stored in the [Script Info] section");
-        // Common-key EntryRows are added from code.
-      }
-
-      // --- Additional Script Info ---
-      Adw.PreferencesGroup info_extra_group {
-        title: _("Additional Script Info");
-        description: _("Extra [Script Info] keys such as PlayResX, PlayResY, WrapStyle");
-      }
-
-      // --- Aegisub Project Garbage ---
-      Adw.PreferencesGroup aegisub_group {
-        title: _("Aegisub Project Garbage");
-        description: _("Project data used by Aegisub (interface layout, automation). Safe to leave empty.");
-      }
-
-      // --- Styles ---
-      Adw.PreferencesGroup styles_group {
-        title: _("Styles");
-        description: _("Edit style definitions in [V4+ Styles]");
+      // --- Style editor (for the selected style) ---
+      Adw.PreferencesGroup style_editor_group {
+        title: _("Style");
+        description: _("Edit the selected style's properties");
 
         Adw.ComboRow style_combo {
           title: _("Style");
-          // model + selected set from code.
-        }
-
-        Adw.ActionRow buttons_row {
-          title: _("Manage styles");
-          activatable: false;
-
-          [suffix]
-          Button add_style_btn {
-            icon-name: "list-add-symbolic";
-            styles ["flat", "circular"]
-            tooltip-text: _("Add style");
-            clicked => $on_add_style();
-          }
-
-          [suffix]
-          Button remove_style_btn {
-            icon-name: "list-remove-symbolic";
-            styles ["flat", "circular"]
-            tooltip-text: _("Remove style");
-            clicked => $on_remove_style();
-          }
+          // model set from code.
         }
 
         Adw.EntryRow style_name {
@@ -144,6 +104,30 @@ template $GsubASSInfoStylesDialog : Adw.Dialog {
           title: _("Italic");
         }
 
+        Adw.SpinRow style_scale_x {
+          title: _("Scale X (%)");
+          subtitle: _("Horizontal scaling of the text");
+          digits: 1;
+          adjustment: Adjustment {
+            lower: 1;
+            upper: 1000;
+            step-increment: 1;
+            page-increment: 10;
+          };
+        }
+
+        Adw.SpinRow style_scale_y {
+          title: _("Scale Y (%)");
+          subtitle: _("Vertical scaling of the text");
+          digits: 1;
+          adjustment: Adjustment {
+            lower: 1;
+            upper: 1000;
+            step-increment: 1;
+            page-increment: 10;
+          };
+        }
+
         Adw.SpinRow style_outline_width {
           title: _("Outline");
           digits: 1;
@@ -176,45 +160,69 @@ template $GsubASSInfoStylesDialog : Adw.Dialog {
             page-increment: 1;
           };
         }
+      }
 
-        Adw.ExpanderRow preview_expander {
-          title: _("Preview");
-          subtitle: _("Live sample for the selected style");
-          expanded: true;
+      // --- Preview ---
+      Adw.ExpanderRow preview_expander {
+        title: _("Preview");
+        subtitle: _("Live sample for the selected style");
+        expanded: true;
 
-          Adw.ActionRow preview_content_row {
-            activatable: false;
+        Adw.ActionRow preview_content_row {
+          activatable: false;
+          vexpand: true;
+
+          [suffix]
+          ScrolledWindow preview_scroller {
+            hexpand: true;
             vexpand: true;
+            min-content-height: 220;
+            hscrollbar-policy: never;
+            vscrollbar-policy: automatic;
 
-            [suffix]
-            ScrolledWindow preview_scroller {
-              hexpand: true;
-              vexpand: true;
-              min-content-height: 220;
-              hscrollbar-policy: never;
-              vscrollbar-policy: automatic;
+            child: Box preview_frame {
+              styles ["ass-preview-frame"]
+              orientation: vertical;
+              margin-top: 6;
+              margin-bottom: 6;
+              margin-start: 6;
+              margin-end: 6;
 
-              child: Box preview_frame {
-                styles ["ass-preview-frame"]
-                orientation: vertical;
-                margin-top: 6;
-                margin-bottom: 6;
-                margin-start: 6;
-                margin-end: 6;
-
-                Label preview_label {
-                  styles ["ass-preview-label"]
-                  xalign: 0.0;
-                  wrap: true;
-                  wrap-mode: word_char;
-                  max-width-chars: 60;
-                  label: _("The quick brown fox jumps over the lazy dog 0123456789");
-                }
-              };
-            }
+              Label preview_label {
+                styles ["ass-preview-label"]
+                xalign: 0.0;
+                wrap: true;
+                wrap-mode: word_char;
+                max-width-chars: 60;
+                label: _("The quick brown fox jumps over the lazy dog 0123456789");
+              }
+            };
           }
         }
       }
     };
+
+    [bottom]
+    Box action_bar {
+      spacing: 8;
+      margin-start: 12;
+      margin-end: 12;
+      margin-top: 8;
+      margin-bottom: 8;
+
+      Button add_style_btn {
+        icon-name: "list-add-symbolic";
+        tooltip-text: _("Add style");
+        clicked => $on_add_style();
+      }
+
+      Button remove_style_btn {
+        icon-name: "list-remove-symbolic";
+        styles ["destructive-action"]
+        tooltip-text: _("Remove style");
+        clicked => $on_remove_style();
+      }
+    }
+
   };
 }

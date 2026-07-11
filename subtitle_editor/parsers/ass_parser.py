@@ -6,7 +6,7 @@ ASS format is more complex than SRT, with sections for metadata, styles, and eve
 
 import logging
 import re
-from typing import List, Dict
+from typing import List, Dict, Optional
 from subtitle_editor.models import (
     SubtitleEntry, SubtitleDocument, SubtitleFormat,
     TimeCode, ASSStyle
@@ -22,8 +22,13 @@ class ASSParser:
     TIMECODE_PATTERN = re.compile(r'(\d+):(\d{2}):(\d{2})\.(\d{2})')
     
     @classmethod
-    def parse(cls, content: str) -> SubtitleDocument:
-        """Parse ASS/SSA content into a SubtitleDocument."""
+    def parse(cls, content: str, warnings: Optional[List[str]] = None) -> SubtitleDocument:
+        """Parse ASS/SSA content into a SubtitleDocument.
+
+        If ``warnings`` (a list) is provided, sanitization notes (e.g. invalid
+        or clamped style values) are appended to it so callers can surface them
+        to the user.
+        """
         # Drop a leading UTF-8 BOM if a caller passed raw text, so the first
         # '[Script Info]' section header is detected correctly.
         if content and content[0] == '\ufeff':
@@ -68,7 +73,7 @@ class ASSParser:
                 if line.startswith('Format:'):
                     style_format = [f.strip() for f in line[7:].split(',')]
                 elif line.startswith('Style:'):
-                    style = cls._parse_style(line, style_format)
+                    style = cls._parse_style(line, style_format, warnings)
                     if style:
                         document.styles.append(style)
             
@@ -103,74 +108,30 @@ class ASSParser:
             document.aegisub_project_garbage[key.strip()] = value.strip()
     
     @classmethod
-    def _parse_style(cls, line: str, format_list: List[str]) -> ASSStyle:
-        """Parse a Style line."""
+    def _parse_style(cls, line: str, format_list: List[str],
+                     warnings: Optional[List[str]] = None) -> Optional[ASSStyle]:
+        """Parse a Style line into a sanitized ASSStyle."""
         # Remove 'Style: ' prefix
         content = line[6:].strip()
         values = [v.strip() for v in content.split(',')]
-        
+
         if len(values) < len(format_list):
             logger.warning("Skipping ASS style with insufficient fields: %s", line)
             return None
-        
-        style = ASSStyle()
-        
-        # Map values according to format
+
+        # Collect raw values keyed by their format-field name (lower-cased),
+        # then let ASSStyle.from_fields coerce + clamp them defensively.
+        fields: Dict[str, str] = {}
         for i, field in enumerate(format_list):
             if i >= len(values):
                 break
-            
-            value = values[i]
-            field_lower = field.lower()
-            
-            if field_lower == 'name':
-                style.name = value
-            elif field_lower == 'fontname':
-                style.fontname = value
-            elif field_lower == 'fontsize':
-                style.fontsize = int(value)
-            elif field_lower == 'primarycolour':
-                style.primary_color = value
-            elif field_lower == 'secondarycolour':
-                style.secondary_color = value
-            elif field_lower == 'outlinecolour':
-                style.outline_color = value
-            elif field_lower == 'backcolour':
-                style.back_color = value
-            elif field_lower == 'bold':
-                style.bold = int(value) != 0
-            elif field_lower == 'italic':
-                style.italic = int(value) != 0
-            elif field_lower == 'underline':
-                style.underline = int(value) != 0
-            elif field_lower == 'strikeout':
-                style.strikeout = int(value) != 0
-            elif field_lower == 'scalex':
-                style.scale_x = float(value)
-            elif field_lower == 'scaley':
-                style.scale_y = float(value)
-            elif field_lower == 'spacing':
-                style.spacing = float(value)
-            elif field_lower == 'angle':
-                style.angle = float(value)
-            elif field_lower == 'borderstyle':
-                style.border_style = int(value)
-            elif field_lower == 'outline':
-                style.outline = float(value)
-            elif field_lower == 'shadow':
-                style.shadow = float(value)
-            elif field_lower == 'alignment':
-                style.alignment = int(value)
-            elif field_lower == 'marginl':
-                style.margin_l = int(value)
-            elif field_lower == 'marginr':
-                style.margin_r = int(value)
-            elif field_lower == 'marginv':
-                style.margin_v = int(value)
-            elif field_lower == 'encoding':
-                style.encoding = int(value)
-        
-        return style
+            fields[field.lower()] = values[i]
+
+        try:
+            return ASSStyle.from_fields(fields, warnings=warnings)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Failed to parse style line, skipping: %s (%s)", line, exc)
+            return None
     
     @classmethod
     def _parse_dialogue(cls, line: str, format_list: List[str], index: int) -> SubtitleEntry:

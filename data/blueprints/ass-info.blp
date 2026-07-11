@@ -1,0 +1,51 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GsubASSInfoDialog : Adw.Dialog {
+  title: _("ASS/SSA Info");
+  content-width: 700;
+  content-height: 720;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      // --- Script Info ---
+      Adw.PreferencesGroup info_group {
+        title: _("Script Info");
+        description: _("Metadata stored in the [Script Info] section");
+        // Common-key EntryRows are added from code.
+      }
+
+      // --- Additional Script Info ---
+      Adw.PreferencesGroup info_extra_group {
+        title: _("Additional Script Info");
+        description: _("Extra [Script Info] keys such as PlayResX, PlayResY, WrapStyle");
+      }
+
+      // --- Aegisub Project Garbage ---
+      Adw.PreferencesGroup aegisub_group {
+        title: _("Aegisub Project Garbage");
+        description: _("Project data used by Aegisub (interface layout, automation). Safe to leave empty.");
+      }
+    };
+  };
+}
