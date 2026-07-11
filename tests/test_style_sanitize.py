@@ -79,6 +79,69 @@ class TestAssStyleSanitization:
         small = ASSStyle.from_fields({'fontsize': '0'}, warnings=warnings)
         assert small.fontsize == 1
 
+    @pytest.mark.unit
+    @pytest.mark.models
+    def test_newly_exposed_fields_round_trip(self):
+        """The style editor now exposes the full set of numeric/flag fields.
+
+        Verify they are parsed from fields and survive a serialize round-trip
+        via to_ass_string().
+        """
+        fields = {
+            'name': 'Full', 'fontname': 'DejaVu Sans', 'fontsize': '42',
+            'primarycolour': '&H00FFFFFF', 'secondarycolour': '&H000000FF',
+            'outlinecolour': '&H00000000', 'backcolour': '&H00000000',
+            'bold': '-1', 'italic': '0', 'underline': '1', 'strikeout': '-1',
+            'scalex': '120', 'scaley': '80', 'spacing': '3', 'angle': '15',
+            'borderstyle': '3', 'outline': '4', 'shadow': '1',
+            'alignment': '7', 'marginl': '20', 'marginr': '30',
+            'marginv': '40', 'encoding': '0',
+        }
+        style = ASSStyle.from_fields(fields)
+        assert style.underline is True
+        assert style.strikeout is True
+        assert style.spacing == 3.0
+        assert style.angle == 15.0
+        assert style.border_style == 3
+        assert style.scale_x == 120.0
+        assert style.scale_y == 80.0
+        assert style.margin_l == 20
+        assert style.margin_r == 30
+        assert style.margin_v == 40
+        assert style.encoding == 0
+
+        # The serialized string must carry the same values back.
+        # split[0] is "Style: <name>", so field offsets start at index 1.
+        parts = style.to_ass_string().split(',')
+        assert parts[1] == 'DejaVu Sans'
+        assert parts[2] == '42'
+        assert parts[7] == '-1'   # bold
+        assert parts[8] == '0'     # italic
+        assert parts[9] == '-1'    # underline
+        assert parts[10] == '-1'   # strikeout
+        assert parts[11] == '120.0'  # scalex
+        assert parts[12] == '80.0'   # scaley
+        assert parts[13] == '3.0'    # spacing
+        assert parts[14] == '15.0'   # angle
+        assert parts[15] == '3'    # borderstyle
+        assert parts[16] == '4.0'   # outline
+        assert parts[17] == '1.0'   # shadow
+        assert parts[18] == '7'    # alignment
+        assert parts[19] == '20'   # marginl
+        assert parts[20] == '30'   # marginr
+        assert parts[21] == '40'   # marginv
+        assert parts[22] == '0'    # encoding
+
+    @pytest.mark.unit
+    @pytest.mark.models
+    def test_negative_or_zero_scale_reset_to_100(self):
+        warnings = []
+        style = ASSStyle.from_fields({'scalex': '-5', 'scaley': '0'}, warnings=warnings)
+        assert style.scale_x == 100.0
+        assert style.scale_y == 100.0
+        assert any('ScaleX' in w for w in warnings)
+        assert any('ScaleY' in w for w in warnings)
+
 
 class TestAssParserRobustness:
     """ASSParser should never crash on malformed style values."""

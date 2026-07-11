@@ -11,6 +11,7 @@ from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk, GObject
 from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
 from subtitle_editor.models import ASSStyle
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.utils import merge_font_families, is_font_installed
 import copy
 
 
@@ -379,6 +380,7 @@ class ASSStylesDialog(Adw.Dialog):
     style_name = Gtk.Template.Child()
     style_font = Gtk.Template.Child()
     style_fontsize = Gtk.Template.Child()
+    font_warning = Gtk.Template.Child()
     primary_color_btn = Gtk.Template.Child()
     outline_color_btn = Gtk.Template.Child()
     back_color_btn = Gtk.Template.Child()
@@ -424,9 +426,14 @@ class ASSStylesDialog(Adw.Dialog):
         self.style_combo.set_selected(self._selected_style_index)
         self.style_combo.connect('notify::selected', self._on_style_selected)
 
-        # Font family dropdown
-        self._font_families = sorted(
-            [f.get_name() for f in PangoCairo.FontMap.get_default().list_families()]
+        # Font family dropdown. Always include a style's real font name even if
+        # it isn't installed locally, so we never silently overwrite it on save.
+        self._installed_fonts = sorted(
+            f.get_name() for f in PangoCairo.FontMap.get_default().list_families()
+        )
+        self._font_families = merge_font_families(
+            self._installed_fonts,
+            (s.fontname for s in self._styles),
         )
         self._font_model = Gtk.StringList.new(self._font_families)
         self.style_font.set_model(self._font_model)
@@ -497,6 +504,7 @@ class ASSStylesDialog(Adw.Dialog):
                 font_idx = 0
             self.style_font.set_selected(font_idx)
             self.style_fontsize.set_value(style.fontsize)
+            self._update_font_warning(style.fontname)
             # Colors
             self._primary_color_btn.set_rgba(self._ass_color_to_rgba(style.primary_color) or Gdk.RGBA(1, 1, 1, 1))
             self._outline_color_btn.set_rgba(self._ass_color_to_rgba(style.outline_color) or Gdk.RGBA(0, 0, 0, 1))
@@ -523,6 +531,20 @@ class ASSStylesDialog(Adw.Dialog):
 
         self._update_preview()
 
+    def _update_font_warning(self, fontname: str) -> None:
+        """Show a note when the selected style's font is not installed locally."""
+        if self.font_warning is None:
+            return
+        if is_font_installed(fontname, self._installed_fonts):
+            self.font_warning.set_visible(False)
+            self.font_warning.set_text("")
+        else:
+            self.font_warning.set_visible(True)
+            self.font_warning.set_text(
+                f"Font “{fontname}” is not installed on this system — the "
+                f"preview may differ and it will be kept as-is in the file."
+            )
+
     def _on_style_field_changed(self, *args):
         if self._updating_style_ui:
             return
@@ -535,7 +557,10 @@ class ASSStylesDialog(Adw.Dialog):
         style.name = new_name
 
         font_idx = int(self.style_font.get_selected())
-        if 0 <= font_idx < len(self._font_families):
+        selected = self.style_font.get_selected_item()
+        if selected is not None:
+            style.fontname = selected.get_string()
+        elif 0 <= font_idx < len(self._font_families):
             style.fontname = self._font_families[font_idx]
         style.fontsize = int(self.style_fontsize.get_value())
         style.bold = bool(self.style_bold.get_active())
@@ -559,6 +584,7 @@ class ASSStylesDialog(Adw.Dialog):
         if new_name != prev_name:
             self._style_model.splice(self._selected_style_index, 1, [new_name])
 
+        self._update_font_warning(style.fontname)
         self._update_preview()
 
     # --- Add / remove ------------------------------------------------------

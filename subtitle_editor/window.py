@@ -24,7 +24,7 @@ from subtitle_editor.batch_logic import (
 )
 from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
-from subtitle_editor.parsers import SRTParser, ASSParser
+from subtitle_editor.parsers import SRTParser, ASSParser, parse_subtitle_document
 from subtitle_editor.parsers.encoding import decode_subtitle_text
 from subtitle_editor.commands import CommandManager
 from subtitle_editor.resources import template_resource_path
@@ -392,7 +392,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # Edit section
         edit_section = Gio.Menu()
         edit_section.append("Time Shift…", "win.time-shift")
-        edit_section.append("ASS/SSA Info…", "win.ass-info-styles")
+        edit_section.append("ASS/SSA Info…", "win.ass-info")
         edit_section.append("ASS/SSA Styles…", "win.ass-styles")
         edit_section.append("Bulk Apply Style…", "win.bulk-apply-style")
         edit_section.append("Sort by Time", "win.sort-by-time")
@@ -435,7 +435,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("move-up", self._on_move_up, ["<Ctrl>Up"])
         self._create_action("move-down", self._on_move_down, ["<Ctrl>Down"])
         self._create_action("time-shift", self._on_time_shift)
-        self._create_action("ass-info-styles", self._on_ass_info_styles)
+        self._create_action("ass-info", self._on_ass_info_styles)
         self._create_action("ass-styles", self._on_ass_styles)
         self._create_action("bulk-apply-style", self._on_bulk_apply_style)
         self._create_action("sort-by-time", self._on_sort_by_time)
@@ -490,7 +490,7 @@ class GsubWindow(Adw.ApplicationWindow):
         fmt = self.document.format if self.document else None
         is_ass = fmt in (SubtitleFormat.ASS, SubtitleFormat.SSA)
 
-        for name in ("ass-info-styles", "ass-styles", "bulk-apply-style"):
+        for name in ("ass-info", "ass-styles", "bulk-apply-style"):
             action = getattr(self, '_actions', {}).get(name)
             if action is not None:
                 action.set_enabled(bool(is_ass))
@@ -665,12 +665,8 @@ class GsubWindow(Adw.ApplicationWindow):
             # Detect format by extension
             ext = os.path.splitext(file_path)[1].lower()
             
-            if ext == '.srt':
-                self.document = SRTParser.parse(content)
-            elif ext in ['.ass', '.ssa']:
-                parse_warnings: list[str] = []
-                self.document = ASSParser.parse(content, parse_warnings)
-            else:
+            self.document, parse_warnings = parse_subtitle_document(content, ext)
+            if self.document is None:
                 self._show_error("Unsupported file format")
                 return
             

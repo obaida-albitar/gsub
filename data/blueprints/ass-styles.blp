@@ -47,6 +47,15 @@ template $GsubASSStylesDialog : Adw.Dialog {
           // model set from code.
         }
 
+        Label font_warning {
+          label: "";
+          wrap: true;
+          visible: false;
+          margin-top: 4;
+          margin-bottom: 4;
+          styles ["warning"]
+        }
+
         Adw.SpinRow style_fontsize {
           title: _("Font Size");
           adjustment: Adjustment {
