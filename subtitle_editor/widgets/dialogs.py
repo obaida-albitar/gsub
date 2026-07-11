@@ -384,6 +384,17 @@ class ASSStylesDialog(Adw.Dialog):
     back_color_btn = Gtk.Template.Child()
     style_bold = Gtk.Template.Child()
     style_italic = Gtk.Template.Child()
+    style_underline = Gtk.Template.Child()
+    style_strikeout = Gtk.Template.Child()
+    style_spacing = Gtk.Template.Child()
+    style_angle = Gtk.Template.Child()
+    secondary_color_btn = Gtk.Template.Child()
+    layout_group = Gtk.Template.Child()
+    style_border_style = Gtk.Template.Child()
+    style_margin_l = Gtk.Template.Child()
+    style_margin_r = Gtk.Template.Child()
+    style_margin_v = Gtk.Template.Child()
+    style_encoding = Gtk.Template.Child()
     style_scale_x = Gtk.Template.Child()
     style_scale_y = Gtk.Template.Child()
     style_outline_width = Gtk.Template.Child()
@@ -428,12 +439,18 @@ class ASSStylesDialog(Adw.Dialog):
         self._primary_color_btn = self.primary_color_btn
         self._outline_color_btn = self.outline_color_btn
         self._back_color_btn = self.back_color_btn
+        self._secondary_color_btn = self.secondary_color_btn
         self._primary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('primary'))
         self._outline_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('outline'))
         self._back_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('back'))
+        self._secondary_color_btn.connect('notify::rgba', lambda *a: self._on_color_changed('secondary'))
 
         self.style_bold.connect('notify::active', self._on_style_field_changed)
         self.style_italic.connect('notify::active', self._on_style_field_changed)
+        self.style_underline.connect('notify::active', self._on_style_field_changed)
+        self.style_strikeout.connect('notify::active', self._on_style_field_changed)
+        self.style_spacing.connect('notify::value', self._on_style_field_changed)
+        self.style_angle.connect('notify::value', self._on_style_field_changed)
         self.style_scale_x.connect('notify::value', self._on_style_field_changed)
         self.style_scale_y.connect('notify::value', self._on_style_field_changed)
         self.style_outline_width.connect('notify::value', self._on_style_field_changed)
@@ -486,6 +503,16 @@ class ASSStylesDialog(Adw.Dialog):
             self._back_color_btn.set_rgba(self._ass_color_to_rgba(style.back_color) or Gdk.RGBA(0.95, 0.95, 0.95, 1))
             self.style_bold.set_active(bool(style.bold))
             self.style_italic.set_active(bool(style.italic))
+            self.style_underline.set_active(bool(style.underline))
+            self.style_strikeout.set_active(bool(style.strikeout))
+            self.style_spacing.set_value(float(style.spacing))
+            self.style_angle.set_value(float(style.angle))
+            self._secondary_color_btn.set_rgba(self._ass_color_to_rgba(style.secondary_color) or Gdk.RGBA(0, 0, 0, 1))
+            self.style_border_style.set_value(int(style.border_style))
+            self.style_margin_l.set_value(int(style.margin_l))
+            self.style_margin_r.set_value(int(style.margin_r))
+            self.style_margin_v.set_value(int(style.margin_v))
+            self.style_encoding.set_value(int(style.encoding))
             self.style_scale_x.set_value(float(style.scale_x))
             self.style_scale_y.set_value(float(style.scale_y))
             self.style_outline_width.set_value(float(style.outline))
@@ -513,6 +540,15 @@ class ASSStylesDialog(Adw.Dialog):
         style.fontsize = int(self.style_fontsize.get_value())
         style.bold = bool(self.style_bold.get_active())
         style.italic = bool(self.style_italic.get_active())
+        style.underline = bool(self.style_underline.get_active())
+        style.strikeout = bool(self.style_strikeout.get_active())
+        style.spacing = float(self.style_spacing.get_value())
+        style.angle = float(self.style_angle.get_value())
+        style.border_style = int(self.style_border_style.get_value())
+        style.margin_l = int(self.style_margin_l.get_value())
+        style.margin_r = int(self.style_margin_r.get_value())
+        style.margin_v = int(self.style_margin_v.get_value())
+        style.encoding = int(self.style_encoding.get_value())
         style.scale_x = float(self.style_scale_x.get_value())
         style.scale_y = float(self.style_scale_y.get_value())
         style.outline = float(self.style_outline_width.get_value())
@@ -583,6 +619,8 @@ class ASSStylesDialog(Adw.Dialog):
             style.outline_color = self._rgba_to_ass_color(self._outline_color_btn.get_rgba())
         elif which == 'back':
             style.back_color = self._rgba_to_ass_color(self._back_color_btn.get_rgba())
+        elif which == 'secondary':
+            style.secondary_color = self._rgba_to_ass_color(self._secondary_color_btn.get_rgba())
         self._update_preview()
 
     # --- Colour helpers ----------------------------------------------------
@@ -646,11 +684,33 @@ class ASSStylesDialog(Adw.Dialog):
                 attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
             if style.italic:
                 attrs.insert(Pango.attr_style_new(Pango.Style.ITALIC))
+            if getattr(style, 'underline', False):
+                attrs.insert(Pango.attr_underline_new(Pango.Underline.SINGLE))
+            if getattr(style, 'strikeout', False):
+                attrs.insert(Pango.attr_strikethrough_new(True))
+            try:
+                spacing_px = int(round(float(getattr(style, 'spacing', 0.0) or 0.0) * Pango.SCALE))
+            except Exception:
+                spacing_px = 0
+            if spacing_px != 0:
+                attrs.insert(Pango.attr_letter_spacing_new(spacing_px))
             self.preview_label.set_attributes(attrs)
 
             fg = self._ass_color_to_rgba(getattr(style, 'primary_color', None) or '')
             bg = self._ass_color_to_rgba(getattr(style, 'back_color', None) or '') or Gdk.RGBA(0.95, 0.95, 0.95, 1)
             outline_col = self._ass_color_to_rgba(getattr(style, 'outline_color', None) or '') or Gdk.RGBA(0, 0, 0, 1)
+
+            border_style = int(getattr(style, 'border_style', 1) or 1)
+            try:
+                angle = float(getattr(style, 'angle', 0.0) or 0.0)
+            except Exception:
+                angle = 0.0
+            try:
+                margin_l = int(getattr(style, 'margin_l', 0) or 0)
+                margin_r = int(getattr(style, 'margin_r', 0) or 0)
+                margin_v = int(getattr(style, 'margin_v', 0) or 0)
+            except Exception:
+                margin_l = margin_r = margin_v = 0
 
             css = ""
 
@@ -658,28 +718,43 @@ class ASSStylesDialog(Adw.Dialog):
             if fg is not None:
                 label_props.append(f"color: {self._rgba_to_css(fg)}")
 
-            try:
-                outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
-            except Exception:
-                outline_px = 0.0
-            try:
-                shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
-            except Exception:
-                shadow_px = 0.0
+            if angle:
+                label_props.append(
+                    f"transform: rotate({angle:.1f}deg); transform-origin: center;")
 
-            if bg is not None:
-                css += f".ass-preview-frame {{ background-color: {self._rgba_to_css(bg)}; padding: 12px; border-radius: 8px; }}\n"
+            # The preview frame is meant to fill the viewport. We intentionally do
+            # NOT apply the style's real MarginL/MarginR/MarginV here — that would
+            # indent and shrink the sample so it looks like it doesn't take the
+            # full width. A subtle card background makes the full-width surface
+            # visible; BorderStyle 3 uses the style's back colour instead.
+            frame_props = []
+            if border_style == 3 and bg is not None:
+                frame_props.append(f"background-color: {self._rgba_to_css(bg)}")
+            else:
+                frame_props.append("background-color: rgba(127, 127, 127, 0.18)")
+            css += f".ass-preview-frame {{ {'; '.join(frame_props)}; padding: 12px; border-radius: 8px; }}\n"
 
             shadows = []
             ocss = self._rgba_to_css(outline_col) if outline_col is not None else None
 
-            if outline_px > 0 and ocss is not None:
-                o = outline_px
-                for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
-                    shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
+            # Outline/shadow only make sense for BorderStyle 1.
+            if border_style == 1:
+                try:
+                    outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
+                except Exception:
+                    outline_px = 0.0
+                try:
+                    shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
+                except Exception:
+                    shadow_px = 0.0
 
-            if shadow_px > 0 and ocss is not None:
-                shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
+                if outline_px > 0 and ocss is not None:
+                    o = outline_px
+                    for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
+                        shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
+
+                if shadow_px > 0 and ocss is not None:
+                    shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
 
             if shadows:
                 label_props.append(f"text-shadow: {', '.join(shadows)}")

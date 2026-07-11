@@ -20,6 +20,9 @@ build-resources:
 	glib-compile-resources --target subtitle_editor/app.gsub.gresource \
 		--sourcedir data/blueprints --sourcedir data data/app.gsub.gresource.xml
 	@echo "Built subtitle_editor/app.gsub.gresource"
+	@mkdir -p builddir
+	cp subtitle_editor/app.gsub.gresource builddir/app.gsub.gresource
+	@echo "Synced builddir/app.gsub.gresource"
 
 install-desktop:
 	install -d $(PREFIX)/share/applications
