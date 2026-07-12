@@ -111,6 +111,7 @@ class TestAssStyleSanitization:
         assert style.encoding == 0
 
         # The serialized string must carry the same values back.
+        # Integer-valued floats are emitted without a trailing '.0'.
         # split[0] is "Style: <name>", so field offsets start at index 1.
         parts = style.to_ass_string().split(',')
         assert parts[1] == 'DejaVu Sans'
@@ -119,13 +120,13 @@ class TestAssStyleSanitization:
         assert parts[8] == '0'     # italic
         assert parts[9] == '-1'    # underline
         assert parts[10] == '-1'   # strikeout
-        assert parts[11] == '120.0'  # scalex
-        assert parts[12] == '80.0'   # scaley
-        assert parts[13] == '3.0'    # spacing
-        assert parts[14] == '15.0'   # angle
+        assert parts[11] == '120'  # scalex
+        assert parts[12] == '80'   # scaley
+        assert parts[13] == '3'    # spacing
+        assert parts[14] == '15'   # angle
         assert parts[15] == '3'    # borderstyle
-        assert parts[16] == '4.0'   # outline
-        assert parts[17] == '1.0'   # shadow
+        assert parts[16] == '4'    # outline
+        assert parts[17] == '1'    # shadow
         assert parts[18] == '7'    # alignment
         assert parts[19] == '20'   # marginl
         assert parts[20] == '30'   # marginr
@@ -141,6 +142,18 @@ class TestAssStyleSanitization:
         assert style.scale_y == 100.0
         assert any('ScaleX' in w for w in warnings)
         assert any('ScaleY' in w for w in warnings)
+
+    @pytest.mark.unit
+    @pytest.mark.models
+    def test_large_but_valid_scale_preserved(self):
+        # Fansub logo/sign styling legitimately uses very large ScaleX/ScaleY
+        # (e.g. a tiny font scaled thousands of percent). These must NOT be
+        # clamped; only non-positive / non-finite values are invalid.
+        warnings = []
+        style = ASSStyle.from_fields({'scalex': '4300', 'scaley': '4300'}, warnings=warnings)
+        assert style.scale_x == 4300.0
+        assert style.scale_y == 4300.0
+        assert warnings == []
 
 
 class TestAssParserRobustness:

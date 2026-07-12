@@ -82,19 +82,29 @@ class ASSStyle:
     margin_v: int = 10
     encoding: int = 1
     
+    @staticmethod
+    def _fmt_num(value) -> str:
+        """Format a numeric style field without a spurious '.0' for integers."""
+        f = float(value)
+        if f.is_integer():
+            return str(int(f))
+        return str(f)
+
     def to_ass_string(self) -> str:
         """Convert style to ASS format string."""
         bold_val = -1 if self.bold else 0
         italic_val = -1 if self.italic else 0
         underline_val = -1 if self.underline else 0
         strikeout_val = -1 if self.strikeout else 0
-        
+
         return (f"Style: {self.name},{self.fontname},{self.fontsize},"
                 f"{self.primary_color},{self.secondary_color},"
                 f"{self.outline_color},{self.back_color},"
                 f"{bold_val},{italic_val},{underline_val},{strikeout_val},"
-                f"{self.scale_x},{self.scale_y},{self.spacing},{self.angle},"
-                f"{self.border_style},{self.outline},{self.shadow},"
+                f"{self._fmt_num(self.scale_x)},{self._fmt_num(self.scale_y)},"
+                f"{self._fmt_num(self.spacing)},{self._fmt_num(self.angle)},"
+                f"{self.border_style},{self._fmt_num(self.outline)},"
+                f"{self._fmt_num(self.shadow)},"
                 f"{self.alignment},{self.margin_l},{self.margin_r},{self.margin_v},"
                 f"{self.encoding}")
 
@@ -186,20 +196,22 @@ class ASSStyle:
         style.strikeout = cls._coerce_int(raw.get("strikeout"), 0, warnings=warnings,
                                           label=label("StrikeOut")) != 0
 
-        # Scales: must be strictly positive; reset to 100 if invalid/zero/negative.
+        # Scales: any positive value is valid (fansub logo/sign styling uses
+        # scales in the thousands). Only reset to 100 for non-positive or
+        # non-finite input, which would otherwise break rendering.
         scale_x = cls._coerce_float(raw.get("scalex"), 100.0, warnings=warnings,
                                     label=label("ScaleX"))
-        if not (0 < scale_x <= 1000):
+        if scale_x <= 0 or not math.isfinite(scale_x):
             if warnings is not None:
-                warnings.append(f"{label('ScaleX')}: {scale_x} out of range, reset to 100")
+                warnings.append(f"{label('ScaleX')}: {scale_x} is invalid, reset to 100")
             scale_x = 100.0
         style.scale_x = scale_x
 
         scale_y = cls._coerce_float(raw.get("scaley"), 100.0, warnings=warnings,
                                     label=label("ScaleY"))
-        if not (0 < scale_y <= 1000):
+        if scale_y <= 0 or not math.isfinite(scale_y):
             if warnings is not None:
-                warnings.append(f"{label('ScaleY')}: {scale_y} out of range, reset to 100")
+                warnings.append(f"{label('ScaleY')}: {scale_y} is invalid, reset to 100")
             scale_y = 100.0
         style.scale_y = scale_y
 
@@ -280,6 +292,10 @@ class SubtitleDocument:
     entries: List[SubtitleEntry] = field(default_factory=list)
     styles: List[ASSStyle] = field(default_factory=list)  # For ASS format
     metadata: Dict[str, str] = field(default_factory=dict)  # [Script Info]
+    # Preserve [Script Info] layout so re-saving doesn't churn the file:
+    # keep the original key order and any ';' comment lines.
+    script_info_order: List[str] = field(default_factory=list)
+    script_info_comments: List[str] = field(default_factory=list)
     aegisub_project_garbage: Dict[str, str] = field(default_factory=dict)  # [Aegisub Project Garbage]
     modified: bool = False
     file_path: Optional[str] = None
