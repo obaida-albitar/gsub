@@ -1,6 +1,6 @@
 """Command pattern implementation for undo/redo functionality."""
 
-from .command import Command, CommandManager
+from .command import Command, CommandManager, CompositeCommand
 from .subtitle_commands import (
     AddEntryCommand,
     RemoveEntryCommand,
@@ -28,6 +28,7 @@ from .bulk_style_commands import (
 __all__ = [
     'Command',
     'CommandManager',
+    'CompositeCommand',
     'AddEntryCommand',
     'RemoveEntryCommand',
     'EditTextCommand',

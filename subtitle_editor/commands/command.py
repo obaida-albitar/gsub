@@ -32,6 +32,44 @@ class Command(ABC):
         pass
 
 
+class CompositeCommand(Command):
+    """Execute a sequence of commands as a single undoable unit.
+
+    Children are executed in order; undo runs them in reverse. If a child's
+    ``execute`` raises, the already-executed children are undone and the
+    exception is re-raised so the manager does not record a partial command.
+    """
+
+    def __init__(self, commands: List[Command], description: str = "Composite command"):
+        self._commands = list(commands)
+        self._description = description
+
+    def execute(self):
+        done = []
+        try:
+            for cmd in self._commands:
+                cmd.execute()
+                done.append(cmd)
+        except Exception:
+            for cmd in reversed(done):
+                try:
+                    cmd.undo()
+                except Exception:
+                    pass
+            raise
+
+    def undo(self):
+        for cmd in reversed(self._commands):
+            cmd.undo()
+
+    def redo(self):
+        for cmd in self._commands:
+            cmd.redo()
+
+    def description(self) -> str:
+        return self._description
+
+
 class CommandManager:
     """
     Manages command history for undo/redo functionality.
