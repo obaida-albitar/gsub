@@ -49,6 +49,7 @@ blueprint_names = [
   'subtitle-list-row',
   'subtitle-list',
   'batch-file-list',
+  'compatibility-panel',
 ]
 
 compiled_ui = []

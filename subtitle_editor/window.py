@@ -10,10 +10,12 @@ from subtitle_editor.logger import get_logger
 logger = get_logger(__name__)
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
+gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Gio, GLib
+from gi.repository import Gtk, Adw, Gio, GLib, Pango, PangoCairo
 import json
 import os
+import re
 
 from subtitle_editor.batch_logic import (
     apply_font_size,
@@ -26,7 +28,9 @@ from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser, parse_subtitle_document
 from subtitle_editor.parsers.encoding import decode_subtitle_text
-from subtitle_editor.commands import CommandManager
+from subtitle_editor.commands import CommandManager, CompositeCommand
+from subtitle_editor.commands.ass_commands import ReplaceASSHeaderCommand
+from subtitle_editor.commands.subtitle_commands import EditTextCommand
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
@@ -36,6 +40,16 @@ from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
 from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
 from subtitle_editor.widgets.batch_confirm_dialog import BatchConfirmDialog
+from subtitle_editor.parsers.ass_validator import (
+    validate_document,
+    CompatIssue,
+    CompatSeverity,
+    clamp_blur,
+    strip_fsp,
+    fix_color,
+)
+from subtitle_editor.widgets.compatibility_panel import CompatibilityPanel
+from subtitle_editor.utils import parse_ass_color, format_ass_color
 
 
 @Gtk.Template(resource_path=template_resource_path('window'))
@@ -69,6 +83,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.current_view = "home"  # "home", "editor", or "batch"
         self.batch_format = None  # SubtitleFormat of batch files (all same format)
         self._batch_style_fonts: dict[str, int | None] = {}  # style name -> current font size
+        self.compat_issues = []
 
         # Load saved config
         config = self._load_config()
@@ -166,6 +181,12 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_button.connect('toggled', self._on_video_toggle)
         self.video_button.set_margin_start(6)
         editor_header.append(self.video_button)
+
+        self.compat_btn = Gtk.Button(label="Compatibility")
+        self.compat_btn.set_tooltip_text("Toggle Compatibility Checker")
+        self.compat_btn.set_margin_start(6)
+        self.compat_btn.connect('clicked', self._on_compat_toggle)
+        editor_header.append(self.compat_btn)
 
         self.header_start_stack.add_named(editor_header, "editor")
 
@@ -273,6 +294,11 @@ class GsubWindow(Adw.ApplicationWindow):
         self.right_paned.set_end_child(editor_scroll)
 
         self.paned.set_end_child(self.right_paned)
+
+        # --- Compatibility page ---
+        self.compat_panel = CompatibilityPanel()
+        self.compat_panel.on_fix = self._apply_compat_fix
+        self.view_stack.add_titled(self.compat_panel, "compatibility", "Compatibility")
 
         # --- Batch page ---
         batch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -591,6 +617,9 @@ class GsubWindow(Adw.ApplicationWindow):
         """
         self.current_view = "editor"
         self.view_stack.set_visible_child_name("editor")
+        if getattr(self, 'compat_btn', None) is not None:
+            n = len(getattr(self, "compat_issues", []))
+            self.compat_btn.set_label(f"Compatibility ({n})")
         self._update_header_bar()
         self._update_bottom_bar()
         self._update_title()
@@ -607,6 +636,16 @@ class GsubWindow(Adw.ApplicationWindow):
         self.title_widget.set_subtitle("")
         self._update_header_bar()
         self._update_bottom_bar()
+
+    def _on_compat_toggle(self, _btn):
+        """Toggle between the editor and the Compatibility page."""
+        if self.view_stack.get_visible_child_name() == "compatibility":
+            self.view_stack.set_visible_child_name("editor")
+            n = len(getattr(self, "compat_issues", []))
+            self.compat_btn.set_label(f"Compatibility ({n})")
+        else:
+            self.view_stack.set_visible_child_name("compatibility")
+            self.compat_btn.set_label("Editor")
 
     def _update_header_bar(self):
         """Update the header bar buttons and menu based on current view."""
@@ -695,6 +734,11 @@ class GsubWindow(Adw.ApplicationWindow):
                     f"Fixed {len(parse_warnings)} invalid style value(s) — review Styles")
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             self._navigate_to_editor(show_open=False)
+
+            self._refresh_compat()
+            if self.compat_issues:
+                self._show_toast(
+                    f"{len(self.compat_issues)} compatibility issue(s) found — see Compatibility tab")
 
         except Exception as e:
             self._show_error(f"Error opening file: {str(e)}")
@@ -1581,7 +1625,9 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_undo_redo_buttons()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
-    
+        if self.document:
+            self._refresh_compat()
+
     def _on_timing_changed(self, widget, position, start_time, end_time):
         """Handle timing change in editor panel."""
         if not self.document or position < 0:
@@ -1615,6 +1661,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_undo_redo_buttons()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
+        if self.document:
+            self._refresh_compat()
 
     def _on_position_changed(self, widget, position, margin_l, margin_r, margin_v):
         """Handle position (margin) change in editor panel (ASS/SSA only)."""
@@ -1634,7 +1682,150 @@ class GsubWindow(Adw.ApplicationWindow):
         
         self._update_title()
         self._update_undo_redo_buttons()
-    
+
+    # --- Compatibility checking ---
+
+    def _collect_compat_issues(self) -> list:
+        """Collect compatibility issues from the validator plus Pango
+        glyph-coverage checks for each style's font."""
+        if not self.document:
+            return []
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            return []
+
+        installed = sorted(
+            f.get_name() for f in PangoCairo.FontMap.get_default().list_families())
+
+        issues = validate_document(self.document, installed_fonts=installed)
+
+        fontmap = PangoCairo.FontMap.get_default()
+        ctx = fontmap.create_context()
+        for style in self.document.styles:
+            if style.fontname not in installed:
+                continue
+            sample = "".join(
+                e.text for e in self.document.entries if e.style == style.name)
+            sample = sample[:300]
+            if not sample:
+                continue
+            desc = Pango.FontDescription.from_string(style.fontname)
+            font = fontmap.load_font(ctx, desc)
+            if font is None:
+                continue
+            coverage = font.get_coverage(Pango.Language.get_default())
+            missing = sorted({
+                ch for ch in sample if coverage.get(ord(ch)) == Pango.Coverage.NONE
+            })
+            if missing:
+                issues.append(CompatIssue(
+                    severity=CompatSeverity.INFO,
+                    code="font.glyph_missing",
+                    message=(
+                        f"Style '{style.name}': font '{style.fontname}' "
+                        f"lacks glyphs for: {''.join(missing)!r}"),
+                    location=f"Style '{style.name}'"))
+
+        return issues
+
+    def _refresh_compat(self):
+        """Recompute compatibility issues and push them to the panel."""
+        self.compat_issues = self._collect_compat_issues()
+        self.compat_panel.set_issues(self.compat_issues)
+        if (getattr(self, "compat_btn", None) is not None
+                and self.view_stack.get_visible_child_name() != "compatibility"):
+            self.compat_btn.set_label(f"Compatibility ({len(self.compat_issues)})")
+
+    def _apply_compat_fix(self, issue: CompatIssue):
+        """Apply an automatic fix for a compatibility issue (undoable).
+
+        Only issues carrying a ``fix`` dict are actionable; others simply show
+        no Fix button in the panel. After applying, the panel is refreshed so
+        the resolved issue disappears.
+        """
+        if not self.document or not issue.fix:
+            return
+
+        fix = issue.fix
+        kind = fix.get("kind")
+        cmds = []
+
+        if kind == "color":
+            match = re.search(r"Style '([^']+)'", issue.location or "")
+            if not match:
+                self._show_toast("Could not determine the style for this fix.")
+                return
+            style_name = match.group(1)
+            style = self.document.get_style_by_name(style_name)
+            if style is None:
+                self._show_toast("Could not determine the style for this fix.")
+                return
+            new_styles = [copy.deepcopy(s) for s in self.document.styles]
+            for s in new_styles:
+                if s.name == style_name:
+                    s.__dict__[fix["field"]] = fix_color(fix, style)
+            cmds.append(ReplaceASSHeaderCommand(
+                self.document,
+                metadata=self.document.metadata,
+                aegisub_project_garbage=getattr(
+                    self.document, 'aegisub_project_garbage', {}),
+                styles=new_styles,
+            ))
+            self._show_toast("Fixed: color corrected")
+
+        elif kind == "spacing":
+            style_name = fix.get("style")
+            if not style_name:
+                self._show_toast("Could not determine the style for this fix.")
+                return
+            new_styles = [copy.deepcopy(s) for s in self.document.styles]
+            for s in new_styles:
+                if s.name == style_name:
+                    s.spacing = 0.0
+            cmds.append(ReplaceASSHeaderCommand(
+                self.document,
+                metadata=self.document.metadata,
+                aegisub_project_garbage=getattr(
+                    self.document, 'aegisub_project_garbage', {}),
+                styles=new_styles,
+            ))
+            # Also strip any per-entry \fsp overrides that break joining.
+            for entry in self.document.entries:
+                if entry.style == style_name and "\\fsp" in entry.text:
+                    new_text = strip_fsp(entry.text)
+                    if new_text != entry.text:
+                        pos = entry.index - 1
+                        cmds.append(EditTextCommand(
+                            self.document, pos, new_text))
+            self._show_toast("Fixed: spacing set to 0")
+
+        elif kind == "blur":
+            entry = next((e for e in self.document.entries
+                          if e.index == fix.get("entry_index")), None)
+            if entry is None:
+                self._show_toast("Could not find the subtitle for this fix.")
+                return
+            new_text = clamp_blur(entry.text)
+            if new_text == entry.text:
+                self._show_toast("Nothing to fix")
+                return
+            cmds.append(EditTextCommand(self.document, entry.index - 1, new_text))
+            self._show_toast("Fixed: \\blur clamped")
+
+        else:
+            self._show_toast("No automatic fix available for this issue.")
+            return
+
+        if not cmds:
+            return
+        command = cmds[0] if len(cmds) == 1 else CompositeCommand(
+            cmds, "Fix compatibility issue")
+        self.command_manager.execute(command)
+        self.document.modified = True
+        self._update_title()
+        self._update_undo_redo_buttons()
+        self._refresh_compat()
+        self._refresh_video_preview()
+
     # Video player handlers
 
     def _refresh_video_preview(self):
@@ -1986,7 +2177,8 @@ class GsubWindow(Adw.ApplicationWindow):
         as literal \N strings instead of actual newlines.
         """
         import re
-        
+        import copy
+
         try:
             with open(subtitle_path, 'rb') as f:
                 content = decode_subtitle_text(f.read())
