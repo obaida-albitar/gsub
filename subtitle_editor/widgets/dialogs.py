@@ -11,7 +11,7 @@ from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk, GObject
 from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
 from subtitle_editor.models import ASSStyle
 from subtitle_editor.resources import template_resource_path
-from subtitle_editor.utils import merge_font_families, is_font_installed
+from subtitle_editor.utils import merge_font_families, is_font_installed, parse_ass_color, format_ass_color
 import copy
 
 
@@ -463,6 +463,11 @@ class ASSStylesDialog(Adw.Dialog):
         self.style_outline_width.connect('notify::value', self._on_style_field_changed)
         self.style_shadow.connect('notify::value', self._on_style_field_changed)
         self.style_alignment.connect('notify::value', self._on_style_field_changed)
+        self.style_border_style.connect('notify::value', self._on_style_field_changed)
+        self.style_margin_l.connect('notify::value', self._on_style_field_changed)
+        self.style_margin_r.connect('notify::value', self._on_style_field_changed)
+        self.style_margin_v.connect('notify::value', self._on_style_field_changed)
+        self.style_encoding.connect('notify::value', self._on_style_field_changed)
 
         self._load_style_into_editor()
         self._update_preview()
@@ -653,31 +658,16 @@ class ASSStylesDialog(Adw.Dialog):
 
     def _ass_color_to_rgba(self, ass_color: str) -> Gdk.RGBA | None:
         """Parse ASS color string (&HAABBGGRR or &HBBGGRR) to Gdk.RGBA."""
-        if not ass_color:
+        parsed = parse_ass_color(ass_color)
+        if parsed is None:
             return None
-        s = str(ass_color).strip().upper()
-        if not s.startswith('&H'):
-            return None
-        hexpart = s[2:]
-        if hexpart.endswith('&'):
-            hexpart = hexpart[:-1]
-        if len(hexpart) <= 6:
-            aa = 0
-            hexpart = hexpart.zfill(6)
-        else:
-            aa = int(hexpart[:-6].zfill(2)[-2:], 16)
-            hexpart = hexpart[-6:]
-
-        bb = int(hexpart[0:2], 16)
-        gg = int(hexpart[2:4], 16)
-        rr = int(hexpart[4:6], 16)
-        alpha = 1.0 - (aa / 255.0)
+        rr, gg, bb, aa = parsed
 
         rgba = Gdk.RGBA()
         rgba.red = rr / 255.0
         rgba.green = gg / 255.0
         rgba.blue = bb / 255.0
-        rgba.alpha = alpha
+        rgba.alpha = 1.0 - aa / 255.0
         return rgba
 
     def _rgba_to_css(self, rgba: Gdk.RGBA) -> str:
@@ -689,11 +679,11 @@ class ASSStylesDialog(Adw.Dialog):
 
     def _rgba_to_ass_color(self, rgba: Gdk.RGBA) -> str:
         """Convert RGBA to ASS &HAABBGGRR (AA inverted alpha)."""
-        rr = int(max(0, min(255, round(rgba.red * 255))))
-        gg = int(max(0, min(255, round(rgba.green * 255))))
-        bb = int(max(0, min(255, round(rgba.blue * 255))))
-        aa = int(max(0, min(255, round((1.0 - rgba.alpha) * 255))))
-        return f"&H{aa:02X}{bb:02X}{gg:02X}{rr:02X}"
+        rr = int(round(rgba.red * 255))
+        gg = int(round(rgba.green * 255))
+        bb = int(round(rgba.blue * 255))
+        aa = int(round((1.0 - rgba.alpha) * 255))
+        return format_ass_color(rr, gg, bb, aa)
 
     # --- Preview -----------------------------------------------------------
 
