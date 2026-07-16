@@ -73,7 +73,9 @@ Style: Default,Arial,20,&H00FFFFFF,&H00000000,&H00000000,&H00000000,0,0,0,0,100,
         doc, warnings = parse_subtitle_document(content, ".ssa")
         assert doc is not None
         assert doc.format == SubtitleFormat.SSA
-        assert warnings == []
+        # File looks like ASS/SSA (has a styles section) but defines no
+        # [Events] section, so the parser reports it has no subtitles.
+        assert any("No [Events]" in w for w in warnings)
 
     @pytest.mark.unit
     @pytest.mark.parser

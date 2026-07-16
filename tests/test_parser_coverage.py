@@ -44,8 +44,11 @@ Dialogue: 0,0:00:00.50,0:00:02.00
 Dialogue: 0,0:00:03.00,0:00:05.00,Default,,0,0,0,effect,Valid
 """
         doc = ASSParser.parse(content)
-        assert len(doc.entries) == 1
-        assert doc.entries[0].text == "Valid"
+        # The truncated dialogue retains start/end times so it is kept (padded
+        # with defaults) rather than silently dropped; only the valid one has text.
+        assert len(doc.entries) == 2
+        assert doc.entries[0].text == ""
+        assert doc.entries[1].text == "Valid"
 
     @pytest.mark.unit
     @pytest.mark.parser

@@ -87,14 +87,23 @@ class ASSParser:
                 if line.startswith('Format:'):
                     event_format = [f.strip() for f in line[7:].split(',')]
                 elif line.startswith('Dialogue:'):
-                    entry = cls._parse_dialogue(line, event_format, len(document.entries) + 1)
+                    entry = cls._parse_dialogue(line, event_format, len(document.entries) + 1, warnings)
                     if entry:
                         document.entries.append(entry)
         
         # Ensure at least one default style exists
         if not document.styles:
             document.styles.append(ASSStyle())
-        
+
+        # High-level diagnostics: file looks like ASS/SSA but has no subtitles.
+        if not document.entries:
+            looks_like_ass = any(
+                line.strip().lower() in ('[script info]', '[v4+ styles]', '[v4 styles]')
+                for line in lines
+            )
+            if looks_like_ass and warnings is not None:
+                warnings.append("No [Events] section found — file has no subtitles")
+
         document.reindex()
         document.modified = False
         return document
@@ -124,9 +133,16 @@ class ASSParser:
         content = line[6:].strip()
         values = [v.strip() for v in content.split(',')]
 
+        name = values[0] if values else 'Style'
         if len(values) < len(format_list):
-            logger.warning("Skipping ASS style with insufficient fields: %s", line)
-            return None
+            n = len(format_list) - len(values)
+            if warnings is not None:
+                warnings.append(
+                    f"Style '{name}': missing {n} field(s) (commas?), padded with defaults"
+                )
+            # Pad trailing missing fields with empty strings so from_fields
+            # falls back to its defaults instead of dropping the whole style.
+            values = values + [''] * n
 
         # Collect raw values keyed by their format-field name (lower-cased),
         # then let ASSStyle.from_fields coerce + clamp them defensively.
@@ -143,7 +159,8 @@ class ASSParser:
             return None
     
     @classmethod
-    def _parse_dialogue(cls, line: str, format_list: List[str], index: int) -> SubtitleEntry:
+    def _parse_dialogue(cls, line: str, format_list: List[str], index: int,
+                        warnings: Optional[List[str]] = None) -> Optional[SubtitleEntry]:
         """Parse a Dialogue line."""
         # Remove 'Dialogue: ' prefix
         content = line[9:].strip()
@@ -153,8 +170,13 @@ class ASSParser:
         parts = content.split(',', len(format_list) - 1)
 
         if len(parts) < len(format_list):
-            logger.warning("Skipping ASS dialogue with insufficient fields: %s", line)
-            return None
+            if warnings is not None:
+                warnings.append(
+                    f"Dialogue line dropped/truncated fields (missing commas?): {line[:60]!r}..."
+                )
+            # Pad trailing missing fields with empty strings so processing
+            # continues; missing fields become defaults/empty.
+            parts = parts + [''] * (len(format_list) - len(parts))
         
         start_time = None
         end_time = None
@@ -208,6 +230,17 @@ class ASSParser:
                 actor = value
             elif field_lower == 'effect':
                 effect = value
+
+        # Detect malformed override blocks in the dialogue text.
+        try:
+            from .ass_tags import has_unbalanced_braces
+            if has_unbalanced_braces(text):
+                if warnings is not None:
+                    warnings.append(
+                        f"Dialogue entry {index}: unbalanced {{ }} in override tags"
+                    )
+        except Exception:  # pragma: no cover - defensive
+            pass
         
         if start_time and end_time:
             return SubtitleEntry(
