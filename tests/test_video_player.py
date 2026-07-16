@@ -231,10 +231,22 @@ class TestSubtitleScalePreference:
             "subtitle_editor.widgets.video_player.os.path.expanduser",
             lambda p: str(tmp_path / "nope"),
         )
-        assert VideoPlayerWidget._load_subtitle_scale_preference() == 0.75
+        assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.0
 
     def test_malformed_line_ignored(self, fake_home):
         path = fake_home / "preferences.conf"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("subtitle_scale=not-a-number\n")
-        assert VideoPlayerWidget._load_subtitle_scale_preference() == 0.75
+        assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.0
+
+    def test_old_default_migrated(self, fake_home):
+        path = fake_home / "preferences.conf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("subtitle_scale=0.75\n")
+        assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.0
+
+    def test_non_default_preserved(self, fake_home):
+        path = fake_home / "preferences.conf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("subtitle_scale=1.25\n")
+        assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.25

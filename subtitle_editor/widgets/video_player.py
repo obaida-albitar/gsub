@@ -925,14 +925,14 @@ class VideoPlayerWidget(Gtk.Box):
         self.subtitle_scale_slider.connect("value-changed", self._on_subtitle_scale_changed)
 
         self.subtitle_scale_slider.add_mark(0.5, Gtk.PositionType.BOTTOM, None)
-        self.subtitle_scale_slider.add_mark(0.75, Gtk.PositionType.BOTTOM, "Default")
+        self.subtitle_scale_slider.add_mark(1.0, Gtk.PositionType.BOTTOM, "Default")
         self.subtitle_scale_slider.add_mark(1.5, Gtk.PositionType.BOTTOM, None)
 
         scale_box.append(self.subtitle_scale_slider)
         popover_box.append(scale_box)
 
         reset_button = Gtk.Button(label="Reset to Default")
-        reset_button.connect("clicked", lambda b: self.subtitle_scale_slider.set_value(0.75))
+        reset_button.connect("clicked", lambda b: self.subtitle_scale_slider.set_value(1.0))
         popover_box.append(reset_button)
 
         popover.set_child(popover_box)
@@ -1020,7 +1020,7 @@ class VideoPlayerWidget(Gtk.Box):
             self.subtitle_scale_slider.set_value(max(current - 0.05, 0.5))
             return True
         elif keyval in (Gdk.KEY_0, Gdk.KEY_KP_0):
-            self.subtitle_scale_slider.set_value(0.75)
+            self.subtitle_scale_slider.set_value(1.0)
             return True
         return False
 
@@ -1037,10 +1037,16 @@ class VideoPlayerWidget(Gtk.Box):
                                 value = float(line.split("=")[1].strip())
                             except (ValueError, IndexError):
                                 continue
-                            return max(0.5, min(1.5, value))
+                            value = max(0.5, min(1.5, value))
+                            # 0.75 was gsub's old "default" (smaller than mpv's
+                            # true default of 1.0). Migrate that exact value so
+                            # existing users now match standalone mpv.
+                            if value == 0.75:
+                                return 1.0
+                            return value
         except Exception as e:
             logger.warning(f"Could not load subtitle scale: {e}")
-        return 0.75
+        return 1.0
 
     @staticmethod
     def _save_subtitle_scale_preference(value: float):
