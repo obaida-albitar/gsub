@@ -25,6 +25,12 @@ from subtitle_editor.widgets.style_props_editor import (
     rgba_to_css,
     update_ass_preview,
 )
+from subtitle_editor.widgets.style_widgets import (  # noqa: E402
+    BORDER_STYLE_CHOICES,
+    ENCODING_CHOICES,
+    AlignmentGrid,
+    ChoiceRow,
+)
 import copy
 
 
@@ -546,12 +552,22 @@ class ASSStylesDialog(Adw.Dialog):
         self.style_scale_y.connect('notify::value', self._on_style_field_changed)
         self.style_outline_width.connect('notify::value', self._on_style_field_changed)
         self.style_shadow.connect('notify::value', self._on_style_field_changed)
-        self.style_alignment.connect('notify::value', self._on_style_field_changed)
-        self.style_border_style.connect('notify::value', self._on_style_field_changed)
         self.style_margin_l.connect('notify::value', self._on_style_field_changed)
         self.style_margin_r.connect('notify::value', self._on_style_field_changed)
         self.style_margin_v.connect('notify::value', self._on_style_field_changed)
-        self.style_encoding.connect('notify::value', self._on_style_field_changed)
+
+        # Semantic inputs for the enumerative fields: the alignment grid is
+        # attached here (built in code); the combos are driven by the choice
+        # tables, which also represent unknown stored encodings as "(custom)".
+        self.alignment_grid = AlignmentGrid()
+        self.alignment_grid.set_valign(Gtk.Align.CENTER)
+        self.style_alignment.add_suffix(self.alignment_grid)
+        self.alignment_grid.connect('value-changed', self._on_style_field_changed)
+
+        self._border_style_choice = ChoiceRow(self.style_border_style, BORDER_STYLE_CHOICES)
+        self._encoding_choice = ChoiceRow(self.style_encoding, ENCODING_CHOICES)
+        self._border_style_choice.connect_changed(self._on_style_field_changed)
+        self._encoding_choice.connect_changed(self._on_style_field_changed)
 
         self._load_style_into_editor()
         self._update_preview()
@@ -605,16 +621,16 @@ class ASSStylesDialog(Adw.Dialog):
             self.style_spacing.set_value(float(style.spacing))
             self.style_angle.set_value(float(style.angle))
             self._secondary_color_btn.set_rgba(self._ass_color_to_rgba(style.secondary_color) or Gdk.RGBA(0, 0, 0, 1))
-            self.style_border_style.set_value(int(style.border_style))
+            self.alignment_grid.set_value(int(style.alignment))
+            self._border_style_choice.set_value(int(style.border_style))
             self.style_margin_l.set_value(int(style.margin_l))
             self.style_margin_r.set_value(int(style.margin_r))
             self.style_margin_v.set_value(int(style.margin_v))
-            self.style_encoding.set_value(int(style.encoding))
+            self._encoding_choice.set_value(int(style.encoding))
             self.style_scale_x.set_value(float(style.scale_x))
             self.style_scale_y.set_value(float(style.scale_y))
             self.style_outline_width.set_value(float(style.outline))
             self.style_shadow.set_value(float(style.shadow))
-            self.style_alignment.set_value(int(style.alignment))
         finally:
             self._updating_style_ui = False
 
@@ -658,16 +674,16 @@ class ASSStylesDialog(Adw.Dialog):
         style.strikeout = bool(self.style_strikeout.get_active())
         style.spacing = float(self.style_spacing.get_value())
         style.angle = float(self.style_angle.get_value())
-        style.border_style = int(self.style_border_style.get_value())
+        style.alignment = int(self.alignment_grid.get_value())
+        style.border_style = int(self._border_style_choice.get_value())
         style.margin_l = int(self.style_margin_l.get_value())
         style.margin_r = int(self.style_margin_r.get_value())
         style.margin_v = int(self.style_margin_v.get_value())
-        style.encoding = int(self.style_encoding.get_value())
+        style.encoding = int(self._encoding_choice.get_value())
         style.scale_x = float(self.style_scale_x.get_value())
         style.scale_y = float(self.style_scale_y.get_value())
         style.outline = float(self.style_outline_width.get_value())
         style.shadow = float(self.style_shadow.get_value())
-        style.alignment = int(self.style_alignment.get_value())
 
         # Keep the dropdown label in sync when the name changes.
         if new_name != prev_name:
