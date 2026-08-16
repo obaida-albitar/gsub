@@ -7,6 +7,52 @@ from subtitle_editor.commands.command import Command
 from subtitle_editor.models import SubtitleEntry, SubtitleDocument, TimeCode
 
 
+# Timing used when building a new entry from its future neighbors.
+NEW_ENTRY_DURATION_MS = 2000
+NEW_ENTRY_MIN_DURATION_MS = 200
+NEW_ENTRY_GAP_MS = 100
+NEW_ENTRY_END_OFFSET_MS = 1000
+
+
+def build_new_entry(document: SubtitleDocument, position: int) -> SubtitleEntry:
+    """Create a new entry to insert at ``position`` with timing derived from
+    the entries that will surround it.
+
+    At the end of the document the new entry starts one second after the last
+    entry (the historical behaviour). Between two entries it fills the gap:
+    100ms after the previous entry, defaulting to a 2s duration but never
+    running closer than 100ms to the next entry; a too-small gap falls back to
+    a 200ms duration.
+    """
+    entries = document.entries
+    n = len(entries)
+    if position < 0 or position >= n:
+        position = n
+
+    if position >= n:
+        start_ms = (entries[-1].end_time.total_milliseconds + NEW_ENTRY_END_OFFSET_MS
+                    if entries else 0)
+        end_ms = start_ms + NEW_ENTRY_DURATION_MS
+    else:
+        next_start_ms = entries[position].start_time.total_milliseconds
+        prev_end_ms = (entries[position - 1].end_time.total_milliseconds + NEW_ENTRY_GAP_MS
+                       if position > 0 else 0)
+        start_ms = prev_end_ms
+        end_ms = min(start_ms + NEW_ENTRY_DURATION_MS, next_start_ms - NEW_ENTRY_GAP_MS)
+        if end_ms < start_ms + NEW_ENTRY_MIN_DURATION_MS:
+            # Even a minimum-length entry doesn't fit before the next
+            # subtitle; accept the small overlap rather than a flash-length
+            # entry the user can't see or click.
+            end_ms = start_ms + NEW_ENTRY_MIN_DURATION_MS
+
+    return SubtitleEntry(
+        index=position + 1,  # AddEntryCommand.reindex() fixes this up
+        start_time=TimeCode.from_milliseconds(start_ms),
+        end_time=TimeCode.from_milliseconds(end_ms),
+        text="New subtitle",
+    )
+
+
 class AddEntryCommand(Command):
     """Command to add a new subtitle entry."""
     

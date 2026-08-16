@@ -1036,6 +1036,7 @@ SHORTCUTS = [
     ]),
     (_("Navigation"), [
         (_("Home"), "<Alt>Home"),
+        (_("Find in Subtitles"), "<Ctrl>F"),
         (_("Keyboard Shortcuts"), "<Ctrl>question"),
     ]),
 ]

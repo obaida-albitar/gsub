@@ -29,9 +29,16 @@ from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers import SRTParser, ASSParser, parse_subtitle_document
 from subtitle_editor.parsers.encoding import decode_subtitle_text
-from subtitle_editor.commands import CommandManager, CompositeCommand
+from subtitle_editor.commands import (
+    CommandManager,
+    CompositeCommand,
+    AddEntryCommand,
+    RemoveEntryCommand,
+    DuplicateEntryCommand,
+    MoveEntryCommand,
+)
 from subtitle_editor.commands.ass_commands import ReplaceASSHeaderCommand
-from subtitle_editor.commands.subtitle_commands import EditTextCommand
+from subtitle_editor.commands.subtitle_commands import EditTextCommand, build_new_entry
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
@@ -89,6 +96,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # Load saved config
         config = self._load_config()
         self.last_directory = config.get("last_directory")
+        self._list_pane_position = config.get("list_pane_position", 440)
 
         # Set up window properties
         width = config.get("window_width", 1200)
@@ -246,7 +254,7 @@ class GsubWindow(Adw.ApplicationWindow):
         # Editing area - horizontal split (list + editor with video)
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.paned.set_vexpand(True)
-        self.paned.set_position(400)
+        self.paned.set_position(self._list_pane_position)
         self.paned.set_shrink_start_child(False)
         self.paned.set_shrink_end_child(False)
         self.paned.set_resize_start_child(False)
@@ -452,6 +460,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("home", self._on_home, ["<Alt>Home"])
         self._create_action("batch", self._on_batch)
         self._create_action("editor-view", self._on_editor_view)
+        self._create_action("find", self._on_find, ["<Ctrl>F"])
 
         # Edit actions
         self._create_action("undo", self._on_undo, ["<Ctrl>Z"])
@@ -461,6 +470,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("duplicate-entry", self._on_duplicate_entry, ["<Ctrl>D"])
         self._create_action("move-up", self._on_move_up, ["<Ctrl>Up"])
         self._create_action("move-down", self._on_move_down, ["<Ctrl>Down"])
+        self._create_action("insert-above", self._on_insert_above)
+        self._create_action("insert-below", self._on_insert_below)
         self._create_action("time-shift", self._on_time_shift)
         self._create_action("ass-info", self._on_ass_info_styles)
         self._create_action("ass-styles", self._on_ass_styles)
@@ -528,7 +539,8 @@ class GsubWindow(Adw.ApplicationWindow):
         for name in ("save", "save-as", "convert-to-srt", "convert-to-ass",
                      "select-tracks", "time-shift", "sort-by-time",
                      "add-entry", "remove-entry", "duplicate-entry",
-                     "move-up", "move-down", "undo", "redo"):
+                     "move-up", "move-down", "insert-above", "insert-below",
+                     "find", "undo", "redo"):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(has_doc)
@@ -572,6 +584,8 @@ class GsubWindow(Adw.ApplicationWindow):
         if not self.is_maximized():
             config["window_width"] = self.get_width()
             config["window_height"] = self.get_height()
+        if getattr(self, "paned", None) is not None:
+            config["list_pane_position"] = self.paned.get_position()
         self._save_config(config)
         return False  # allow close
 
@@ -992,129 +1006,147 @@ class GsubWindow(Adw.ApplicationWindow):
             self.editor_panel.clear()
     
     def _on_add_entry(self, action, param):
-        """Add a new subtitle entry."""
+        """Add a new subtitle entry below the selection (or at the end)."""
         if not self.document:
             self._on_new(action, param)
             return
-        
-        from subtitle_editor.commands import AddEntryCommand
-        from subtitle_editor.models import SubtitleEntry, TimeCode
-        
-        # Create new entry with default values
-        last_time_ms = 0
-        if self.document.entries:
-            last_time_ms = self.document.entries[-1].end_time.total_milliseconds + 1000
-        
-        entry = SubtitleEntry(
-            index=len(self.document.entries) + 1,
-            start_time=TimeCode.from_milliseconds(last_time_ms),
-            end_time=TimeCode.from_milliseconds(last_time_ms + 2000),
-            text="New subtitle"
-        )
-        
-        cmd = AddEntryCommand(self.document, entry)
+
+        position = self.subtitle_list.get_selected_position()
+        insert_at = position + 1 if position >= 0 else len(self.document.entries)
+        self._insert_entry_at(insert_at, "Subtitle added")
+
+    def _on_insert_above(self, action, param):
+        """Insert a new subtitle entry directly above the selection."""
+        if not self.document:
+            return
+        position = self.subtitle_list.get_selected_position()
+        if position < 0:
+            return
+        self._insert_entry_at(position, "Subtitle inserted above")
+
+    def _on_insert_below(self, action, param):
+        """Insert a new subtitle entry directly below the selection."""
+        if not self.document:
+            return
+        position = self.subtitle_list.get_selected_position()
+        if position < 0:
+            return
+        self._insert_entry_at(position + 1, "Subtitle inserted below")
+
+    def _insert_entry_at(self, position: int, toast: str):
+        """Insert a new entry (timing derived from its neighbors) at
+        ``position`` and update the list incrementally."""
+        entry = build_new_entry(self.document, position)
+        cmd = AddEntryCommand(self.document, entry, position)
         self.command_manager.execute(cmd)
-        
-        self.subtitle_list.refresh()
-        self.subtitle_list.select_entry(len(self.document.entries) - 1)
+
+        self.subtitle_list.entries_inserted(position, 1)
+        self.subtitle_list.select_entry(position)
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
         self._refresh_video_preview()
-        self._show_toast("Subtitle added")
-    
+        self._show_toast(toast)
+
+    def _on_find(self, action, param):
+        """Reveal the subtitle search bar."""
+        self.subtitle_list.set_search_visible(True)
+
     def _on_remove_entry(self, action, param):
         """Remove the selected subtitle entries."""
         if not self.document:
             return
-        
+
         positions = self.subtitle_list.get_selected_positions()
         if not positions:
             return
-        
-        from subtitle_editor.commands import RemoveEntryCommand
-        
-        # Remove in reverse order to maintain indices
-        positions_sorted = sorted(positions, reverse=True)
-        
-        for position in positions_sorted:
-            cmd = RemoveEntryCommand(self.document, position)
-            self.command_manager.execute(cmd)
-        
-        self.subtitle_list.refresh()
+
+        # Remove in reverse order to maintain indices; a composite keeps the
+        # whole removal a single undo step.
+        positions_sorted = sorted(set(positions), reverse=True)
+        commands = [RemoveEntryCommand(self.document, p) for p in positions_sorted]
+        if len(commands) == 1:
+            self.command_manager.execute(commands[0])
+        else:
+            self.command_manager.execute(
+                CompositeCommand(commands, "Remove subtitles"))
+
+        self.subtitle_list.entries_removed(positions)
         self.editor_panel.clear()
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
         self._refresh_video_preview()
-        
+
         count = len(positions)
         self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} removed")
-    
+
     def _on_duplicate_entry(self, action, param):
         """Duplicate the selected subtitle entries."""
         if not self.document:
             return
-        
+
         positions = self.subtitle_list.get_selected_positions()
         if not positions:
             return
-        
-        from subtitle_editor.commands import DuplicateEntryCommand
-        
-        # Duplicate in order, adjusting positions as we go
-        positions_sorted = sorted(positions)
+
+        # Duplicate in order, adjusting positions as we go; a composite keeps
+        # the whole duplication a single undo step.
+        positions_sorted = sorted(set(positions))
+        commands = []
         offset = 0
-        
         for position in positions_sorted:
-            cmd = DuplicateEntryCommand(self.document, position + offset)
-            self.command_manager.execute(cmd)
+            commands.append(DuplicateEntryCommand(self.document, position + offset))
             offset += 1
-        
-        self.subtitle_list.refresh()
-        # Select the last duplicated entry
+        if len(commands) == 1:
+            self.command_manager.execute(commands[0])
+        else:
+            self.command_manager.execute(
+                CompositeCommand(commands, "Duplicate subtitles"))
+
+        # Splice the duplicates into the store in ascending order.
+        for i, position in enumerate(positions_sorted):
+            self.subtitle_list.entries_inserted(position + i + 1, 1)
         if positions_sorted:
             self.subtitle_list.select_entry(positions_sorted[-1] + offset)
         self._update_title()
         self._update_status()
         self._update_undo_redo_buttons()
         self._refresh_video_preview()
-        
+
         count = len(positions)
         self._show_toast(f"{count} subtitle{'s' if count > 1 else ''} duplicated")
-    
+
     def _on_move_up(self, action, param):
         """Move the selected entry up."""
         if not self.document:
             return
-        
+
         position = self.subtitle_list.get_selected_position()
         if position > 0:
-            from subtitle_editor.commands import MoveEntryCommand
-            
             cmd = MoveEntryCommand(self.document, position, position - 1)
             self.command_manager.execute(cmd)
-            
-            self.subtitle_list.refresh()
+
+            self.subtitle_list.entry_moved(position, position - 1)
             self.subtitle_list.select_entry(position - 1)
             self._update_title()
+            self._update_undo_redo_buttons()
             self._refresh_video_preview()
-    
+
     def _on_move_down(self, action, param):
         """Move the selected entry down."""
         if not self.document:
             return
-        
+
         position = self.subtitle_list.get_selected_position()
         if position >= 0 and position < len(self.document.entries) - 1:
-            from subtitle_editor.commands import MoveEntryCommand
-            
             cmd = MoveEntryCommand(self.document, position, position + 1)
             self.command_manager.execute(cmd)
-            
-            self.subtitle_list.refresh()
+
+            self.subtitle_list.entry_moved(position, position + 1)
             self.subtitle_list.select_entry(position + 1)
             self._update_title()
+            self._update_undo_redo_buttons()
             self._refresh_video_preview()
     
     def _on_time_shift(self, action, param):
@@ -1478,7 +1510,7 @@ class GsubWindow(Adw.ApplicationWindow):
             application_name="Gsub",
             application_icon="app.gsub",
             developer_name="Gsub Contributors",
-            version="0.4",
+            version="0.5",
             license_type=Gtk.License.GPL_3_0,
             developers=["Gsub Contributors"],
             comments="A modern subtitle editor"

@@ -90,7 +90,7 @@ except FileNotFoundError:
 
 setup(
     name="gsub",
-    version="0.4",
+    version="0.5",
     author="Gsub Contributors",
     description="A modern subtitle editor for GNOME desktop",
     long_description=long_description,

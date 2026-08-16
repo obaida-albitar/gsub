@@ -1,16 +1,83 @@
 using Gtk 4.0;
+using Adw 1;
 
-// Container list view for subtitle entries. The GsubSubtitleListRow rows are
-// produced by a SignalListItemFactory wired up in code; this template only
-// provides the scrollable ListView shell and its virtualized rendering.
-template $GsubSubtitleListView : Gtk.ScrolledWindow {
+// Left-hand subtitle list. The root is a vertical box so a search bar can sit
+// above the scrollable list (revealed with Ctrl+F); an overlay with a
+// crossfading revealer shows an empty-state page when the document has no
+// entries. The GsubSubtitleListRow rows are produced by a
+// SignalListItemFactory wired up in code; this template only provides the
+// shell and its virtualized rendering.
+template $GsubSubtitleListView : Gtk.Box {
+  orientation: vertical;
   hexpand: true;
   vexpand: true;
-  hscrollbar-policy: never;
-  vscrollbar-policy: automatic;
-  has-frame: true;
 
-  ListView list_view {
-    styles ["navigation-sidebar"]
+  SearchBar search_bar {
+    child: Box search_box {
+      spacing: 6;
+
+      SearchEntry search_entry {
+        hexpand: true;
+        placeholder-text: _("Find subtitles…");
+      }
+
+      Button search_prev_button {
+        icon-name: "go-up-symbolic";
+        tooltip-text: _("Previous match (Shift+Enter)");
+        valign: center;
+      }
+
+      Button search_next_button {
+        icon-name: "go-down-symbolic";
+        tooltip-text: _("Next match (Enter)");
+        valign: center;
+      }
+
+      Label match_label {
+        styles ["numeric", "dim-label"]
+        valign: center;
+        label: "";
+      }
+    };
+  }
+
+  Overlay list_overlay {
+    vexpand: true;
+
+    [overlay]
+    Revealer empty_revealer {
+      reveal-child: false;
+      transition-type: crossfade;
+      // Overlay children sit on top of the list and would otherwise swallow
+      // all pointer input; _update_empty_state() re-enables targeting only
+      // while the empty state is revealed.
+      can-target: false;
+
+      Adw.StatusPage placeholder {
+        icon-name: "text-x-generic-symbolic";
+        title: _("No Subtitles");
+        description: _("Open a subtitle file or add your first subtitle entry");
+        hexpand: true;
+        vexpand: true;
+
+        Button add_button {
+          label: _("Add Subtitle");
+          styles ["pill", "suggested-action"]
+          halign: center;
+          action-name: "win.add-entry";
+        }
+      }
+    }
+
+    ScrolledWindow list_scroll {
+      hexpand: true;
+      vexpand: true;
+      hscrollbar-policy: never;
+      vscrollbar-policy: automatic;
+
+      ListView list_view {
+        styles ["navigation-sidebar"]
+      }
+    }
   }
 }

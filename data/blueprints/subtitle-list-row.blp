@@ -4,9 +4,13 @@ using Adw 1;
 // Row used by the SubtitleListView's SignalListItemFactory.
 // The factory creates one GsubSubtitleListRow per list item and updates its
 // index label / title / subtitle from the bound SubtitleListItem in code.
+// Title and subtitle are clamped to a single line so every row has the same
+// height; uniform heights keep GtkListView's scroll estimation stable, which
+// prevents scrollbar-drag jitter.
 template $GsubSubtitleListRow : Adw.ActionRow {
   activatable: false;
-  subtitle-lines: 2;
+  title-lines: 1;
+  subtitle-lines: 1;
 
   [prefix]
   Box index_box {
@@ -15,7 +19,7 @@ template $GsubSubtitleListRow : Adw.ActionRow {
     Label index_label {
       width-chars: 4;
       xalign: 0.5;
-      styles ["title-3", "numeric", "dim-label"]
+      styles ["numeric", "dim-label"]
     }
   }
 }
