@@ -1,0 +1,49 @@
+using Gtk 4.0;
+using Adw 1;
+
+// Document-level batch editing of ASS style definitions (font, colours,
+// layout). Complements the right-click "Bulk Apply Style" dialog, which only
+// assigns a style name to lines.
+template $GsubBatchStylePropsDialog : Adw.Dialog {
+  title: _("Batch Edit Styles");
+  content-width: 560;
+  content-height: 640;
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button apply_button {
+        label: _("Apply");
+        styles ["suggested-action"]
+        clicked => $on_apply();
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      Adw.PreferencesGroup style_group {
+        title: _("Style");
+        description: _("Pick a style, or target several below");
+
+        Adw.ComboRow style_row {
+          title: _("Style");
+          selected: 0;
+          // model is populated from code.
+        }
+      }
+
+      // The GsubStylePropsEditor group (target styles + property rows) is
+      // appended from code; its "Selected style" target follows style_row.
+    };
+  };
+}

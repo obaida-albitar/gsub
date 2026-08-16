@@ -23,6 +23,7 @@ from .style_commands import (
 
 from .bulk_style_commands import (
     BulkEditStyleCommand,
+    BulkUpdateStylePropsCommand,
 )
 
 __all__ = [
@@ -41,6 +42,7 @@ __all__ = [
 
     'EditStyleCommand',
     'BulkEditStyleCommand',
+    'BulkUpdateStylePropsCommand',
     'EditMarginsCommand',
     'SortByTimeCommand',
 ]

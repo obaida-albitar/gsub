@@ -47,67 +47,41 @@ def test_panel_instantiates():
     assert panel is not None
 
 
-def test_set_shared_styles_populates_combo():
+def test_panel_has_no_font_size_group_leftover():
     panel = _make_panel()
-    panel.set_shared_styles(["Default", "Sign", "ED1-Romaji-L0"])
-    model = panel.style_combo_row.get_model()
-    assert model is not None
-    assert model.get_n_items() == 3
-    # First style is selected by default.
-    assert panel.get_selected_style_name() == "Default"
+    # The old Font Size section was merged into Style Properties.
+    assert not hasattr(panel, "font_size_row")
+    assert not hasattr(panel, "style_combo_row")
 
 
-def test_set_shared_styles_empty():
+def test_set_style_props_styles_feeds_editor():
     panel = _make_panel()
-    panel.set_shared_styles([])
-    assert panel.style_combo_row.get_model().get_n_items() == 0
-    assert panel.get_selected_style_name() is None
-    assert panel.style_combo_row.get_sensitive() is False
+    panel.set_style_props_styles([
+        ASSStyle(name="Default", fontsize=20),
+        ASSStyle(name="Sign", fontsize=30),
+    ])
+    # No single-style source in the panel: "Selected style" hidden, All default.
+    assert panel.style_props.target_one_row.get_visible() is False
+    assert panel.style_props.get_target_styles() == ["Default", "Sign"]
 
 
-def test_set_shared_styles_preserves_selection():
+def test_set_style_props_styles_empty():
     panel = _make_panel()
-    panel.set_shared_styles(["Default", "Sign"])
-    panel.style_combo_row.set_selected(1)
-    assert panel.get_selected_style_name() == "Sign"
-
-    # Rebuild with an overlapping set that still includes the selection.
-    panel.set_shared_styles(["Default", "Sign", "ED1-Romaji-L0"])
-    assert panel.get_selected_style_name() == "Sign"
+    panel.set_style_props_styles([])
+    assert panel.style_props.get_target_styles() == []
+    assert panel.has_style_props_change() is False
 
 
-def test_set_shared_styles_drops_missing_selection():
+def test_has_style_props_change_needs_property_tick():
     panel = _make_panel()
-    panel.set_shared_styles(["Default", "Sign"])
-    panel.style_combo_row.set_selected(1)
-    assert panel.get_selected_style_name() == "Sign"
+    panel.set_style_props_styles([ASSStyle(name="Default", fontsize=20)])
 
-    # New set no longer contains "Sign" -> falls back to first item.
-    panel.set_shared_styles(["Default", "ED1-Romaji-L0"])
-    assert panel.get_selected_style_name() == "Default"
+    # Targets (All) but no property ticked yet.
+    assert panel.has_style_props_change() is False
 
-
-def test_font_size_enable_toggles_sensitivity_and_visibility():
-    panel = _make_panel()
-    assert panel.font_size_row.get_sensitive() is False
-    assert panel.style_combo_row.get_visible() is False
-
-    panel.font_enable_switch.set_active(True)
-    assert panel.font_size_row.get_sensitive() is True
-    assert panel.style_combo_row.get_visible() is True
-
-    panel.font_enable_switch.set_active(False)
-    assert panel.font_size_row.get_sensitive() is False
-    assert panel.style_combo_row.get_visible() is False
-
-
-def test_has_font_size_change():
-    panel = _make_panel()
-    panel.font_enable_switch.set_active(True)
-    panel.font_size_row.set_value(0)
-    assert panel.has_font_size_change() is False
-    panel.font_size_row.set_value(42)
-    assert panel.has_font_size_change() is True
+    panel.style_props.fontsize_check.set_active(True)
+    panel.style_props.fontsize_row.set_value(24)
+    assert panel.has_style_props_change() is True
 
 
 def test_has_resolution_change():
@@ -123,34 +97,33 @@ def test_has_resolution_change():
 def test_get_summary():
     panel = _make_panel()
     panel.offset_row.set_value(1000)
-    panel.font_enable_switch.set_active(True)
-    panel.font_size_row.set_value(30)
     panel.res_enable_switch.set_active(True)
     panel.res_width_row.set_value(1920)
     panel.res_height_row.set_value(1080)
+    panel.set_style_props_styles([ASSStyle(name="Default", fontsize=20)])
+    panel.style_props.fontsize_check.set_active(True)
+    panel.style_props.fontsize_row.set_value(24)
 
     summary = panel.get_summary()
     assert "Time shift: +1000ms" in summary
-    assert "Font size: 30pt" in summary
     assert "Resolution: 1920x1080" in summary
+    assert any(line.startswith("Style properties: Font Size on 1 style") for line in summary)
 
 
 def test_reset_clears_state():
     panel = _make_panel()
     panel.offset_row.set_value(1000)
-    panel.font_enable_switch.set_active(True)
-    panel.font_size_row.set_value(30)
     panel.res_enable_switch.set_active(True)
     panel.res_width_row.set_value(1920)
     panel.res_height_row.set_value(1080)
+    panel.set_style_props_styles([ASSStyle(name="Default", fontsize=20)])
+    panel.style_props.fontsize_check.set_active(True)
 
     panel.reset()
 
     assert int(panel.offset_row.get_value()) == 0
-    assert panel.font_enable_switch.get_active() is False
     assert panel.res_enable_switch.get_active() is False
-    # With the enable switches off, no operation is configured. (Font/res spin
-    # rows have a minimum of 1, so their raw values clamp rather than going to 0.)
+    assert panel.has_style_props_change() is False
     assert panel.has_any_operation() is False
 
 
@@ -162,7 +135,7 @@ def test_operations_changed_emitted_on_toggle():
         emitted.append(True)
 
     panel.connect("operations-changed", _on_changed)
-    panel.font_enable_switch.set_active(True)
+    panel.res_enable_switch.set_active(True)
     assert emitted  # at least one emission
 
 

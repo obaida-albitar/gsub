@@ -50,6 +50,8 @@ blueprint_names = [
   'subtitle-list',
   'batch-file-list',
   'compatibility-panel',
+  'style-props-editor',
+  'batch-style-props',
 ]
 
 compiled_ui = []

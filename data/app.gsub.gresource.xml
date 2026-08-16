@@ -26,6 +26,8 @@
     <file alias="subtitle-list.ui">subtitle-list.ui</file>
     <file alias="batch-file-list.ui">batch-file-list.ui</file>
     <file alias="compatibility-panel.ui">compatibility-panel.ui</file>
+    <file alias="style-props-editor.ui">style-props-editor.ui</file>
+    <file alias="batch-style-props.ui">batch-style-props.ui</file>
 
     <!-- App stylesheet -->
     <file alias="style.css">style.css</file>

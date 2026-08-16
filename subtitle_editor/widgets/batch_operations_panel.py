@@ -9,6 +9,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, GObject
 
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.widgets.style_props_editor import GsubStylePropsEditor
 
 
 @Gtk.Template(resource_path=template_resource_path('batch-operations-panel'))
@@ -16,8 +17,8 @@ class BatchOperationsPanel(Adw.Bin):
     """
     Panel with controls for batch operations:
     - Time shift (offset in ms)
-    - Font size (for ASS styles)
     - Resolution (PlayResX/PlayResY for ASS)
+    - Style properties (font size, font, colours, layout for ASS styles)
     """
 
     __gtype_name__ = 'GsubBatchOperationsPanel'
@@ -26,12 +27,10 @@ class BatchOperationsPanel(Adw.Bin):
         'operations-changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
+    groups_box = Gtk.Template.Child()
+    actions_group = Gtk.Template.Child()
     offset_row = Gtk.Template.Child()
     presets_box = Gtk.Template.Child()
-    font_enable_row = Gtk.Template.Child()
-    font_enable_switch = Gtk.Template.Child()
-    font_size_row = Gtk.Template.Child()
-    style_combo_row = Gtk.Template.Child()
     res_enable_row = Gtk.Template.Child()
     res_enable_switch = Gtk.Template.Child()
     res_width_row = Gtk.Template.Child()
@@ -40,8 +39,17 @@ class BatchOperationsPanel(Adw.Bin):
 
     def __init__(self):
         super().__init__()
-        self._style_names: list[str] = []
-        self._selected_style: str | None = None
+
+        # Style property batch editor (target styles + tickable property
+        # rows), placed between the Resolution and Actions groups: appending
+        # moves a widget to the end, so re-add the Actions group to keep it
+        # last.
+        self.style_props = GsubStylePropsEditor()
+        self.style_props.connect('changed', lambda *a: self.emit('operations-changed'))
+        self.groups_box.append(self.style_props)
+        self.groups_box.remove(self.actions_group)
+        self.groups_box.append(self.actions_group)
+
         self._build_presets()
         self._connect_signals()
 
@@ -59,54 +67,18 @@ class BatchOperationsPanel(Adw.Bin):
 
     def _connect_signals(self):
         self.offset_row.connect('notify::value', lambda *a: self.emit('operations-changed'))
-        self.font_size_row.connect('notify::value', lambda *a: self.emit('operations-changed'))
         self.res_width_row.connect('notify::value', lambda *a: self.emit('operations-changed'))
         self.res_height_row.connect('notify::value', lambda *a: self.emit('operations-changed'))
-        self.font_enable_switch.connect('toggled', self._on_font_enable_toggled)
         self.res_enable_switch.connect('toggled', self._on_res_enable_toggled)
-        self.style_combo_row.connect('notify::selected', self._on_style_selected)
 
-    def _on_font_enable_toggled(self, switch):
-        enabled = switch.get_active()
-        self.font_size_row.set_sensitive(enabled)
-        self.style_combo_row.set_visible(enabled)
-        self.emit('operations-changed')
+    def set_style_props_styles(self, styles: list):
+        """Feed the style properties editor the shared ASS style definitions.
 
-    def _on_style_selected(self, combo, *args):
-        idx = combo.get_selected()
-        if 0 <= idx < len(self._style_names):
-            self._selected_style = self._style_names[idx]
-        else:
-            self._selected_style = None
-        self.emit('operations-changed')
-
-    def set_shared_styles(self, style_names: list[str]):
-        """Populate the shared-style dropdown (intersection of all ASS/SSA files).
-
-        The previously selected style is restored if it is still present.
+        The editor's targets are limited to the shared style names (styles
+        present in every loaded ASS/SSA file); the style objects provide row
+        defaults and the preview base.
         """
-        self._style_names = list(style_names)
-        # Capture the current selection before swapping the model: setting the
-        # model resets the combo's selection and fires notify::selected, which
-        # would otherwise clear our remembered selection.
-        previous = self._selected_style
-        self.style_combo_row.set_model(Gtk.StringList.new(self._style_names))
-        self.style_combo_row.set_sensitive(bool(self._style_names))
-
-        if previous in self._style_names:
-            self._selected_style = previous
-            self.style_combo_row.set_selected(self._style_names.index(previous))
-        else:
-            self._selected_style = self._style_names[0] if self._style_names else None
-            if self._style_names:
-                self.style_combo_row.set_selected(0)
-
-    def get_selected_style_name(self) -> str | None:
-        """Return the name of the currently selected shared style, if any."""
-        idx = self.style_combo_row.get_selected()
-        if 0 <= idx < len(self._style_names):
-            return self._style_names[idx]
-        return None
+        self.style_props.set_styles(styles or [])
 
     def _on_res_enable_toggled(self, switch):
         enabled = switch.get_active()
@@ -118,19 +90,20 @@ class BatchOperationsPanel(Adw.Bin):
         """Check if a non-zero time shift offset is set."""
         return int(self.offset_row.get_value()) != 0
 
-    def has_font_size_change(self) -> bool:
-        """Check if font size change is enabled and set."""
-        return bool(self.font_enable_switch.get_active() and int(self.font_size_row.get_value()) > 0)
-
     def has_resolution_change(self) -> bool:
-        """Check if resolution change is enabled and set."""
+        """Check if a resolution change is enabled and set."""
         return bool(self.res_enable_switch.get_active()
                     and int(self.res_width_row.get_value()) > 0
                     and int(self.res_height_row.get_value()) > 0)
 
+    def has_style_props_change(self) -> bool:
+        """Check if style property editing is configured (target + properties)."""
+        return self.style_props.has_changes()
+
     def has_any_operation(self) -> bool:
         """Check if any operation is configured."""
-        return self.has_time_shift() or self.has_font_size_change() or self.has_resolution_change()
+        return (self.has_time_shift() or self.has_resolution_change()
+                or self.has_style_props_change())
 
     def get_summary(self) -> list[str]:
         """Get a human-readable summary of configured operations."""
@@ -139,23 +112,21 @@ class BatchOperationsPanel(Adw.Bin):
             offset = int(self.offset_row.get_value())
             sign = "+" if offset >= 0 else ""
             lines.append(f"Time shift: {sign}{offset}ms")
-        if self.has_font_size_change():
-            lines.append(f"Font size: {int(self.font_size_row.get_value())}pt")
         if self.has_resolution_change():
             w = int(self.res_width_row.get_value())
             h = int(self.res_height_row.get_value())
             lines.append(f"Resolution: {w}x{h}")
+        if self.has_style_props_change():
+            labels = self.style_props.property_labels()
+            shown = ', '.join(labels[:4]) + ('…' if len(labels) > 4 else '')
+            n = len(self.style_props.get_target_styles())
+            lines.append(f"Style properties: {shown} on {n} style{'s' if n != 1 else ''}")
         return lines
 
     def reset(self):
         """Reset all operations to defaults."""
         self.offset_row.set_value(0)
-        self.font_size_row.set_value(0)
-        self.font_enable_switch.set_active(False)
-        self.style_combo_row.set_visible(False)
-        self._style_names = []
-        self._selected_style = None
-        self.style_combo_row.set_model(Gtk.StringList.new([]))
         self.res_width_row.set_value(0)
         self.res_height_row.set_value(0)
         self.res_enable_switch.set_active(False)
+        self.style_props.reset()

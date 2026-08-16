@@ -7,6 +7,7 @@ These do not require GTK/a display, so they run anywhere (including headless CI)
 from subtitle_editor.batch_logic import (
     apply_font_size,
     apply_resolution,
+    apply_style_properties,
     collect_style_font_sizes,
     common_resolution,
     compute_shared_styles,
@@ -125,6 +126,60 @@ def test_apply_font_size_missing_style_noop():
 def test_apply_font_size_skips_srt():
     doc = _srt_doc()
     assert apply_font_size(doc, 50, "Default") is False
+
+
+# --- apply_style_properties --------------------------------------------------
+
+def test_apply_style_properties_updates_matching_styles():
+    doc = _ass_doc([("Default", 20), ("Sign", 75), ("ED", 60)])
+    assert apply_style_properties(doc, ["Default", "Sign"], {
+        "fontsize": 33,
+        "bold": True,
+        "primary_color": "&H0000FF00",
+    }) is True
+    for idx in (0, 1):
+        assert doc.styles[idx].fontsize == 33
+        assert doc.styles[idx].bold is True
+        assert doc.styles[idx].primary_color == "&H0000FF00"
+    # The untargeted style is untouched
+    assert doc.styles[2].fontsize == 60
+    assert doc.styles[2].bold is False
+
+
+def test_apply_style_properties_skips_srt():
+    doc = _srt_doc()
+    doc.styles = [ASSStyle(name="Default", fontsize=20)]
+    assert apply_style_properties(doc, ["Default"], {"fontsize": 50}) is False
+    assert doc.styles[0].fontsize == 20
+
+
+def test_apply_style_properties_missing_style_noop():
+    doc = _ass_doc([("Default", 20)])
+    assert apply_style_properties(doc, ["Nope"], {"fontsize": 50}) is False
+    assert doc.styles[0].fontsize == 20
+
+
+def test_apply_style_properties_ignores_unknown_fields():
+    doc = _ass_doc([("Default", 20)])
+    assert apply_style_properties(doc, ["Default"], {"bogus": 1, "fontsize": 40}) is True
+    assert doc.styles[0].fontsize == 40
+    assert not hasattr(doc.styles[0], "bogus")
+
+
+def test_apply_style_properties_cannot_rename():
+    doc = _ass_doc([("Default", 20)])
+    assert apply_style_properties(doc, ["Default"], {"name": "Hijacked"}) is False
+    assert doc.styles[0].name == "Default"
+
+
+def test_apply_font_size_delegation_regression():
+    doc = _ass_doc([("Default", 20), ("Sign", 75)])
+    assert apply_font_size(doc, 50, "Sign") is True
+    assert doc.styles[1].fontsize == 50
+    assert doc.styles[0].fontsize == 20
+    assert apply_font_size(doc, 50, "Nope") is False
+    assert apply_font_size(doc, 50, None) is False
+    assert apply_font_size(doc, 50, "") is False
 
 
 # --- apply_resolution --------------------------------------------------------

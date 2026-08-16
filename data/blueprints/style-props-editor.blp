@@ -1,0 +1,431 @@
+using Gtk 4.0;
+using Adw 1;
+
+// Reusable preferences group for batch-editing ASS style properties.
+// Hosted by the Batch Edit Styles dialog and the Batch Operations panel.
+// The "Apply to" rows pick the target styles (all / a single picked style /
+// an explicit checklist); every property row has a prefix CheckButton so only
+// ticked properties apply.
+template $GsubStylePropsEditor : Adw.PreferencesGroup {
+  title: _("Style Properties");
+  description: _("Only ticked properties are applied to the target styles");
+
+  Adw.ActionRow target_all_row {
+    title: _("All styles");
+    subtitle: _("Apply property changes to every style");
+
+    [prefix]
+    CheckButton target_all_check {
+      active: true;
+    }
+  }
+
+  Adw.ActionRow target_one_row {
+    title: _("Selected style");
+    visible: false;
+    // Subtitle (the current style name) and visibility are set from code;
+    // only hosts that provide a single-style source show this row.
+
+    [prefix]
+    CheckButton target_one_check {}
+  }
+
+  Adw.ExpanderRow target_choose_expander {
+    title: _("Choose styles…");
+    subtitle: _("Pick specific styles to change");
+
+    [prefix]
+    CheckButton target_choose_check {}
+
+    [suffix]
+    Box select_buttons_box {
+      spacing: 6;
+      valign: center;
+
+      Button select_all_btn {
+        label: _("All");
+        styles ["flat"]
+        clicked => $on_select_all();
+      }
+
+      Button select_none_btn {
+        label: _("None");
+        styles ["flat"]
+        clicked => $on_select_none();
+      }
+    }
+
+    // Style checklist rows are added from code.
+
+    Adw.ActionRow no_styles_row {
+      title: _("No styles available");
+      subtitle: _("Open an ASS/SSA document with styles first");
+      sensitive: false;
+    }
+  }
+
+  // --- Text ---------------------------------------------------------------
+
+  Adw.ExpanderRow text_expander {
+    title: _("Text");
+
+    Adw.ComboRow font_row {
+      title: _("Font");
+      // Model is populated from code.
+
+      [prefix]
+      CheckButton font_check {}
+    }
+
+    Adw.SpinRow fontsize_row {
+      title: _("Font Size");
+      numeric: true;
+      value: 20.0;
+      adjustment: Adjustment {
+        lower: 1;
+        upper: 200;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton fontsize_check {}
+    }
+
+    Adw.SwitchRow bold_row {
+      title: _("Bold");
+
+      [prefix]
+      CheckButton bold_check {}
+    }
+
+    Adw.SwitchRow italic_row {
+      title: _("Italic");
+
+      [prefix]
+      CheckButton italic_check {}
+    }
+
+    Adw.SwitchRow underline_row {
+      title: _("Underline");
+
+      [prefix]
+      CheckButton underline_check {}
+    }
+
+    Adw.SwitchRow strikeout_row {
+      title: _("StrikeOut");
+
+      [prefix]
+      CheckButton strikeout_check {}
+    }
+
+    Adw.SpinRow spacing_row {
+      title: _("Spacing");
+      subtitle: _("Extra space between characters");
+      digits: 1;
+      value: 0.0;
+      adjustment: Adjustment {
+        lower: -100;
+        upper: 100;
+        step-increment: 0.1;
+        page-increment: 1;
+      };
+
+      [prefix]
+      CheckButton spacing_check {}
+    }
+
+    Adw.SpinRow angle_row {
+      title: _("Angle");
+      subtitle: _("Rotation in degrees (-360 to 360)");
+      digits: 1;
+      value: 0.0;
+      adjustment: Adjustment {
+        lower: -360;
+        upper: 360;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton angle_check {}
+    }
+  }
+
+  // --- Colours ------------------------------------------------------------
+
+  Adw.ExpanderRow colours_expander {
+    title: _("Colours");
+
+    Adw.ActionRow primary_row {
+      title: _("Primary Colour");
+      activatable: false;
+
+      [prefix]
+      CheckButton primary_check {
+        valign: center;
+      }
+
+      [suffix]
+      ColorDialogButton primary_color_btn {
+        valign: center;
+        dialog: ColorDialog {
+          with-alpha: true;
+        };
+      }
+    }
+
+    Adw.ActionRow secondary_row {
+      title: _("Secondary Colour");
+      subtitle: _("Used for karaoke / collapsed styling");
+      activatable: false;
+
+      [prefix]
+      CheckButton secondary_check {
+        valign: center;
+      }
+
+      [suffix]
+      ColorDialogButton secondary_color_btn {
+        valign: center;
+        dialog: ColorDialog {
+          with-alpha: true;
+        };
+      }
+    }
+
+    Adw.ActionRow outline_row {
+      title: _("Outline Colour");
+      activatable: false;
+
+      [prefix]
+      CheckButton outline_check {
+        valign: center;
+      }
+
+      [suffix]
+      ColorDialogButton outline_color_btn {
+        valign: center;
+        dialog: ColorDialog {
+          with-alpha: true;
+        };
+      }
+    }
+
+    Adw.ActionRow back_row {
+      title: _("Back Colour");
+      activatable: false;
+
+      [prefix]
+      CheckButton back_check {
+        valign: center;
+      }
+
+      [suffix]
+      ColorDialogButton back_color_btn {
+        valign: center;
+        dialog: ColorDialog {
+          with-alpha: true;
+        };
+      }
+    }
+  }
+
+  // --- Layout ---------------------------------------------------------------
+
+  Adw.ExpanderRow layout_expander {
+    title: _("Layout");
+
+    Adw.SpinRow alignment_row {
+      title: _("Alignment");
+      subtitle: _("1-9 (ASS alignment grid)");
+      numeric: true;
+      value: 2.0;
+      adjustment: Adjustment {
+        lower: 1;
+        upper: 9;
+        step-increment: 1;
+        page-increment: 1;
+      };
+
+      [prefix]
+      CheckButton alignment_check {}
+    }
+
+    Adw.SpinRow border_style_row {
+      title: _("Border Style");
+      subtitle: _("1 = Outline + Shadow, 3 = Opaque Box");
+      numeric: true;
+      value: 1.0;
+      adjustment: Adjustment {
+        lower: 1;
+        upper: 3;
+        step-increment: 2;
+        page-increment: 2;
+      };
+
+      [prefix]
+      CheckButton border_style_check {}
+    }
+
+    Adw.SpinRow outline_width_row {
+      title: _("Outline");
+      digits: 1;
+      value: 2.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 20;
+        step-increment: 0.1;
+        page-increment: 1;
+      };
+
+      [prefix]
+      CheckButton outline_width_check {}
+    }
+
+    Adw.SpinRow shadow_row {
+      title: _("Shadow");
+      digits: 1;
+      value: 0.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 20;
+        step-increment: 0.1;
+        page-increment: 1;
+      };
+
+      [prefix]
+      CheckButton shadow_check {}
+    }
+
+    Adw.SpinRow scale_x_row {
+      title: _("Scale X (%)");
+      subtitle: _("Horizontal scaling of the text");
+      digits: 1;
+      value: 100.0;
+      adjustment: Adjustment {
+        lower: 1;
+        upper: 1000;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton scale_x_check {}
+    }
+
+    Adw.SpinRow scale_y_row {
+      title: _("Scale Y (%)");
+      subtitle: _("Vertical scaling of the text");
+      digits: 1;
+      value: 100.0;
+      adjustment: Adjustment {
+        lower: 1;
+        upper: 1000;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton scale_y_check {}
+    }
+
+    Adw.SpinRow margin_l_row {
+      title: _("Margin L");
+      subtitle: _("Left margin");
+      numeric: true;
+      value: 10.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 9999;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton margin_l_check {}
+    }
+
+    Adw.SpinRow margin_r_row {
+      title: _("Margin R");
+      subtitle: _("Right margin");
+      numeric: true;
+      value: 10.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 9999;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton margin_r_check {}
+    }
+
+    Adw.SpinRow margin_v_row {
+      title: _("Margin V");
+      subtitle: _("Vertical (bottom) margin");
+      numeric: true;
+      value: 10.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 9999;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton margin_v_check {}
+    }
+
+    Adw.SpinRow encoding_row {
+      title: _("Encoding");
+      subtitle: _("0 = default, 1 = ANSI, 2 = UTF-8 (etc.)");
+      numeric: true;
+      value: 1.0;
+      adjustment: Adjustment {
+        lower: 0;
+        upper: 255;
+        step-increment: 1;
+        page-increment: 10;
+      };
+
+      [prefix]
+      CheckButton encoding_check {}
+    }
+  }
+
+  // --- Preview ---------------------------------------------------------------
+
+  Adw.ExpanderRow preview_expander {
+    title: _("Preview");
+    subtitle: _("First ticked style with the ticked properties");
+
+    ScrolledWindow preview_scroller {
+      hexpand: true;
+      halign: fill;
+      min-content-height: 180;
+      hscrollbar-policy: never;
+      vscrollbar-policy: automatic;
+
+      child: Box preview_frame {
+        styles ["ass-preview-frame"]
+        orientation: vertical;
+        hexpand: true;
+        halign: fill;
+
+        Label preview_label {
+          styles ["ass-preview-label"]
+          xalign: 0.0;
+          halign: fill;
+          hexpand: true;
+          wrap: true;
+          wrap-mode: word_char;
+          max-width-chars: 0;
+          label: _("The quick brown fox jumps over the lazy dog 0123456789");
+        }
+      };
+    }
+  }
+}

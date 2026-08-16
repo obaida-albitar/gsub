@@ -1,133 +1,113 @@
 using Gtk 4.0;
 using Adw 1;
 
+// The ScrolledWindow sits at the panel edge so its scrollbar hugs the window;
+// the Clamp limits the content width inside it.
 template $GsubBatchOperationsPanel : Adw.Bin {
-  child: Adw.Clamp clamp {
-    maximum-size: 600;
+  child: ScrolledWindow panel_scroller {
+    hscrollbar-policy: never;
+    vscrollbar-policy: automatic;
+    vexpand: true;
 
-    Adw.PreferencesPage prefs_page {
-      vexpand: true;
+    child: Adw.Clamp clamp {
+      maximum-size: 600;
+      margin-top: 12;
+      margin-bottom: 12;
 
-      // --- Time shift ---
-      Adw.PreferencesGroup time_shift_group {
-        title: _("Time Shift");
-        description: _("Shift subtitle timing forward or backward");
+      Box groups_box {
+        orientation: vertical;
+        spacing: 12;
 
-        Adw.SpinRow offset_row {
-          title: _("Offset");
-          subtitle: _("Milliseconds (negative for backward)");
-          value: 0.0;
-          digits: 0;
-          numeric: true;
-          adjustment: Adjustment {
-            lower: -3600000;
-            upper: 3600000;
-            step-increment: 100;
-            page-increment: 1000;
-          };
-        }
+        // --- Time shift ---
+        Adw.PreferencesGroup time_shift_group {
+          title: _("Time Shift");
+          description: _("Shift subtitle timing forward or backward");
 
-        Box presets_box {
-          margin-start: 12;
-          margin-end: 12;
-          margin-top: 12;
-          margin-bottom: 12;
-          halign: center;
-          spacing: 6;
-          // Preset buttons are populated from code.
-        }
-      }
+          Adw.SpinRow offset_row {
+            title: _("Offset");
+            subtitle: _("Milliseconds (negative for backward)");
+            value: 0.0;
+            digits: 0;
+            numeric: true;
+            adjustment: Adjustment {
+              lower: -3600000;
+              upper: 3600000;
+              step-increment: 100;
+              page-increment: 1000;
+            };
+          }
 
-      // --- Font size ---
-      Adw.PreferencesGroup font_group {
-        title: _("Font Size");
-        description: _("Change font size in one ASS style");
-
-        Adw.ActionRow font_enable_row {
-          title: _("Change Font Size");
-          activatable: true;
-
-          [suffix]
-          CheckButton font_enable_switch {
-            valign: center;
+          Box presets_box {
+            margin-start: 12;
+            margin-end: 12;
+            margin-top: 12;
+            margin-bottom: 12;
+            halign: center;
+            spacing: 6;
+            // Preset buttons are populated from code.
           }
         }
 
-        Adw.SpinRow font_size_row {
-          title: _("Font Size (points)");
-          subtitle: _("Applied to the selected ASS style; SRT files are skipped");
-          value: 0.0;
-          digits: 0;
-          numeric: true;
-          sensitive: false;
-          adjustment: Adjustment {
-            lower: 1;
-            upper: 1000;
-            step-increment: 1;
-            page-increment: 10;
-          };
-        }
+        // --- Resolution ---
+        Adw.PreferencesGroup resolution_group {
+          title: _("Resolution");
+          description: _("Change ASS PlayResX/PlayResY resolution");
 
-        Adw.ComboRow style_combo_row {
-          title: _("Style");
-          visible: false;
-          // Model is populated from code.
-        }
-      }
+          Adw.ActionRow res_enable_row {
+            title: _("Change Resolution");
+            activatable: true;
 
-      // --- Resolution ---
-      Adw.PreferencesGroup resolution_group {
-        title: _("Resolution");
-        description: _("Change ASS PlayResX/PlayResY resolution");
+            [suffix]
+            CheckButton res_enable_switch {
+              valign: center;
+            }
+          }
 
-        Adw.ActionRow res_enable_row {
-          title: _("Change Resolution");
-          activatable: true;
+          Adw.SpinRow res_width_row {
+            title: _("Width (PlayResX)");
+            subtitle: _("ASS reference resolution width");
+            value: 0.0;
+            digits: 0;
+            numeric: true;
+            sensitive: false;
+            adjustment: Adjustment {
+              lower: 1;
+              upper: 7680;
+              step-increment: 1;
+              page-increment: 10;
+            };
+          }
 
-          [suffix]
-          CheckButton res_enable_switch {
-            valign: center;
+          Adw.SpinRow res_height_row {
+            title: _("Height (PlayResY)");
+            subtitle: _("ASS reference resolution height");
+            value: 0.0;
+            digits: 0;
+            numeric: true;
+            sensitive: false;
+            adjustment: Adjustment {
+              lower: 1;
+              upper: 4320;
+              step-increment: 1;
+              page-increment: 10;
+            };
           }
         }
 
-        Adw.SpinRow res_width_row {
-          title: _("Width (PlayResX)");
-          subtitle: _("ASS reference resolution width");
-          value: 0.0;
-          digits: 0;
-          numeric: true;
-          sensitive: false;
-          adjustment: Adjustment {
-            lower: 1;
-            upper: 7680;
-            step-increment: 1;
-            page-increment: 100;
-          };
-        }
+        // The GsubStylePropsEditor group (target styles + property rows) is
+        // appended from code between the Resolution and Actions groups.
 
-        Adw.SpinRow res_height_row {
-          title: _("Height (PlayResY)");
-          subtitle: _("ASS reference resolution height");
-          value: 0.0;
-          digits: 0;
-          numeric: true;
-          sensitive: false;
-          adjustment: Adjustment {
-            lower: 1;
-            upper: 4320;
-            step-increment: 1;
-            page-increment: 100;
-          };
-        }
-
-        Box action_box {
-          orientation: horizontal;
-          spacing: 6;
-          margin-top: 12;
-          homogeneous: true;
-          // Action buttons (Apply Operations / Save All / Save All As) are added from code.
+        // --- Actions (kept last; re-appended after the editor in code) ---
+        Adw.PreferencesGroup actions_group {
+          Box action_box {
+            orientation: horizontal;
+            spacing: 6;
+            margin-top: 12;
+            homogeneous: true;
+            // Action buttons (Apply Operations / Save All / Save All As) are added from code.
+          }
         }
       }
-    }
+    };
   };
 }

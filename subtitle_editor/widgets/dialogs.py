@@ -7,11 +7,23 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Pango, PangoCairo, Gdk, GObject
-from subtitle_editor.commands import TimeShiftCommand, ReplaceASSHeaderCommand, BulkEditStyleCommand
+from gi.repository import Gtk, Adw, PangoCairo, Gdk, GObject
+from subtitle_editor.commands import (
+    TimeShiftCommand,
+    ReplaceASSHeaderCommand,
+    BulkEditStyleCommand,
+    BulkUpdateStylePropsCommand,
+)
 from subtitle_editor.models import ASSStyle
 from subtitle_editor.resources import template_resource_path
-from subtitle_editor.utils import merge_font_families, is_font_installed, parse_ass_color, format_ass_color
+from subtitle_editor.utils import merge_font_families, is_font_installed
+from subtitle_editor.widgets.style_props_editor import (
+    GsubStylePropsEditor,
+    ass_color_to_rgba,
+    rgba_to_ass_color,
+    rgba_to_css,
+    update_ass_preview,
+)
 import copy
 
 
@@ -174,6 +186,74 @@ class BulkApplyStyleDialog(Adw.Dialog):
         self.parent_window._update_undo_redo_buttons()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Applied style '{style_name}'")
+
+        self.close()
+
+
+@Gtk.Template(resource_path=template_resource_path('batch-style-props'))
+class BatchStylePropsDialog(Adw.Dialog):
+    """Dialog to batch-edit style definitions (font, colours, layout) (ASS/SSA).
+
+    Complements :class:`BulkApplyStyleDialog` (right-click), which only
+    assigns a style name to lines: this one modifies the style definitions
+    themselves on the chosen targets, as a single undo step.
+    """
+
+    __gtype_name__ = 'GsubBatchStylePropsDialog'
+
+    prefs_page = Gtk.Template.Child()
+    apply_button = Gtk.Template.Child()
+    style_row = Gtk.Template.Child()
+
+    def __init__(self, parent_window):
+        super().__init__()
+        self.parent_window = parent_window
+        self.document = parent_window.document
+
+        style_names = [s.name for s in (self.document.styles or [])] or ['Default']
+        self._style_names = style_names
+        self._style_model = Gtk.StringList.new(style_names)
+        self.style_row.set_model(self._style_model)
+
+        # Style property batch editor; its "Selected style" target follows the
+        # dropdown above.
+        self.style_props = GsubStylePropsEditor()
+        self.style_props.set_single_style_source(self._selected_style)
+        self.style_props.set_styles(self.document.styles or [])
+        self.style_props.connect('changed', lambda *a: self._update_apply_sensitivity())
+        self.prefs_page.add(self.style_props)
+        self.style_row.connect('notify::selected', lambda *a: self.style_props.sync_single_style())
+        self._update_apply_sensitivity()
+
+    @Gtk.Template.Callback()
+    def on_cancel_clicked(self, _button):
+        self.close()
+
+    def _selected_style(self):
+        idx = int(self.style_row.get_selected())
+        return self._style_names[idx] if 0 <= idx < len(self._style_names) else None
+
+    def _update_apply_sensitivity(self):
+        self.apply_button.set_sensitive(self.style_props.has_changes())
+
+    @Gtk.Template.Callback()
+    def on_apply(self, _button):
+        target_styles = self.style_props.get_target_styles()
+        props = self.style_props.get_checked_props()
+        if not target_styles or not props:
+            self.parent_window._show_toast("Nothing to apply")
+            return
+
+        cmd = BulkUpdateStylePropsCommand(self.document, target_styles, props)
+        self.parent_window.command_manager.execute(cmd)
+
+        self.parent_window.subtitle_list.refresh(preserve_selection=True)
+        self.parent_window._update_title()
+        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._refresh_video_preview()
+        self.parent_window._show_toast(
+            f"Updated {len(target_styles)} style{'s' if len(target_styles) != 1 else ''}"
+        )
 
         self.close()
 
@@ -679,140 +759,32 @@ class ASSStylesDialog(Adw.Dialog):
 
     def _ass_color_to_rgba(self, ass_color: str) -> Gdk.RGBA | None:
         """Parse ASS color string (&HAABBGGRR or &HBBGGRR) to Gdk.RGBA."""
-        parsed = parse_ass_color(ass_color)
-        if parsed is None:
-            return None
-        rr, gg, bb, aa = parsed
-
-        rgba = Gdk.RGBA()
-        rgba.red = rr / 255.0
-        rgba.green = gg / 255.0
-        rgba.blue = bb / 255.0
-        rgba.alpha = 1.0 - aa / 255.0
-        return rgba
+        return ass_color_to_rgba(ass_color)
 
     def _rgba_to_css(self, rgba: Gdk.RGBA) -> str:
-        r = int(rgba.red * 255)
-        g = int(rgba.green * 255)
-        b = int(rgba.blue * 255)
-        a = rgba.alpha
-        return f"rgba({r},{g},{b},{a:.3f})"
+        return rgba_to_css(rgba)
 
     def _rgba_to_ass_color(self, rgba: Gdk.RGBA) -> str:
         """Convert RGBA to ASS &HAABBGGRR (AA inverted alpha)."""
-        rr = int(round(rgba.red * 255))
-        gg = int(round(rgba.green * 255))
-        bb = int(round(rgba.blue * 255))
-        aa = int(round((1.0 - rgba.alpha) * 255))
-        return format_ass_color(rr, gg, bb, aa)
+        return rgba_to_ass_color(rgba)
 
     # --- Preview -----------------------------------------------------------
 
     def _update_preview(self) -> None:
         if not hasattr(self, 'preview_label'):
             return
+        if not hasattr(self, '_preview_css_provider'):
+            self._preview_css_provider = Gtk.CssProvider()
+            Gtk.StyleContext.add_provider_for_display(
+                Gdk.Display.get_default(),
+                self._preview_css_provider,
+                Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
+            )
         try:
             style = self._styles[self._selected_style_index]
-
-            attrs = Pango.AttrList()
-            attrs.insert(Pango.attr_family_new(style.fontname))
-            attrs.insert(Pango.attr_size_new(int(style.fontsize * Pango.SCALE)))
-            if style.bold:
-                attrs.insert(Pango.attr_weight_new(Pango.Weight.BOLD))
-            if style.italic:
-                attrs.insert(Pango.attr_style_new(Pango.Style.ITALIC))
-            if getattr(style, 'underline', False):
-                attrs.insert(Pango.attr_underline_new(Pango.Underline.SINGLE))
-            if getattr(style, 'strikeout', False):
-                attrs.insert(Pango.attr_strikethrough_new(True))
-            try:
-                spacing_px = int(round(float(getattr(style, 'spacing', 0.0) or 0.0) * Pango.SCALE))
-            except Exception:
-                spacing_px = 0
-            if spacing_px != 0:
-                attrs.insert(Pango.attr_letter_spacing_new(spacing_px))
-            self.preview_label.set_attributes(attrs)
-
-            fg = self._ass_color_to_rgba(getattr(style, 'primary_color', None) or '')
-            bg = self._ass_color_to_rgba(getattr(style, 'back_color', None) or '') or Gdk.RGBA(0.95, 0.95, 0.95, 1)
-            outline_col = self._ass_color_to_rgba(getattr(style, 'outline_color', None) or '') or Gdk.RGBA(0, 0, 0, 1)
-
-            border_style = int(getattr(style, 'border_style', 1) or 1)
-            try:
-                angle = float(getattr(style, 'angle', 0.0) or 0.0)
-            except Exception:
-                angle = 0.0
-            try:
-                margin_l = int(getattr(style, 'margin_l', 0) or 0)
-                margin_r = int(getattr(style, 'margin_r', 0) or 0)
-                margin_v = int(getattr(style, 'margin_v', 0) or 0)
-            except Exception:
-                margin_l = margin_r = margin_v = 0
-
-            css = ""
-
-            label_props = []
-            if fg is not None:
-                label_props.append(f"color: {self._rgba_to_css(fg)}")
-
-            if angle:
-                label_props.append(
-                    f"transform: rotate({angle:.1f}deg); transform-origin: center;")
-
-            # The preview frame is meant to fill the viewport. We intentionally do
-            # NOT apply the style's real MarginL/MarginR/MarginV here — that would
-            # indent and shrink the sample so it looks like it doesn't take the
-            # full width. A subtle card background makes the full-width surface
-            # visible; BorderStyle 3 uses the style's back colour instead.
-            frame_props = []
-            if border_style == 3 and bg is not None:
-                frame_props.append(f"background-color: {self._rgba_to_css(bg)}")
-            else:
-                frame_props.append("background-color: rgba(127, 127, 127, 0.18)")
-            css += f".ass-preview-frame {{ {'; '.join(frame_props)}; padding: 12px; border-radius: 8px; }}\n"
-
-            shadows = []
-            ocss = self._rgba_to_css(outline_col) if outline_col is not None else None
-
-            # Outline/shadow only make sense for BorderStyle 1.
-            if border_style == 1:
-                try:
-                    outline_px = float(getattr(style, 'outline', 0.0) or 0.0)
-                except Exception:
-                    outline_px = 0.0
-                try:
-                    shadow_px = float(getattr(style, 'shadow', 0.0) or 0.0)
-                except Exception:
-                    shadow_px = 0.0
-
-                if outline_px > 0 and ocss is not None:
-                    o = outline_px
-                    for dx, dy in [(-o, 0), (o, 0), (0, -o), (0, o), (-o, -o), (-o, o), (o, -o), (o, o)]:
-                        shadows.append(f"{dx:.1f}px {dy:.1f}px 0 {ocss}")
-
-                if shadow_px > 0 and ocss is not None:
-                    shadows.append(f"{shadow_px:.1f}px {shadow_px:.1f}px 0 {ocss}")
-
-            if shadows:
-                label_props.append(f"text-shadow: {', '.join(shadows)}")
-
-            if label_props:
-                props = '; '.join(label_props)
-                css += f".ass-preview-label {{ {props}; }}\n"
-                css += f".ass-preview-label > text {{ {props}; }}\n"
-
-            if not hasattr(self, '_preview_css_provider'):
-                self._preview_css_provider = Gtk.CssProvider()
-                Gtk.StyleContext.add_provider_for_display(
-                    Gdk.Display.get_default(),
-                    self._preview_css_provider,
-                    Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
-                )
-
-            self._preview_css_provider.load_from_data(css.encode('utf-8'))
-
-        except Exception:
-            self.preview_label.set_attributes(None)
+        except IndexError:
+            return
+        update_ass_preview(self.preview_label, self._preview_css_provider, style)
 
     # --- Apply -------------------------------------------------------------
 

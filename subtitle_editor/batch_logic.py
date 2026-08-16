@@ -8,11 +8,17 @@ logic can be unit-tested without instantiating GTK widgets. The GUI layer
 `subtitle_editor/window.py`) delegates to these functions.
 """
 
+import dataclasses
 from typing import Iterable, Optional
 
-from subtitle_editor.models import SubtitleDocument, SubtitleFormat
+from subtitle_editor.models import ASSStyle, SubtitleDocument, SubtitleFormat
 
 _ASS_FORMATS = (SubtitleFormat.ASS, SubtitleFormat.SSA)
+
+# ASSStyle fields that batch property edits may set, derived from the model so
+# it stays in sync. The name is excluded: it identifies the style to match and
+# is never a batch-editable property.
+_ASS_STYLE_FIELDS = {f.name for f in dataclasses.fields(ASSStyle)} - {'name'}
 
 
 def _ass_docs(docs: Iterable[SubtitleDocument]) -> list[SubtitleDocument]:
@@ -74,21 +80,38 @@ def common_resolution(docs: Iterable[SubtitleDocument]) -> tuple[Optional[int], 
     return (None, None)
 
 
+def apply_style_properties(doc: SubtitleDocument, style_names: Iterable[str], props: dict) -> bool:
+    """Set the given ASSStyle fields on matching styles in an ASS/SSA document.
+
+    Returns ``True`` if any style was updated. Non-ASS docs, unknown field
+    names, and missing style names are no-ops.
+    """
+    if doc.format not in _ASS_FORMATS:
+        return False
+
+    fields = {key: value for key, value in props.items() if key in _ASS_STYLE_FIELDS}
+    if not fields:
+        return False
+
+    names = set(style_names)
+    applied = False
+    for style in doc.styles:
+        if style.name in names:
+            for field_name, value in fields.items():
+                setattr(style, field_name, value)
+            applied = True
+    return applied
+
+
 def apply_font_size(doc: SubtitleDocument, new_size: int, target_style: Optional[str]) -> bool:
     """Set ``fontsize`` for the matching style in an ASS/SSA document.
 
     Returns ``True`` if a style was updated. Non-ASS docs and a missing target
     style are no-ops (``False``).
     """
-    if doc.format not in _ASS_FORMATS or not target_style:
+    if not target_style:
         return False
-
-    applied = False
-    for style in doc.styles:
-        if style.name == target_style:
-            style.fontsize = new_size
-            applied = True
-    return applied
+    return apply_style_properties(doc, [target_style], {'fontsize': new_size})
 
 
 def apply_resolution(doc: SubtitleDocument, width: int, height: int) -> bool:

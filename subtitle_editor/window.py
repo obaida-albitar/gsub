@@ -19,9 +19,8 @@ import os
 import re
 
 from subtitle_editor.batch_logic import (
-    apply_font_size,
     apply_resolution,
-    collect_style_font_sizes,
+    apply_style_properties,
     common_resolution,
     compute_shared_styles,
 )
@@ -42,7 +41,7 @@ from subtitle_editor.commands.subtitle_commands import EditTextCommand, build_ne
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, ASSInfoDialog, ASSStylesDialog, build_shortcuts_dialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, BatchStylePropsDialog, ASSInfoDialog, ASSStylesDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -90,7 +89,6 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_visible = False
         self.current_view = "home"  # "home", "editor", or "batch"
         self.batch_format = None  # SubtitleFormat of batch files (all same format)
-        self._batch_style_fonts: dict[str, int | None] = {}  # style name -> current font size
         self.compat_issues = []
 
         # Load saved config
@@ -315,7 +313,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
         self.batch_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.batch_paned.set_vexpand(True)
-        self.batch_paned.set_position(350)
+        self.batch_paned.set_position(480)  # roomy default for long file names
         batch_box.append(self.batch_paned)
 
         # Left side: batch file list
@@ -332,11 +330,6 @@ class GsubWindow(Adw.ApplicationWindow):
         batch_ops_container.add_css_class("background")
         self.batch_operations = BatchOperationsPanel()
         self.batch_operations.connect('operations-changed', self._on_batch_ops_changed)
-        # Prefill the font size spin with the selected style's current size.
-        self.batch_operations.style_combo_row.connect(
-            'notify::selected', lambda *a: self._sync_selected_style_font_size())
-        self.batch_operations.font_enable_switch.connect(
-            'notify::active', lambda *a: self._sync_selected_style_font_size())
         batch_ops_container.append(self.batch_operations)
 
         # Batch action buttons live inside the operations panel, under the
@@ -429,7 +422,7 @@ class GsubWindow(Adw.ApplicationWindow):
         edit_section.append("Time Shift…", "win.time-shift")
         edit_section.append("ASS/SSA Info…", "win.ass-info")
         edit_section.append("ASS/SSA Styles…", "win.ass-styles")
-        edit_section.append("Bulk Apply Style…", "win.bulk-apply-style")
+        edit_section.append("Batch Edit Styles…", "win.batch-style-props")
         edit_section.append("Sort by Time", "win.sort-by-time")
         menu.append_section(None, edit_section)
         
@@ -476,6 +469,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("ass-info", self._on_ass_info_styles)
         self._create_action("ass-styles", self._on_ass_styles)
         self._create_action("bulk-apply-style", self._on_bulk_apply_style)
+        self._create_action("batch-style-props", self._on_batch_style_props)
         self._create_action("sort-by-time", self._on_sort_by_time)
         
         # Help actions
@@ -528,7 +522,7 @@ class GsubWindow(Adw.ApplicationWindow):
         fmt = self.document.format if self.document else None
         is_ass = fmt in (SubtitleFormat.ASS, SubtitleFormat.SSA)
 
-        for name in ("ass-info", "ass-styles", "bulk-apply-style"):
+        for name in ("ass-info", "ass-styles", "bulk-apply-style", "batch-style-props"):
             action = getattr(self, '_actions', {}).get(name)
             if action is not None:
                 action.set_enabled(bool(is_ass))
@@ -1191,6 +1185,19 @@ class GsubWindow(Adw.ApplicationWindow):
 
         dialog = BulkApplyStyleDialog(self)
         dialog.present()
+
+    def _on_batch_style_props(self, action, param):
+        """Batch-edit style definitions: font, colours, layout (ASS/SSA)."""
+        if not self.document:
+            return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            self._show_toast("This is only available for ASS/SSA files")
+            return
+        if not self.document.styles:
+            return
+
+        dialog = BatchStylePropsDialog(self)
+        dialog.present()
     
     def _on_sort_by_time(self, action, param):
         """Sort subtitles by start time."""
@@ -1218,8 +1225,9 @@ class GsubWindow(Adw.ApplicationWindow):
     def _refresh_batch_context(self):
         """Update batch panel context from the currently loaded files.
 
-        - Shared styles: intersection of style names across all loaded ASS/SSA
-          files (used by the Font Size operation).
+        - Style properties: the editor targets the shared styles (intersection
+          of style names across all loaded ASS/SSA files), with the first
+          ASS/SSA file's definitions as row defaults / preview base.
         - Resolution: prefill PlayResX/PlayResY if every loaded ASS/SSA file
           shares the same values, so the user can see the previous resolution.
         """
@@ -1228,11 +1236,12 @@ class GsubWindow(Adw.ApplicationWindow):
             if item.document.format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
         ]
 
-        # Shared styles (intersection across ASS/SSA docs) plus the current font
-        # size of each, used to prefill the spin.
-        self._batch_style_fonts = collect_style_font_sizes(ass_docs)
-        self.batch_operations.set_shared_styles(compute_shared_styles(ass_docs))
-        self._sync_selected_style_font_size()
+        shared_names = set(compute_shared_styles(ass_docs))
+        base_styles = (
+            [s for s in ass_docs[0].styles if s.name in shared_names]
+            if ass_docs else []
+        )
+        self.batch_operations.set_style_props_styles(base_styles)
 
         # Resolution prefill when all ASS/SSA docs agree
         width, height = common_resolution(ass_docs)
@@ -1242,14 +1251,6 @@ class GsubWindow(Adw.ApplicationWindow):
         else:
             self.batch_operations.res_width_row.set_value(0)
             self.batch_operations.res_height_row.set_value(0)
-
-    def _sync_selected_style_font_size(self):
-        """Prefill the font size spin with the selected style's current size."""
-        target = self.batch_operations.get_selected_style_name()
-        if target is None:
-            return
-        current = self._batch_style_fonts.get(target)
-        self.batch_operations.font_size_row.set_value(current if current is not None else 0)
 
     def _on_batch_ops_changed(self, widget):
         """Handle batch operations changes."""
@@ -1399,18 +1400,17 @@ class GsubWindow(Adw.ApplicationWindow):
                     entry.shift_time(offset)
                 changed = True
 
-            # Apply font size change (ASS/SSA only)
-            if self.batch_operations.has_font_size_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
-                new_size = int(self.batch_operations.font_size_row.get_value())
-                target_style = self.batch_operations.get_selected_style_name()
-                if apply_font_size(doc, new_size, target_style):
-                    changed = True
-
             # Apply resolution change (ASS/SSA only)
             if self.batch_operations.has_resolution_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
                 new_w = int(self.batch_operations.res_width_row.get_value())
                 new_h = int(self.batch_operations.res_height_row.get_value())
                 if apply_resolution(doc, new_w, new_h):
+                    changed = True
+
+            # Apply style property changes (ASS/SSA only)
+            if self.batch_operations.has_style_props_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+                editor = self.batch_operations.style_props
+                if apply_style_properties(doc, editor.get_checked_styles(), editor.get_checked_props()):
                     changed = True
 
             if changed:
