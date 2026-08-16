@@ -9,6 +9,8 @@ Supports SRT and ASS/SSA subtitle formats with full editing capabilities.
 import sys
 import gi
 
+from subtitle_editor.utils import is_video_content_type
+
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
@@ -51,11 +53,37 @@ class GsubApplication(Adw.Application):
         self.window.present()
 
     def do_open(self, files, n_files, hint):
-        """Called when the application is asked to open files."""
+        """Called when the application is asked to open files.
+
+        Videos (e.g. via "Open With" from the file manager) go to the video
+        player, everything else is treated as a subtitle file.
+        """
         self.do_activate()
         if files and len(files) > 0:
             # Open the first file
-            self.window.open_file(files[0])
+            file = files[0]
+            if self._is_video_file(file):
+                self.window.open_video(file)
+            else:
+                self.window.open_file(file)
+
+    @staticmethod
+    def _is_video_file(gfile) -> bool:
+        """Return True when the file's content type is a video type.
+
+        Any failure to query the content type falls back to "not a video" so
+        the file is still opened through the regular subtitle path.
+        """
+        try:
+            info = gfile.query_info(
+                Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+                Gio.FileQueryInfoFlags.NONE,
+                None,
+            )
+            return is_video_content_type(
+                info.get_attribute_string(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE))
+        except Exception:
+            return False
 
 
 def main():

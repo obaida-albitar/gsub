@@ -6,5 +6,5 @@ Icon=app.gsub
 Terminal=false
 Type=Application
 Categories=GTK;AudioVideo;Video;TextTools;
-MimeType=application/x-subrip;text/x-ass;text/x-ssa;
+MimeType=application/x-subrip;text/x-ass;text/x-ssa;video/mp4;video/x-matroska;video/webm;video/x-msvideo;video/quicktime;video/x-flv;video/ogg;video/x-theora+ogg;
 StartupNotify=true

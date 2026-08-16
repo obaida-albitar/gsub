@@ -847,6 +847,8 @@ class TrackSelectionDialog(Adw.Dialog):
 
     audio_group = Gtk.Template.Child()
     subtitle_group = Gtk.Template.Child()
+    extract_group = Gtk.Template.Child()
+    extract_row = Gtk.Template.Child()
 
     def __init__(self, parent, audio_tracks, subtitle_tracks, current_audio=-1, current_subtitle=-1):
         """
@@ -962,6 +964,27 @@ class TrackSelectionDialog(Adw.Dialog):
             row.set_activatable_widget(check)
             self.subtitle_group.add(row)
 
+        # The extract switch only makes sense when an embedded subtitle track
+        # can be chosen; sync its visibility/sensitivity to the selection.
+        self._update_extract_row()
+
+    def _update_extract_row(self):
+        """Show the extract switch only when embedded subtitle tracks exist,
+        and enable it only while a concrete track (not "None") is selected."""
+        has_subs = bool(self.subtitle_tracks)
+        self.extract_group.set_visible(has_subs)
+        self.extract_row.set_visible(has_subs)
+        self.extract_row.set_sensitive(self.selected_subtitle >= 0)
+        if self.selected_subtitle < 0:
+            # Extraction is meaningless without a concrete track; keep the
+            # switch OFF so the reported state stays consistent.
+            self.extract_row.set_active(False)
+
+    def get_extract_selected(self) -> bool:
+        """Whether the user asked to load the selected subtitle track for
+        editing (extraction) in addition to applying the track selection."""
+        return self.extract_row.get_active()
+
     def _on_audio_track_selected(self, check_button, track_index):
         """Handle audio track selection."""
         if check_button.get_active():
@@ -971,6 +994,7 @@ class TrackSelectionDialog(Adw.Dialog):
         """Handle subtitle track selection."""
         if check_button.get_active():
             self.selected_subtitle = track_index
+            self._update_extract_row()
 
     @Gtk.Template.Callback()
     def on_cancel_clicked(self, _button):

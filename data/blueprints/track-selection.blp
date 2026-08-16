@@ -38,6 +38,17 @@ template $GsubTrackSelectionDialog : Adw.Dialog {
           title: _("Subtitle Tracks");
           // rows added from code.
         }
+
+        Adw.PreferencesGroup extract_group {
+          // Hidden until the video has embedded subtitle tracks; visibility
+          // and sensitivity are managed from code.
+          visible: false;
+
+          Adw.SwitchRow extract_row {
+            title: _("Load selected track for editing");
+            subtitle: _("Extracts the chosen subtitle track into the editor");
+          }
+        }
       };
     };
   };

@@ -42,7 +42,7 @@ from subtitle_editor.resources import template_resource_path
 from subtitle_editor.shortcuts import accels_for_action
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
-from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, BatchStylePropsDialog, ASSInfoDialog, ASSStylesDialog, build_shortcuts_dialog
+from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, BatchStylePropsDialog, ASSInfoDialog, ASSStylesDialog, TrackSelectionDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
 from subtitle_editor.widgets.home_screen import HomeScreenView
 from subtitle_editor.widgets.batch_file_list import BatchFileList
@@ -58,6 +58,17 @@ from subtitle_editor.parsers.ass_validator import (
 )
 from subtitle_editor.font_coverage import collect_glyph_coverage_issues
 from subtitle_editor.widgets.compatibility_panel import CompatibilityPanel
+
+
+def should_show_track_dialog(n_audio: int, n_subs: int) -> bool:
+    """Return True when a video's track layout warrants the selection dialog.
+
+    The dialog is useful to pick among multiple audio tracks or to choose an
+    embedded subtitle track (to view or extract for editing). A single audio
+    track with no embedded subtitles needs no user decision, so no dialog is
+    shown for that (common) case.
+    """
+    return n_subs >= 1 or n_audio > 1
 
 
 @Gtk.Template(resource_path=template_resource_path('window'))
@@ -211,7 +222,7 @@ class GsubWindow(Adw.ApplicationWindow):
         batch_editor_btn = Gtk.Button()
         batch_editor_btn.set_icon_name("document-edit-symbolic")
         batch_editor_btn.set_tooltip_text("Editor")
-        batch_editor_btn.connect('clicked', lambda b: self._navigate_to_editor(show_open=False))
+        batch_editor_btn.connect('clicked', lambda b: self._navigate_to_editor())
         batch_nav_box.append(batch_editor_btn)
         batch_header.append(batch_nav_box)
 
@@ -242,7 +253,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
         # --- Home page ---
         self.home_screen = HomeScreenView()
-        self.home_screen.connect('open-file', lambda w: self._navigate_to_editor(show_open=True))
+        self.home_screen.connect('open-file', lambda w: self._navigate_to_editor())
         self.home_screen.connect('open-batch', lambda w: self._navigate_to_batch())
         self.view_stack.add_titled(self.home_screen, "home", "Home")
 
@@ -260,13 +271,19 @@ class GsubWindow(Adw.ApplicationWindow):
         self.paned.set_resize_end_child(True)
         main_box.append(self.paned)
 
-        # Left side: Subtitle list with card container
+        # Left side: Subtitle list with card container. Until a document is
+        # opened or created, an empty state offers the New/Open entry points
+        # instead of a blank, dead list.
         list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         list_container.add_css_class("background")
+        self.list_stack = Gtk.Stack()
         self.subtitle_list = SubtitleListView()
         self.subtitle_list.connect('entry-selected', self._on_entry_selected)
         self.subtitle_list.connect('entry-activated', self._on_entry_activated)
-        list_container.append(self.subtitle_list)
+        self.list_stack.add_named(self.subtitle_list, "list")
+        self.list_stack.add_named(self._build_list_empty_page(), "empty")
+        self.list_stack.set_visible_child_name("empty")
+        list_container.append(self.list_stack)
         self.paned.set_start_child(list_container)
 
         # Right side: Video player at top, editor panel below - use vertical paned for resizing
@@ -284,6 +301,9 @@ class GsubWindow(Adw.ApplicationWindow):
         video_container.set_visible(False)  # Hide container by default
         self.video_container = video_container  # Store reference
         self.video_player = VideoPlayerWidget()
+        # Show the unified track-selection dialog once mpv has parsed the
+        # loaded video's track list (replaces the old timeout-based checks).
+        self.video_player.connect('tracks-ready', self._on_tracks_ready)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
 
@@ -365,7 +385,30 @@ class GsubWindow(Adw.ApplicationWindow):
         self.view_stack.set_visible_child_name("home")
 
         self._update_bottom_bar()
-    
+
+    def _build_list_empty_page(self):
+        """Build the placeholder shown in the editor view before any document
+        is opened, with New/Open buttons as entry points."""
+        page = Adw.StatusPage()
+        page.set_icon_name("document-edit-symbolic")
+        page.set_title("No File Open")
+        page.set_description("Create a new subtitle file or open an existing one.")
+
+        box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        box.set_halign(Gtk.Align.CENTER)
+
+        new_button = Gtk.Button(label="New")
+        new_button.set_action_name("win.new")
+        box.append(new_button)
+
+        open_button = Gtk.Button(label="Open")
+        open_button.add_css_class("suggested-action")
+        open_button.set_action_name("win.open")
+        box.append(open_button)
+
+        page.set_child(box)
+        return page
+
     def _create_home_menu(self):
         """Create the primary menu for the home view."""
         menu = Gio.Menu()
@@ -630,11 +673,12 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_header_bar()
         self._update_bottom_bar()
 
-    def _navigate_to_editor(self, show_open=True):
+    def _navigate_to_editor(self):
         """Switch to the editor view.
 
-        Args:
-            show_open: If True, show the file open dialog (used when coming from home).
+        No file dialog is opened automatically: the home screen's "Start"
+        button just reveals the editor, whose header already offers New/Open
+        (and the empty state provides buttons when no document is loaded).
         """
         self.current_view = "editor"
         self.view_stack.set_visible_child_name("editor")
@@ -645,9 +689,6 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_bottom_bar()
         self._update_title()
         self._update_status()
-        # Only open file dialog when explicitly requested (from home screen or new file)
-        if show_open and not self.document:
-            self._on_open(None, None)
 
     def _navigate_to_batch(self):
         """Switch to the batch operations view."""
@@ -736,6 +777,7 @@ class GsubWindow(Adw.ApplicationWindow):
             
             # Update UI
             self.subtitle_list.set_document(self.document)
+            self.list_stack.set_visible_child_name("list")
             # Provide ASS/SSA style context for per-entry style selection
             style_names = [s.name for s in (self.document.styles or [])] if self.document else []
             self.editor_panel.set_document_context(self.document.format, style_names)
@@ -754,7 +796,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 self._show_toast(
                     f"Fixed {len(parse_warnings)} issue(s) while parsing — review your file")
             self._show_toast(f"Opened {os.path.basename(file_path)}")
-            self._navigate_to_editor(show_open=False)
+            self._navigate_to_editor()
 
             self._refresh_compat()
             if self.compat_issues:
@@ -837,6 +879,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.command_manager.clear()
         self.subtitle_list.set_document(self.document)
+        self.list_stack.set_visible_child_name("list")
         style_names = [s.name for s in (self.document.styles or [])] if self.document else []
         self.editor_panel.set_document_context(self.document.format, style_names)
         self.editor_panel.clear()
@@ -847,7 +890,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_format_actions()
         self._update_document_actions()
         self._hide_banner()
-        self._navigate_to_editor(show_open=False)
+        self._navigate_to_editor()
         self._refresh_compat()
 
     def _on_open(self, action, param):
@@ -1902,85 +1945,63 @@ class GsubWindow(Adw.ApplicationWindow):
             file = dialog.open_finish(result)
             if file:
                 file_path = file.get_path()
-                self.current_video_file = file_path
-                
-                # Reset extraction dialog flag for new video
-                self._extraction_dialog_shown = False
-                
-                self.video_player.load_video(file_path)
-                
-                # Show video player if hidden
-                if not self.video_visible:
-                    self.video_visible = True
-                    self.video_container.set_visible(True)
-                    self.video_button.set_active(True)
-                    # Expand the paned to show video player
-                    self.right_paned.set_position(300)
-                
-                self._save_last_directory(os.path.dirname(file_path))
-                self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
-                
-                # Check for embedded tracks after a delay to allow detection to complete
-                # Use a longer delay and check if tracks are actually detected
-                GLib.timeout_add(1500, self._check_and_show_track_selection)
-                GLib.timeout_add(2500, self._check_and_show_track_selection)  # Retry once more if needed
+                if file_path:
+                    self.load_video_path(file_path)
+                    self._save_last_directory(os.path.dirname(file_path))
         except Exception as e:
             pass  # User cancelled
-    
-    def _on_video_load_extract_response(self, dialog, response):
-        """Handle video load extraction dialog response."""
-        dialog.close()
-        if response == "extract":
-            self._show_subtitle_extraction_dialog()
-        elif response == "select":
-            self._show_track_selection_dialog()
 
-    def _check_and_show_track_selection(self):
-        """Check for embedded tracks and show selection dialog if available."""
-        has_audio, has_subtitles = self.video_player.has_embedded_tracks()
-        
-        logger.info(f"has_audio={has_audio}, has_subtitles={has_subtitles}")
-        
-        # Prevent showing dialog multiple times
-        if hasattr(self, '_extraction_dialog_shown') and self._extraction_dialog_shown:
-            return False
-        
-        # If video has audio or subtitle tracks, show unified selection dialog
-        if has_audio or has_subtitles:
-            self._extraction_dialog_shown = True
-            audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-            
-            # Create dialog asking what to do with embedded subtitles
-            extract_dialog = Adw.MessageDialog.new(
-                self,
-                "Video Contains Subtitle Tracks",
-                f"This video has {len(subtitle_tracks)} embedded subtitle track(s). What would you like to do?"
-            )
-            extract_dialog.add_response("play", "Just Play Video")
-            extract_dialog.add_response("extract", "Extract & Edit Subtitles")
-            if len(audio_tracks) > 1:
-                extract_dialog.add_response("select", "Select Tracks")
-            
-            extract_dialog.set_response_appearance("extract", Adw.ResponseAppearance.SUGGESTED)
-            extract_dialog.set_default_response("extract")
-            extract_dialog.set_close_response("play")
-            
-            extract_dialog.connect("response", self._on_video_load_extract_response)
-            extract_dialog.present()
-        elif has_audio and len(self.video_player.get_available_tracks()[0]) > 1:
-            # Multiple audio tracks but no subtitles - show track selection
-            self._show_track_selection_dialog()
-        else:
-            logger.debug("No tracks to select, skipping dialog")
-        
-        return False  # Stop timeout
-    
-    def _show_track_selection_dialog(self):
-        """Show the track selection dialog."""
+    def open_video(self, gfile: Gio.File):
+        """Open a video file, e.g. passed on the command line or via "Open With".
+
+        Falls back to an error when the file has no local path (e.g. a URI).
+        """
+        file_path = gfile.get_path() if gfile is not None else None
+        if not file_path:
+            self._show_error("Cannot open video: no local file path")
+            return
+        self.load_video_path(file_path)
+
+    def load_video_path(self, file_path: str):
+        """Load a video into the player and reveal the video pane.
+
+        Shared by the file chooser response and :meth:`open_video`. The
+        player's ``tracks-ready`` signal (emitted once mpv has parsed the
+        track list) opens the track-selection dialog when the layout needs a
+        user decision, replacing the old timeout-based checks.
+        """
+        self.current_video_file = file_path
+        self.video_player.load_video(file_path)
+
+        # Show video player if hidden
+        if not self.video_visible:
+            self.video_visible = True
+            self.video_container.set_visible(True)
+            self.video_button.set_active(True)
+            # Expand the paned to show video player
+            self.right_paned.set_position(300)
+
+        self._show_toast(f"Loaded video: {os.path.basename(file_path)}")
+
+    def _on_tracks_ready(self, player):
+        """Show the unified track dialog once the player parsed the tracks.
+
+        No dialog is shown for the common layout of a single audio track and
+        no embedded subtitles (see :func:`should_show_track_dialog`).
+        """
         audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-        
-        from subtitle_editor.widgets.dialogs import TrackSelectionDialog
-        
+        if not should_show_track_dialog(len(audio_tracks), len(subtitle_tracks)):
+            return
+        self._show_track_selection_dialog()
+
+    def _show_track_selection_dialog(self):
+        """Show the track selection dialog (single constructor site).
+
+        Used both automatically (via ``tracks-ready`` after loading a video)
+        and manually (the ``win.select-tracks`` action).
+        """
+        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
+
         track_dialog = TrackSelectionDialog(
             self,
             audio_tracks,
@@ -1989,27 +2010,6 @@ class GsubWindow(Adw.ApplicationWindow):
             self.video_player.current_subtitle_track
         )
         track_dialog.connect("tracks-selected", self._on_tracks_selected)
-        track_dialog.present()
-    
-    def _show_subtitle_extraction_dialog(self):
-        """Show dialog to select which subtitle track to extract and optionally change audio."""
-        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-        
-        if not subtitle_tracks:
-            self._show_toast("No subtitle tracks found")
-            return
-        
-        # Show full track selection dialog with audio tracks included
-        from subtitle_editor.widgets.dialogs import TrackSelectionDialog
-        
-        track_dialog = TrackSelectionDialog(
-            self,
-            audio_tracks,  # Include audio tracks
-            subtitle_tracks,
-            self.video_player.current_audio_track,
-            -1   # No subtitle pre-selected (user must choose which to extract)
-        )
-        track_dialog.connect("tracks-selected", self._on_extract_track_selected)
         track_dialog.present()
     
     def _on_toggle_video(self, action, param):
@@ -2043,81 +2043,43 @@ class GsubWindow(Adw.ApplicationWindow):
         if not self.current_video_file:
             self._show_toast("No video loaded")
             return
-        
+
         has_audio, has_subtitles = self.video_player.has_embedded_tracks()
-        
+
         if not has_audio and not has_subtitles:
             self._show_toast("No embedded tracks found in video")
             return
-        
-        # Get track information
-        audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-        
-        # Show track selection dialog
-        from subtitle_editor.widgets.dialogs import TrackSelectionDialog
-        
-        track_dialog = TrackSelectionDialog(
-            self,
-            audio_tracks,
-            subtitle_tracks,
-            self.video_player.current_audio_track,
-            self.video_player.current_subtitle_track
-        )
-        track_dialog.connect("tracks-selected", self._on_tracks_selected)
-        track_dialog.present()
-    
+
+        self._show_track_selection_dialog()
+
     def _on_tracks_selected(self, dialog, audio_track, subtitle_track):
-        """Handle track selection from dialog."""
-        # Close the track selection dialog first
+        """Handle track selection from the unified track dialog.
+
+        Applies the audio/subtitle selection to the player and, when the
+        dialog's extract switch was enabled, extracts the chosen subtitle
+        track into the editor instead of just showing it in the video.
+        """
+        # Read the extract switch before closing (the dialog may be torn down).
+        wants_extract = dialog.get_extract_selected()
         dialog.close()
-        
+
         # Set audio track (can be changed independently)
         if audio_track >= 0:
             self.video_player.set_audio_track(audio_track)
             self._show_toast(f"Audio track {audio_track + 1} selected")
-        
-        # Set subtitle track
-        if subtitle_track >= 0:
-            self.video_player.set_subtitle_track(subtitle_track)
 
-            # Ask user if they want to extract and edit the subtitle track
-            audio_tracks, subtitle_tracks = self.video_player.get_available_tracks()
-            pos = next(
-                (i for i, t in enumerate(subtitle_tracks) if t.get("id") == subtitle_track),
-                None,
-            )
-            track_info = subtitle_tracks[pos] if pos is not None else {}
-            track_name = track_info.get('title', f"Track {subtitle_track + 1}")
-            
-            extract_dialog = Adw.MessageDialog.new(
-                self,
-                "Extract Subtitle Track?",
-                f"Do you want to extract '{track_name}' for editing, or just view it?"
-            )
-            extract_dialog.add_response("view", "View Only")
-            extract_dialog.add_response("extract", "Extract & Edit")
-            extract_dialog.set_response_appearance("extract", Adw.ResponseAppearance.SUGGESTED)
-            extract_dialog.set_default_response("extract")
-            extract_dialog.set_close_response("view")
-            
-            extract_dialog.connect("response", self._on_extract_response, subtitle_track)
-            extract_dialog.present()
+        if subtitle_track >= 0:
+            if wants_extract:
+                # Extract the chosen track for editing; its completion handler
+                # disables the embedded track before loading the external file.
+                self._extract_and_load_subtitle(subtitle_track)
+            else:
+                # View only - the embedded track stays enabled in the player
+                self.video_player.set_subtitle_track(subtitle_track)
         elif subtitle_track == -1:
             # Disable embedded subtitles
             self.video_player.set_subtitle_track(-1)
             self._show_toast("Using external subtitles")
-    
-    def _on_extract_track_selected(self, dialog, audio_track, subtitle_track):
-        """Handle track selection for extraction."""
-        # Apply audio track selection first (independent of subtitle extraction)
-        if audio_track >= 0:
-            self.video_player.set_audio_track(audio_track)
-        
-        # Then handle subtitle extraction if a track is selected
-        if subtitle_track >= 0:
-            self._extract_and_load_subtitle(subtitle_track)
-        
-        dialog.close()
     
     def _extract_and_load_subtitle(self, track_index):
         """Extract a subtitle track and load it for editing.
@@ -2195,13 +2157,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
         # Start extraction
         self.video_player.extract_subtitle_track(track_index, temp_path, on_extract_complete)
-    
-    def _on_extract_response(self, dialog, response, subtitle_track):
-        """Handle subtitle extraction response (from manual track selection)."""
-        if response == "extract":
-            self._extract_and_load_subtitle(subtitle_track)
-        # else: view only - embedded subtitles remain enabled in video player
-    
+
     def _clean_subtitle_html(self, subtitle_path):
         r"""Remove HTML/font tags and fix ASS format issues from subtitle file.
         
