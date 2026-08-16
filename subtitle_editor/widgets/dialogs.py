@@ -16,6 +16,7 @@ from subtitle_editor.commands import (
 )
 from subtitle_editor.models import ASSStyle
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.shortcuts import SECTION_ORDER, entries_for_section
 from subtitle_editor.utils import merge_font_families, is_font_installed
 from subtitle_editor.widgets.style_props_editor import (
     GsubStylePropsEditor,
@@ -982,40 +983,16 @@ class TrackSelectionDialog(Adw.Dialog):
         self.close()
 
 
-# (section_title, [(action_title, accelerator_display), ...])
+# The shortcut list itself lives in subtitle_editor.shortcuts (the single
+# source of truth shared with the accel registration in the main window).
 # Accelerators use GTK accelerator syntax (see gtk_accelerator_parse), which
 # AdwShortcutsItem renders with proper Adwaita keycaps.
-SHORTCUTS = [
-    (_("File"), [
-        (_("New"), "<Ctrl>N"),
-        (_("Open…"), "<Ctrl>O"),
-        (_("Save"), "<Ctrl>S"),
-        (_("Save As…"), "<Ctrl><Shift>S"),
-    ]),
-    (_("Editing"), [
-        (_("Undo"), "<Ctrl>Z"),
-        (_("Redo"), "<Ctrl><Shift>Z"),
-        (_("Add Subtitle"), "<Ctrl><Shift>N"),
-        (_("Remove Subtitle"), "Delete"),
-        (_("Duplicate Subtitle"), "<Ctrl>D"),
-        (_("Move Up"), "<Ctrl>Up"),
-        (_("Move Down"), "<Ctrl>Down"),
-    ]),
-    (_("Video"), [
-        (_("Open Video…"), "<Ctrl><Shift>O"),
-        (_("Toggle Video Player"), "<Ctrl>V"),
-        (_("Select Audio/Subtitle Tracks…"), "<Ctrl><Shift>T"),
-    ]),
-    (_("Navigation"), [
-        (_("Home"), "<Alt>Home"),
-        (_("Find in Subtitles"), "<Ctrl>F"),
-        (_("Keyboard Shortcuts"), "<Ctrl>question"),
-    ]),
-]
-
-
 def build_shortcuts_dialog() -> Adw.ShortcutsDialog:
     """Build a keyboard shortcuts dialog using libadwaita's AdwShortcutsDialog.
+
+    Sections and items come from the shared shortcut table in
+    subtitle_editor.shortcuts, so the dialog always matches the accels
+    registered by the main window.
 
     AdwShortcutsDialog is a final type and cannot be subclassed, so the dialog
     is constructed directly and populated with sections and items. This follows
@@ -1024,10 +1001,17 @@ def build_shortcuts_dialog() -> Adw.ShortcutsDialog:
     """
     dialog = Adw.ShortcutsDialog(title=_("Keyboard Shortcuts"))
 
-    for section_title, items in SHORTCUTS:
-        section = Adw.ShortcutsSection(title=section_title)
-        for title, accel in items:
-            section.add(Adw.ShortcutsItem(title=title, accelerator=accel))
+    for section_title in SECTION_ORDER:
+        shortcuts = entries_for_section(section_title)
+        if not shortcuts:
+            continue
+        section = Adw.ShortcutsSection(title=_(section_title))
+        for shortcut in shortcuts:
+            # AdwShortcutsItem renders multiple accels separated by spaces.
+            section.add(Adw.ShortcutsItem(
+                title=_(shortcut.title),
+                accelerator=" ".join(shortcut.accels),
+            ))
         dialog.add(section)
 
     return dialog

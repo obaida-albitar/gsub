@@ -39,6 +39,7 @@ from subtitle_editor.commands import (
 from subtitle_editor.commands.ass_commands import ReplaceASSHeaderCommand
 from subtitle_editor.commands.subtitle_commands import EditTextCommand, build_new_entry
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.shortcuts import accels_for_action
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.editor_panel import EditorPanel
 from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, BatchStylePropsDialog, ASSInfoDialog, ASSStylesDialog, build_shortcuts_dialog
@@ -184,7 +185,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
         self.video_button = Gtk.ToggleButton()
         self.video_button.set_icon_name("video-display-symbolic")
-        self.video_button.set_tooltip_text("Toggle Video Player (Ctrl+V)")
+        self.video_button.set_tooltip_text("Toggle Video Player (Ctrl+Shift+V)")
         self.video_button.connect('toggled', self._on_video_toggle)
         self.video_button.set_margin_start(6)
         editor_header.append(self.video_button)
@@ -390,7 +391,13 @@ class GsubWindow(Adw.ApplicationWindow):
     def _create_editor_menu(self):
         """Create the primary menu for the editor view."""
         menu = Gio.Menu()
-        
+
+        # Undo/redo section (accel labels come from the registered accels)
+        undo_redo_section = Gio.Menu()
+        undo_redo_section.append("Undo", "win.undo")
+        undo_redo_section.append("Redo", "win.redo")
+        menu.append_section(None, undo_redo_section)
+
         # File section
         file_section = Gio.Menu()
         file_section.append("New", "win.new")
@@ -435,34 +442,35 @@ class GsubWindow(Adw.ApplicationWindow):
         return menu
     
     def _setup_actions(self):
-        """Set up window actions."""
+        """Set up window actions. Accels come from subtitle_editor.shortcuts."""
         # File actions
-        self._create_action("new", self._on_new, ["<Ctrl>N"])
-        self._create_action("open", self._on_open, ["<Ctrl>O"])
-        self._create_action("save", self._on_save, ["<Ctrl>S"])
-        self._create_action("save-as", self._on_save_as, ["<Ctrl><Shift>S"])
+        self._create_action("new", self._on_new)
+        self._create_action("open", self._on_open)
+        self._create_action("save", self._on_save)
+        self._create_action("save-as", self._on_save_as)
         self._create_action("convert-to-srt", self._on_convert_to_srt)
         self._create_action("convert-to-ass", self._on_convert_to_ass)
-        
+
         # Video actions
-        self._create_action("open-video", self._on_open_video, ["<Ctrl><Shift>O"])
-        self._create_action("toggle-video", self._on_toggle_video, ["<Ctrl>V"])
-        self._create_action("select-tracks", self._on_select_tracks, ["<Ctrl><Shift>T"])
-        
+        self._create_action("open-video", self._on_open_video)
+        self._create_action("play-pause", self._on_play_pause)
+        self._create_action("toggle-video", self._on_toggle_video)
+        self._create_action("select-tracks", self._on_select_tracks)
+
         # Navigation actions
-        self._create_action("home", self._on_home, ["<Alt>Home"])
+        self._create_action("home", self._on_home)
         self._create_action("batch", self._on_batch)
         self._create_action("editor-view", self._on_editor_view)
-        self._create_action("find", self._on_find, ["<Ctrl>F"])
+        self._create_action("find", self._on_find)
 
         # Edit actions
-        self._create_action("undo", self._on_undo, ["<Ctrl>Z"])
-        self._create_action("redo", self._on_redo, ["<Ctrl><Shift>Z"])
-        self._create_action("add-entry", self._on_add_entry, ["<Ctrl><Shift>N"])
-        self._create_action("remove-entry", self._on_remove_entry, ["Delete"])
-        self._create_action("duplicate-entry", self._on_duplicate_entry, ["<Ctrl>D"])
-        self._create_action("move-up", self._on_move_up, ["<Ctrl>Up"])
-        self._create_action("move-down", self._on_move_down, ["<Ctrl>Down"])
+        self._create_action("undo", self._on_undo)
+        self._create_action("redo", self._on_redo)
+        self._create_action("add-entry", self._on_add_entry)
+        self._create_action("remove-entry", self._on_remove_entry)
+        self._create_action("duplicate-entry", self._on_duplicate_entry)
+        self._create_action("move-up", self._on_move_up)
+        self._create_action("move-down", self._on_move_down)
         self._create_action("insert-above", self._on_insert_above)
         self._create_action("insert-below", self._on_insert_below)
         self._create_action("time-shift", self._on_time_shift)
@@ -471,11 +479,11 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("bulk-apply-style", self._on_bulk_apply_style)
         self._create_action("batch-style-props", self._on_batch_style_props)
         self._create_action("sort-by-time", self._on_sort_by_time)
-        
+
         # Help actions
         self._create_action("about", self._on_about)
-        self._create_action("show-help-overlay", self._on_show_shortcuts, ["<Ctrl>question"])
-    
+        self._create_action("show-help-overlay", self._on_show_shortcuts)
+
     def _create_action(self, name: str, callback, shortcuts=None):
         """Create and register an action."""
         action = Gio.SimpleAction.new(name, None)
@@ -486,7 +494,11 @@ class GsubWindow(Adw.ApplicationWindow):
         if not hasattr(self, '_actions'):
             self._actions = {}
         self._actions[name] = action
-        
+
+        # Look up accels in the shortcuts table unless overridden explicitly;
+        # actions absent from the table get no accel.
+        if shortcuts is None:
+            shortcuts = accels_for_action(f"win.{name}")
         if shortcuts:
             self.get_application().set_accels_for_action(f"win.{name}", shortcuts)
     
@@ -972,6 +984,8 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _on_undo(self, action, param):
         """Undo the last action."""
+        # Capture the description before undoing; afterwards it names the next one.
+        desc = self.command_manager.get_undo_description()
         if self.command_manager.undo():
             self.subtitle_list.refresh(preserve_selection=True)
             self._update_editor_after_change()
@@ -979,9 +993,11 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_status()
             self._update_undo_redo_buttons()
             self._refresh_video_preview()
+            self._show_toast(f"Undo: {desc}" if desc else "Undo")
 
     def _on_redo(self, action, param):
         """Redo the last undone action."""
+        desc = self.command_manager.get_redo_description()
         if self.command_manager.redo():
             self.subtitle_list.refresh(preserve_selection=True)
             self._update_editor_after_change()
@@ -989,6 +1005,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_status()
             self._update_undo_redo_buttons()
             self._refresh_video_preview()
+            self._show_toast(f"Redo: {desc}" if desc else "Redo")
     
     def _update_editor_after_change(self):
         """Update the editor panel after undo/redo or other changes."""
@@ -1998,6 +2015,11 @@ class GsubWindow(Adw.ApplicationWindow):
     def _on_toggle_video(self, action, param):
         """Toggle video player visibility."""
         self.video_button.set_active(not self.video_button.get_active())
+
+    def _on_play_pause(self, action, param):
+        """Toggle video playback (Space)."""
+        if self.current_video_file:
+            self.video_player.toggle_play_pause()
     
     def _on_video_toggle(self, button):
         """Handle video player toggle button."""
