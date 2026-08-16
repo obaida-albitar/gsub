@@ -11,6 +11,7 @@ from subtitle_editor.models import (
     SubtitleEntry, SubtitleDocument, SubtitleFormat,
     TimeCode, ASSStyle
 )
+from subtitle_editor.parsers.ass_tags import has_unbalanced_braces
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,7 @@ class ASSParser:
         if len(parts) < len(format_list):
             if warnings is not None:
                 warnings.append(
-                    f"Dialogue line dropped/truncated fields (missing commas?): {line[:60]!r}..."
+                    f"Dialogue line has missing/truncated fields (missing commas?): {line[:60]!r}..."
                 )
             # Pad trailing missing fields with empty strings so processing
             # continues; missing fields become defaults/empty.
@@ -232,37 +233,37 @@ class ASSParser:
                 effect = value
 
         # Detect malformed override blocks in the dialogue text.
-        try:
-            from .ass_tags import has_unbalanced_braces
-            if has_unbalanced_braces(text):
-                if warnings is not None:
-                    warnings.append(
-                        f"Dialogue entry {index}: unbalanced {{ }} in override tags"
-                    )
-        except Exception:  # pragma: no cover - defensive
-            pass
-        
-        if start_time and end_time:
-            return SubtitleEntry(
-                index=index,
-                start_time=start_time,
-                end_time=end_time,
-                text=text,
-                style=style,
-                margin_l=margin_l,
-                margin_r=margin_r,
-                margin_v=margin_v,
-                layer=layer,
-                actor=actor,
-                effect=effect
-            )
+        if has_unbalanced_braces(text):
+            if warnings is not None:
+                warnings.append(
+                    f"Dialogue entry {index}: unbalanced {{ }} in override tags"
+                )
 
-        logger.warning("Skipping ASS dialogue with missing start or end time: %s", line)
-        return None
-    
+        if start_time is None or end_time is None:
+            if warnings is not None:
+                warnings.append(
+                    f"Dialogue line skipped (unparseable start or end time): {line[:60]!r}..."
+                )
+            logger.warning("Skipping ASS dialogue with missing start or end time: %s", line)
+            return None
+
+        return SubtitleEntry(
+            index=index,
+            start_time=start_time,
+            end_time=end_time,
+            text=text,
+            style=style,
+            margin_l=margin_l,
+            margin_r=margin_r,
+            margin_v=margin_v,
+            layer=layer,
+            actor=actor,
+            effect=effect
+        )
+
     @classmethod
-    def _parse_timecode(cls, timecode_str: str) -> TimeCode:
-        """Parse an ASS timecode string."""
+    def _parse_timecode(cls, timecode_str: str) -> Optional[TimeCode]:
+        """Parse an ASS timecode string; return None if it doesn't match."""
         match = cls.TIMECODE_PATTERN.match(timecode_str)
         if match:
             hours = int(match.group(1))
@@ -270,9 +271,9 @@ class ASSParser:
             seconds = int(match.group(3))
             centiseconds = int(match.group(4))
             milliseconds = centiseconds * 10
-            
+
             return TimeCode(hours, minutes, seconds, milliseconds)
-        return TimeCode()
+        return None
     
     @classmethod
     def serialize(cls, document: SubtitleDocument) -> str:

@@ -60,6 +60,12 @@ class TestAssTags:
         pos = get_positioning("{\\pos(10,20)}hello")
         assert pos == {"kind": "pos", "x": 10.0, "y": 20.0}
 
+    def test_get_positioning_skips_malformed_tag(self):
+        # A malformed \pos must not hide a later valid directive.
+        pos = get_positioning("{\\pos(bad,1)\\an5}")
+        assert pos == {"kind": "an", "n": 5}
+        assert get_positioning("{\\move(1,2,3)}") is None
+
     def test_unbalanced_braces(self):
         assert has_unbalanced_braces("{ \\pos(1,2) ") is True
         assert has_unbalanced_braces("{\\pos(1,2)}") is False
@@ -217,7 +223,13 @@ class TestFixAttribution:
     def test_invisible_text_fix(self):
         doc = make_doc(styles=[ASSStyle(name="Default", primary_color="&HFF000000")])
         issue = self._by_code(doc)["color.invisible_text"]
-        assert issue.fix == {"kind": "color", "field": "primary_color", "alpha": 0}
+        assert issue.fix == {"kind": "color", "field": "primary_color", "alpha": 0,
+                             "style": "Default"}
+
+    def test_color_fixes_carry_style_name(self):
+        doc = make_doc(styles=[ASSStyle(name="Sign", primary_color="#BAD")])
+        by = self._by_code(doc)
+        assert by["color.unknown_format"].fix["style"] == "Sign"
 
     def test_non_fixable_codes_have_no_fix(self):
         doc = make_doc(
@@ -251,5 +263,14 @@ class TestFixHelpers:
     def test_clamp_blur_clamps_large_only(self):
         assert clamp_blur("{\\blur(20)\\b1} rest {\\blur(5)}") == "{\\blur(10)\\b1} rest {\\blur(5)}"
 
+    def test_clamp_blur_handles_bare_form(self):
+        # The tokenizer flags both \blur(20) and \blur20; the fix must too.
+        assert clamp_blur("{\\blur20} text") == "{\\blur(10)} text"
+        assert clamp_blur("{\\blur(20)} and {\\blur15}") == "{\\blur(10)} and {\\blur(10)}"
+
     def test_strip_fsp_removes_overrides(self):
         assert strip_fsp("hi {\\fsp(3)} there {\\fsp(2.5)}") == "hi {} there {}"
+
+    def test_strip_fsp_handles_bare_form(self):
+        assert strip_fsp("hi {\\fsp2} there") == "hi {} there"
+        assert strip_fsp("{\\fsp(3)\\b1}{\\fsp4}") == "{\\b1}{}"

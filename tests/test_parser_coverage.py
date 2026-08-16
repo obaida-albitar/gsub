@@ -112,8 +112,8 @@ Dialogue: 0,Default,,0,0,0,,No start or end
 
     @pytest.mark.unit
     @pytest.mark.parser
-    def test_malformed_timecode_returns_default(self):
-        """Invalid timecode format returns TimeCode(), entry is still created."""
+    def test_malformed_timecode_skips_entry(self):
+        """Dialogue with unparseable timecodes is skipped with a warning."""
         content = """[Script Info]
 Title: Test
 
@@ -124,12 +124,13 @@ Style: Default,Arial,20,&H00FFFFFF,&H00000000,&H00000000,&H00000000,0,0,0,0,100.
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 Dialogue: 0,NOT_A_TIMECODE,ALSO_INVALID,Default,,0,0,0,,Bad times
+Dialogue: 0,0:00:03.00,0:00:05.00,Default,,0,0,0,,Valid
 """
-        doc = ASSParser.parse(content)
+        warnings = []
+        doc = ASSParser.parse(content, warnings)
         assert len(doc.entries) == 1
-        entry = doc.entries[0]
-        assert entry.start_time.total_milliseconds == 0
-        assert entry.end_time.total_milliseconds == 0
+        assert doc.entries[0].text == "Valid"
+        assert any("unparseable start or end time" in w for w in warnings)
 
     @pytest.mark.unit
     @pytest.mark.parser

@@ -419,6 +419,9 @@ class ASSStylesDialog(Adw.Dialog):
 
         self._selected_style_index = 0
         self._updating_style_ui = False
+        # old name -> new name for styles renamed during this edit; applied
+        # on Apply so dialogue entries keep referencing the renamed style.
+        self._renames: dict = {}
 
         # --- Style selector (dropdown) ---
         self._style_model = Gtk.StringList.new([s.name for s in self._styles])
@@ -588,15 +591,29 @@ class ASSStylesDialog(Adw.Dialog):
         # Keep the dropdown label in sync when the name changes.
         if new_name != prev_name:
             self._style_model.splice(self._selected_style_index, 1, [new_name])
+            self._record_rename(prev_name, new_name)
 
         self._update_font_warning(style.fontname)
         self._update_preview()
+
+    def _record_rename(self, old_name: str, new_name: str) -> None:
+        """Track a style rename, resolving chains (a→b then b→c to a→c)."""
+        for prev_old, prev_new in list(self._renames.items()):
+            if prev_new == old_name:
+                self._renames[prev_old] = new_name
+        self._renames[old_name] = new_name
 
     # --- Add / remove ------------------------------------------------------
 
     @Gtk.Template.Callback()
     def on_add_style(self, _button):
-        new_style = ASSStyle(name=f"Style{len(self._styles) + 1}")
+        existing = {s.name for s in self._styles}
+        n = len(self._styles) + 1
+        name = f"Style{n}"
+        while name in existing:
+            n += 1
+            name = f"Style{n}"
+        new_style = ASSStyle(name=name)
         self._styles.append(new_style)
         self._style_model.splice(self._style_model.get_n_items(), 0, [new_style.name])
         self._set_selected_style_index(len(self._styles) - 1)
@@ -610,8 +627,12 @@ class ASSStylesDialog(Adw.Dialog):
         self._confirm_remove_style()
 
     def _fallback_style_name(self) -> str:
-        return next((s.name for s in self._styles if s.name == 'Default'),
-                    self._styles[0].name if self._styles else 'Default')
+        """Name shown as the removal fallback: prefer a style literally named
+        'Default', then any other surviving style — never the removed one."""
+        removed = self._styles[self._selected_style_index]
+        others = [s for s in self._styles if s is not removed]
+        return next((s.name for s in others if s.name == 'Default'),
+                    others[0].name if others else 'Default')
 
     def _confirm_remove_style(self) -> None:
         style = self._styles[self._selected_style_index]
@@ -797,40 +818,25 @@ class ASSStylesDialog(Adw.Dialog):
 
     @Gtk.Template.Callback()
     def on_apply(self, _button):
-        names = [s.name.strip() for s in self._styles if s.name and s.name.strip()]
+        # Validate names over ALL styles: non-empty, no commas (the Style line
+        # is comma-separated, so a comma would corrupt the file), no duplicates.
+        names = []
+        for s in self._styles:
+            name = (s.name or "").strip()
+            if not name:
+                self.parent_window._show_toast("Style names must not be empty")
+                return
+            if "," in name:
+                self.parent_window._show_toast(
+                    f"Style name “{name}” must not contain commas")
+                return
+            names.append(name)
         if len(set(names)) != len(names):
             self.parent_window._show_toast("Style names must be unique")
             return
 
         # Sanitize every edited style defensively before applying.
-        sanitized = []
-        for style in self._styles:
-            fields = {
-                'name': style.name,
-                'fontname': style.fontname,
-                'fontsize': str(style.fontsize),
-                'primarycolour': style.primary_color,
-                'secondarycolour': style.secondary_color,
-                'outlinecolour': style.outline_color,
-                'backcolour': style.back_color,
-                'bold': '-1' if style.bold else '0',
-                'italic': '-1' if style.italic else '0',
-                'underline': '-1' if style.underline else '0',
-                'strikeout': '-1' if style.strikeout else '0',
-                'scalex': str(style.scale_x),
-                'scaley': str(style.scale_y),
-                'spacing': str(style.spacing),
-                'angle': str(style.angle),
-                'borderstyle': str(style.border_style),
-                'outline': str(style.outline),
-                'shadow': str(style.shadow),
-                'alignment': str(style.alignment),
-                'marginl': str(style.margin_l),
-                'marginr': str(style.margin_r),
-                'marginv': str(style.margin_v),
-                'encoding': str(style.encoding),
-            }
-            sanitized.append(ASSStyle.from_fields(fields))
+        sanitized = [ASSStyle.from_fields(s.to_fields()) for s in self._styles]
 
         cmd = ReplaceASSHeaderCommand(
             self.document,
@@ -838,6 +844,7 @@ class ASSStylesDialog(Adw.Dialog):
             aegisub_project_garbage=getattr(self.document, 'aegisub_project_garbage', {}),
             styles=sanitized,
             fallback_style='Default',
+            style_renames=self._renames,
         )
         self.parent_window.command_manager.execute(cmd)
 

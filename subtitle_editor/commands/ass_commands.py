@@ -14,6 +14,10 @@ class ReplaceASSHeaderCommand(Command):
     """Replace Script Info metadata, optional Aegisub garbage, and the complete style list as one undo step.
 
     This is intended for UI use where the user edits the full state.
+
+    ``style_renames`` optionally maps old style names to new ones; dialogue
+    entries referencing an old name are switched to the new one instead of
+    falling back when the old name disappears from the style list.
     """
 
     def __init__(
@@ -24,12 +28,14 @@ class ReplaceASSHeaderCommand(Command):
         aegisub_project_garbage: Optional[Dict[str, str]] = None,
         styles: Optional[List[ASSStyle]] = None,
         fallback_style: str = "Default",
+        style_renames: Optional[Dict[str, str]] = None,
     ):
         self.document = document
         self.metadata = copy.deepcopy(metadata or {})
         self.aegisub_project_garbage = copy.deepcopy(aegisub_project_garbage or {})
         self.styles = [copy.deepcopy(s) for s in (styles or [])]
         self.fallback_style = fallback_style
+        self.style_renames = dict(style_renames or {})
 
         self._old_metadata: Optional[Dict[str, str]] = None
         self._old_aegisub_project_garbage: Optional[Dict[str, str]] = None
@@ -56,6 +62,11 @@ class ReplaceASSHeaderCommand(Command):
         if self.fallback_style and self.fallback_style not in style_names:
             self.document.styles.append(ASSStyle(name=self.fallback_style))
             style_names.add(self.fallback_style)
+
+        # Apply explicit renames first so renamed styles keep their entries.
+        for entry in self.document.entries:
+            if entry.style in self.style_renames:
+                entry.style = self.style_renames[entry.style]
 
         # Normalize entry styles to fallback if style was removed.
         for entry in self.document.entries:

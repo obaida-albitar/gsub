@@ -81,7 +81,10 @@ def has_unbalanced_braces(text: str) -> bool:
 
 
 def get_positioning(text: str) -> Optional[dict]:
-    """Return the first positioning directive as a dict, or None."""
+    """Return the first parseable positioning directive as a dict, or None.
+
+    Malformed tags are skipped so a later valid directive is still found.
+    """
     for tag in extract_override_tags(text):
         try:
             if tag.name == 'pos' and len(tag.args) >= 2:
@@ -103,7 +106,7 @@ def get_positioning(text: str) -> Optional[dict]:
             if tag.name == 'a' and tag.args:
                 return {'kind': 'a', 'n': int(tag.args[0])}
         except (ValueError, IndexError):
-            return None
+            continue
     return None
 
 

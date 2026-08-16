@@ -90,6 +90,39 @@ class ASSStyle:
             return str(int(f))
         return str(f)
 
+    def to_fields(self) -> Dict[str, str]:
+        """Return the style as a lowercased field-name -> raw-string dict.
+
+        This is the exact inverse of :meth:`from_fields`: the values are the
+        strings as they would appear in a Style line, so
+        ``ASSStyle.from_fields(style.to_fields())`` round-trips losslessly.
+        """
+        return {
+            'name': self.name,
+            'fontname': self.fontname,
+            'fontsize': str(self.fontsize),
+            'primarycolour': self.primary_color,
+            'secondarycolour': self.secondary_color,
+            'outlinecolour': self.outline_color,
+            'backcolour': self.back_color,
+            'bold': '-1' if self.bold else '0',
+            'italic': '-1' if self.italic else '0',
+            'underline': '-1' if self.underline else '0',
+            'strikeout': '-1' if self.strikeout else '0',
+            'scalex': self._fmt_num(self.scale_x),
+            'scaley': self._fmt_num(self.scale_y),
+            'spacing': self._fmt_num(self.spacing),
+            'angle': self._fmt_num(self.angle),
+            'borderstyle': str(self.border_style),
+            'outline': self._fmt_num(self.outline),
+            'shadow': self._fmt_num(self.shadow),
+            'alignment': str(self.alignment),
+            'marginl': str(self.margin_l),
+            'marginr': str(self.margin_r),
+            'marginv': str(self.margin_v),
+            'encoding': str(self.encoding),
+        }
+
     def to_ass_string(self) -> str:
         """Convert style to ASS format string."""
         bold_val = -1 if self.bold else 0
@@ -168,7 +201,22 @@ class ASSStyle:
         raises on bad input and always returns a usable style.
         """
         raw = fields or {}
-        label = lambda key: f"Style '{raw.get('name') or name_hint}': {key}"
+
+        def label(key: str) -> str:
+            return f"Style '{raw.get('name') or name_hint}': {key}"
+
+        def coerce_scale(value, default: float, which: str) -> float:
+            # Scales: any positive value is valid (fansub logo/sign styling
+            # uses scales in the thousands). Only reset to 100 for
+            # non-positive or non-finite input, which would break rendering.
+            scale = cls._coerce_float(value, default, warnings=warnings,
+                                      label=label(which))
+            if scale <= 0:
+                if warnings is not None:
+                    warnings.append(
+                        f"{label(which)}: {scale} is invalid, reset to {default:g}")
+                return default
+            return scale
 
         name = (raw.get("name") or "").strip() or name_hint
         fontname = (raw.get("fontname") or "").strip() or "Arial"
@@ -196,24 +244,8 @@ class ASSStyle:
         style.strikeout = cls._coerce_int(raw.get("strikeout"), 0, warnings=warnings,
                                           label=label("StrikeOut")) != 0
 
-        # Scales: any positive value is valid (fansub logo/sign styling uses
-        # scales in the thousands). Only reset to 100 for non-positive or
-        # non-finite input, which would otherwise break rendering.
-        scale_x = cls._coerce_float(raw.get("scalex"), 100.0, warnings=warnings,
-                                    label=label("ScaleX"))
-        if scale_x <= 0 or not math.isfinite(scale_x):
-            if warnings is not None:
-                warnings.append(f"{label('ScaleX')}: {scale_x} is invalid, reset to 100")
-            scale_x = 100.0
-        style.scale_x = scale_x
-
-        scale_y = cls._coerce_float(raw.get("scaley"), 100.0, warnings=warnings,
-                                    label=label("ScaleY"))
-        if scale_y <= 0 or not math.isfinite(scale_y):
-            if warnings is not None:
-                warnings.append(f"{label('ScaleY')}: {scale_y} is invalid, reset to 100")
-            scale_y = 100.0
-        style.scale_y = scale_y
+        style.scale_x = coerce_scale(raw.get("scalex"), 100.0, "ScaleX")
+        style.scale_y = coerce_scale(raw.get("scaley"), 100.0, "ScaleY")
 
         style.spacing = cls._coerce_float(
             raw.get("spacing"), 0.0, -100.0, 100.0, warnings, label("Spacing"))

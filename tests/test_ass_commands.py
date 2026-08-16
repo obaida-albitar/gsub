@@ -107,3 +107,33 @@ class TestReplaceASSHeaderCommand:
         # All entries should use the fallback
         for entry in sample_ass_document.entries:
             assert entry.style == "OnlyStyle"
+
+    @pytest.mark.unit
+    @pytest.mark.command
+    def test_style_renames_keep_entries_attached(self, sample_ass_document):
+        """Renaming a style via style_renames updates referencing entries
+        (instead of remapping them to the fallback)."""
+        new_styles = [
+            ASSStyle(name="Default", fontsize=20),
+            ASSStyle(name="Heading", fontsize=28),  # was "Title"
+        ]
+        cmd = ReplaceASSHeaderCommand(
+            sample_ass_document,
+            styles=new_styles,
+            fallback_style="Default",
+            style_renames={"Title": "Heading"},
+        )
+
+        cmd.execute()
+
+        assert sample_ass_document.entries[0].style == "Default"
+        assert sample_ass_document.entries[1].style == "Heading"
+        # No spurious fallback style is injected for the rename
+        assert sample_ass_document.get_style_by_name("Title") is None
+
+        cmd.undo()
+        assert sample_ass_document.entries[1].style == "Title"
+        assert [s.name for s in sample_ass_document.styles] == ["Default", "Title"]
+
+        cmd.redo()
+        assert sample_ass_document.entries[1].style == "Heading"

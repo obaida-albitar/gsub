@@ -12,7 +12,8 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Gio, GLib, Pango, PangoCairo
+from gi.repository import Gtk, Adw, Gio, GLib, PangoCairo
+import copy
 import json
 import os
 import re
@@ -42,14 +43,14 @@ from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
 from subtitle_editor.widgets.batch_confirm_dialog import BatchConfirmDialog
 from subtitle_editor.parsers.ass_validator import (
     validate_document,
+    COLOR_FIELD_ATTR,
     CompatIssue,
-    CompatSeverity,
     clamp_blur,
     strip_fsp,
     fix_color,
 )
+from subtitle_editor.font_coverage import collect_glyph_coverage_issues
 from subtitle_editor.widgets.compatibility_panel import CompatibilityPanel
-from subtitle_editor.utils import parse_ass_color, format_ass_color
 
 
 @Gtk.Template(resource_path=template_resource_path('window'))
@@ -731,7 +732,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._save_last_directory(os.path.dirname(file_path))
             if parse_warnings:
                 self._show_toast(
-                    f"Fixed {len(parse_warnings)} invalid style value(s) — review Styles")
+                    f"Fixed {len(parse_warnings)} issue(s) while parsing — review your file")
             self._show_toast(f"Opened {os.path.basename(file_path)}")
             self._navigate_to_editor(show_open=False)
 
@@ -827,7 +828,8 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_document_actions()
         self._hide_banner()
         self._navigate_to_editor(show_open=False)
-    
+        self._refresh_compat()
+
     def _on_open(self, action, param):
         """Show file open dialog."""
         dialog = Gtk.FileDialog()
@@ -1297,12 +1299,8 @@ class GsubWindow(Adw.ApplicationWindow):
                     content = decode_subtitle_text(contents)
                     ext = os.path.splitext(file_path)[1].lower()
 
-                    # Parse based on format
-                    if ext == '.srt':
-                        doc = SRTParser.parse(content)
-                    elif ext in ['.ass', '.ssa']:
-                        doc = ASSParser.parse(content)
-                    else:
+                    doc, _warnings = parse_subtitle_document(content, ext)
+                    if doc is None:
                         continue
 
                     doc.file_path = file_path
@@ -1580,7 +1578,9 @@ class GsubWindow(Adw.ApplicationWindow):
             # Update video player document if available
             if self.video_player:
                 self.video_player.set_document(self.document)
-            
+
+            self._refresh_compat()
+
             self._show_toast(f"Converted from {old_format} to {target_format.value.upper()}")
             
             # Suggest saving
@@ -1685,6 +1685,13 @@ class GsubWindow(Adw.ApplicationWindow):
 
     # --- Compatibility checking ---
 
+    def _installed_font_names(self) -> list:
+        """Sorted installed font family names (cached; rarely changes)."""
+        if getattr(self, "_cached_installed_fonts", None) is None:
+            self._cached_installed_fonts = sorted(
+                f.get_name() for f in PangoCairo.FontMap.get_default().list_families())
+        return self._cached_installed_fonts
+
     def _collect_compat_issues(self) -> list:
         """Collect compatibility issues from the validator plus Pango
         glyph-coverage checks for each style's font."""
@@ -1693,38 +1700,9 @@ class GsubWindow(Adw.ApplicationWindow):
         if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
             return []
 
-        installed = sorted(
-            f.get_name() for f in PangoCairo.FontMap.get_default().list_families())
-
+        installed = self._installed_font_names()
         issues = validate_document(self.document, installed_fonts=installed)
-
-        fontmap = PangoCairo.FontMap.get_default()
-        ctx = fontmap.create_context()
-        for style in self.document.styles:
-            if style.fontname not in installed:
-                continue
-            sample = "".join(
-                e.text for e in self.document.entries if e.style == style.name)
-            sample = sample[:300]
-            if not sample:
-                continue
-            desc = Pango.FontDescription.from_string(style.fontname)
-            font = fontmap.load_font(ctx, desc)
-            if font is None:
-                continue
-            coverage = font.get_coverage(Pango.Language.get_default())
-            missing = sorted({
-                ch for ch in sample if coverage.get(ord(ch)) == Pango.Coverage.NONE
-            })
-            if missing:
-                issues.append(CompatIssue(
-                    severity=CompatSeverity.INFO,
-                    code="font.glyph_missing",
-                    message=(
-                        f"Style '{style.name}': font '{style.fontname}' "
-                        f"lacks glyphs for: {''.join(missing)!r}"),
-                    location=f"Style '{style.name}'"))
-
+        issues.extend(collect_glyph_coverage_issues(self.document, installed))
         return issues
 
     def _refresh_compat(self):
@@ -1744,25 +1722,29 @@ class GsubWindow(Adw.ApplicationWindow):
         """
         if not self.document or not issue.fix:
             return
+        if self.document.format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            self._show_toast("Automatic fixes are only available for ASS/SSA files")
+            return
 
         fix = issue.fix
         kind = fix.get("kind")
         cmds = []
 
         if kind == "color":
-            match = re.search(r"Style '([^']+)'", issue.location or "")
-            if not match:
-                self._show_toast("Could not determine the style for this fix.")
-                return
-            style_name = match.group(1)
-            style = self.document.get_style_by_name(style_name)
+            style_name = fix.get("style") or ""
+            style = (self.document.get_style_by_name(style_name)
+                     if style_name else None)
             if style is None:
                 self._show_toast("Could not determine the style for this fix.")
+                return
+            field = fix.get("field")
+            if field not in COLOR_FIELD_ATTR.values():
+                self._show_toast("Could not determine the field for this fix.")
                 return
             new_styles = [copy.deepcopy(s) for s in self.document.styles]
             for s in new_styles:
                 if s.name == style_name:
-                    s.__dict__[fix["field"]] = fix_color(fix, style)
+                    setattr(s, field, fix_color(fix, style))
             cmds.append(ReplaceASSHeaderCommand(
                 self.document,
                 metadata=self.document.metadata,
@@ -2176,9 +2158,6 @@ class GsubWindow(Adw.ApplicationWindow):
         Also handles ASS format conversion issues where newlines are represented
         as literal \N strings instead of actual newlines.
         """
-        import re
-        import copy
-
         try:
             with open(subtitle_path, 'rb') as f:
                 content = decode_subtitle_text(f.read())

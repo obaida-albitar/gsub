@@ -155,6 +155,21 @@ class TestAssStyleSanitization:
         assert style.scale_y == 4300.0
         assert warnings == []
 
+    @pytest.mark.unit
+    @pytest.mark.models
+    def test_to_fields_round_trips_losslessly(self):
+        style = ASSStyle(
+            name='Sign', fontname='Sansation', fontsize=36,
+            primary_color='&H00FFFFFF', secondary_color='&H000000FF',
+            outline_color='&H00000000', back_color='&H80000000',
+            bold=True, italic=False, underline=True, strikeout=True,
+            scale_x=123.5, scale_y=100.0, spacing=1.5, angle=-12.25,
+            border_style=3, outline=2.5, shadow=0.0, alignment=7,
+            margin_l=20, margin_r=30, margin_v=40, encoding=0,
+        )
+        round_tripped = ASSStyle.from_fields(style.to_fields())
+        assert round_tripped == style
+
 
 class TestAssParserRobustness:
     """ASSParser should never crash on malformed style values."""

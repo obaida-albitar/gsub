@@ -65,8 +65,11 @@ EMOJI_RE = re.compile(
     "[" + "".join(f"{chr(a)}-{chr(b)}" for a, b in _EMOJI_RANGES) + "]"
 )
 
-_BLUR_RE = re.compile(r"\\blur\(\s*([0-9]+(?:\.[0-9]+)?)\s*\)")
-_FSP_RE = re.compile(r"\\fsp\(\s*[^)]*\)")
+# Both tag spellings are legal ASS: parenthesized ``\blur(20)`` and bare
+# ``\blur20``. The validator flags both, so the fix helpers must handle both.
+_NUM = r"-?[0-9]+(?:\.[0-9]+)?"
+_BLUR_RE = re.compile(rf"\\blur(?:\(\s*({_NUM})\s*\)|({_NUM}))")
+_FSP_RE = re.compile(rf"\\fsp(?:\([^)]*\)|{_NUM})")
 
 
 def fix_color(fix: dict, style: ASSStyle) -> str:
@@ -87,12 +90,13 @@ def fix_color(fix: dict, style: ASSStyle) -> str:
 
 
 def clamp_blur(text: str, max_blur: float = BLUR_MAX_WARN) -> str:
-    """Clamp every ``\\blur(N)`` value in ``text`` down to ``max_blur``."""
+    """Clamp every ``\\blur`` value in ``text`` down to ``max_blur``.
+
+    Handles both the ``\\blur(N)`` and bare ``\\blurN`` spellings; clamped
+    values are always rewritten in the canonical ``\\blur(N)`` form.
+    """
     def _repl(m: "re.Match") -> str:
-        try:
-            val = float(m.group(1))
-        except ValueError:
-            return m.group(0)
+        val = float(m.group(1) if m.group(1) is not None else m.group(2))
         if val > max_blur:
             return f"\\blur({max_blur:g})"
         return m.group(0)
@@ -101,7 +105,7 @@ def clamp_blur(text: str, max_blur: float = BLUR_MAX_WARN) -> str:
 
 
 def strip_fsp(text: str) -> str:
-    """Remove ``\\fsp(...)`` overrides from ``text``."""
+    """Remove ``\\fsp`` overrides (both ``\\fsp(N)`` and ``\\fspN``) from ``text``."""
     return _FSP_RE.sub("", text)
 
 
@@ -160,7 +164,8 @@ def _check_colors(style: ASSStyle) -> List[CompatIssue]:
                 ),
                 location=f"Style '{style.name}'",
                 suggestion="Replace with a valid &H[A]BBGGRR color",
-                fix={"kind": "color", "field": COLOR_FIELD_ATTR[field_name]},
+                fix={"kind": "color", "field": COLOR_FIELD_ATTR[field_name],
+                     "style": style.name},
             ))
         elif (
             field_name == "PrimaryColour"
@@ -175,7 +180,8 @@ def _check_colors(style: ASSStyle) -> List[CompatIssue]:
                 ),
                 location=f"Style '{style.name}'",
                 suggestion="Set alpha to &H00 for opaque text",
-                fix={"kind": "color", "field": "primary_color", "alpha": 0},
+                fix={"kind": "color", "field": "primary_color", "alpha": 0,
+                     "style": style.name},
             ))
     return issues
 
@@ -216,6 +222,21 @@ def _check_scales(style: ASSStyle) -> List[CompatIssue]:
     return issues
 
 
+def _spacing_issue(entry, detail: str) -> CompatIssue:
+    """Build a text.arabic_spacing issue (``detail`` describes the spacing)."""
+    return CompatIssue(
+        severity=CompatSeverity.WARNING,
+        code="text.arabic_spacing",
+        message=(
+            f"Dialogue entry {entry.index}: Arabic/cursive text uses "
+            f"non-zero letter spacing ({detail}), which breaks joining"
+        ),
+        location=f"Dialogue entry {entry.index}",
+        suggestion="Set Spacing to 0 for this style",
+        fix={"kind": "spacing", "style": entry.style},
+    )
+
+
 def _check_spacing_arabic(doc: SubtitleDocument) -> List[CompatIssue]:
     issues: List[CompatIssue] = []
     for entry in doc.entries:
@@ -223,32 +244,10 @@ def _check_spacing_arabic(doc: SubtitleDocument) -> List[CompatIssue]:
             continue
         style = doc.get_style_by_name(entry.style)
         if style is not None and style.spacing != 0:
-            issues.append(CompatIssue(
-                severity=CompatSeverity.WARNING,
-                code="text.arabic_spacing",
-                message=(
-                    f"Dialogue entry {entry.index}: Arabic/cursive text uses "
-                    f"non-zero letter spacing ({style.spacing}), which breaks "
-                    f"joining"
-                ),
-                location=f"Dialogue entry {entry.index}",
-                suggestion="Set Spacing to 0 for this style",
-                fix={"kind": "spacing", "style": entry.style},
-            ))
+            issues.append(_spacing_issue(entry, str(style.spacing)))
         for tag in extract_override_tags(entry.text):
             if tag.name == "fsp" and tag.args and tag.args[0] != "0":
-                issues.append(CompatIssue(
-                    severity=CompatSeverity.WARNING,
-                    code="text.arabic_spacing",
-                    message=(
-                        f"Dialogue entry {entry.index}: Arabic/cursive text "
-                        f"uses non-zero letter spacing (\\fsp {tag.args[0]}), "
-                        f"which breaks joining"
-                    ),
-                    location=f"Dialogue entry {entry.index}",
-                    suggestion="Set Spacing to 0 for this style",
-                    fix={"kind": "spacing", "style": entry.style},
-                ))
+                issues.append(_spacing_issue(entry, f"\\fsp {tag.args[0]}"))
                 break
     return issues
 

@@ -8,6 +8,10 @@ that can be executed, undone, and redone.
 from abc import ABC, abstractmethod
 from typing import List
 
+from subtitle_editor.logger import get_logger
+
+logger = get_logger(__name__)
+
 
 class Command(ABC):
     """Abstract base class for all commands."""
@@ -60,11 +64,19 @@ class CompositeCommand(Command):
 
     def undo(self):
         for cmd in reversed(self._commands):
-            cmd.undo()
+            try:
+                cmd.undo()
+            except Exception:
+                # Best effort: a failing child must not stop the remaining
+                # undos, or the document would be left half-undone.
+                logger.exception("Failed to undo step of: %s", self._description)
 
     def redo(self):
         for cmd in self._commands:
-            cmd.redo()
+            try:
+                cmd.redo()
+            except Exception:
+                logger.exception("Failed to redo step of: %s", self._description)
 
     def description(self) -> str:
         return self._description
@@ -94,19 +106,16 @@ class CommandManager:
     def execute(self, command: Command):
         """
         Execute a command and add it to the undo stack.
-        
+
         Args:
             command: The command to execute
         """
-        try:
-            command.execute()
-        except Exception:
-            raise
+        command.execute()
         self._undo_stack.append(command)
-        
+
         # Clear redo stack when a new command is executed
         self._redo_stack.clear()
-        
+
         # Limit history size
         if len(self._undo_stack) > self._max_history:
             self._undo_stack.pop(0)
