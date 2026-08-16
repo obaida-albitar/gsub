@@ -69,16 +69,21 @@ class TestCodecFamilyHelpers:
 @pytest.mark.unit
 class TestFormatTime:
     def test_less_than_hour(self):
-        assert VideoPlayerWidget._format_time(0) == "0:00"
-        assert VideoPlayerWidget._format_time(65) == "1:05"
-        assert VideoPlayerWidget._format_time(5.5) == "0:05"
+        assert VideoPlayerWidget._format_time(0) == "0:00.000"
+        assert VideoPlayerWidget._format_time(65) == "1:05.000"
+        assert VideoPlayerWidget._format_time(5.5) == "0:05.500"
 
     def test_at_least_one_hour(self):
-        assert VideoPlayerWidget._format_time(3661) == "1:01:01"
-        assert VideoPlayerWidget._format_time(7325) == "2:02:05"
+        assert VideoPlayerWidget._format_time(3661) == "1:01:01.000"
+        assert VideoPlayerWidget._format_time(7325) == "2:02:05.000"
 
     def test_fractional_truncated(self):
-        assert VideoPlayerWidget._format_time(59.9) == "0:59"
+        assert VideoPlayerWidget._format_time(59.9) == "0:59.900"
+        assert VideoPlayerWidget._format_time(59.9994) == "0:59.999"
+
+    def test_rounding_cascades_to_next_second(self):
+        assert VideoPlayerWidget._format_time(59.9999) == "1:00.000"
+        assert VideoPlayerWidget._format_time(3599.99999) == "1:00:00.000"
 
 
 @pytest.mark.unit

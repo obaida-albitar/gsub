@@ -961,13 +961,13 @@ class VideoPlayerWidget(Gtk.Box):
 
     @staticmethod
     def _format_time(seconds: float) -> str:
-        seconds = float(seconds)
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        secs = int(seconds % 60)
+        total_ms = int(round(float(seconds) * 1000))
+        hours, rem = divmod(total_ms, 3_600_000)
+        minutes, rem = divmod(rem, 60_000)
+        secs, millis = divmod(rem, 1_000)
         if hours > 0:
-            return f"{hours}:{minutes:02d}:{secs:02d}"
-        return f"{minutes}:{secs:02d}"
+            return f"{hours}:{minutes:02d}:{secs:02d}.{millis:03d}"
+        return f"{minutes}:{secs:02d}.{millis:03d}"
 
     @Gtk.Template.Callback()
     def on_skip_back(self, _button):
