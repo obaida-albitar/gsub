@@ -139,6 +139,30 @@ class TestCommandManager:
         description = cm.get_redo_description()
         assert "Add subtitle" in description
 
+    @pytest.mark.unit
+    @pytest.mark.command
+    def test_undo_description_tracks_next_command(self, sample_srt_document):
+        """The description names the command that WILL be undone next.
+
+        This is the contract the undo/redo toasts in the main window rely
+        on: the description must be captured before calling undo().
+        """
+        cm = CommandManager()
+        entry = SubtitleEntry(1, TimeCode(), TimeCode(), "Entry 1")
+        cm.execute(AddEntryCommand(sample_srt_document, entry))
+        cm.execute(RemoveEntryCommand(sample_srt_document, 0))
+
+        first = cm.get_undo_description()
+        assert "Remove" in first
+
+        assert cm.undo() is True
+        # After undoing, the description names the next command to undo...
+        second = cm.get_undo_description()
+        assert second != first
+        assert "Add subtitle" in second
+        # ...and the undone command is now the next redo.
+        assert cm.get_redo_description() == first
+
 
 class TestAddEntryCommand:
     """Tests for AddEntryCommand."""
