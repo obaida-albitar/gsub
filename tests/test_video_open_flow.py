@@ -14,6 +14,8 @@ try:
 
     register_resources()
     from subtitle_editor.window import GsubWindow, should_show_track_dialog
+    from subtitle_editor.widgets import video_player as video_player_module
+    from subtitle_editor.widgets.video_player import VideoPlayerWidget
 except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
     pytest.skip(
         f"window module not importable in this environment: {exc}",
@@ -68,11 +70,13 @@ class TestIsVideoContentType:
 class _FakePlayer:
     """Records load_video calls."""
 
-    def __init__(self):
+    def __init__(self, order=None):
         self.loaded = None
+        self.order = order if order is not None else []
 
     def load_video(self, path):
         self.loaded = path
+        self.order.append(("load_video", path))
 
 
 class _FakeWidget:
@@ -100,12 +104,17 @@ class _FakeWindow:
     def __init__(self, video_visible=False):
         self.current_video_file = None
         self.video_visible = video_visible
-        self.video_player = _FakePlayer()
+        # Shared call-order log across the fakes (see order-based tests).
+        self.order = []
+        self.video_player = _FakePlayer(order=self.order)
         self.video_container = _FakeWidget()
         self.video_button = _FakeWidget()
         self.right_paned = _FakeWidget()
         self.toasts = []
         self.errors = []
+
+    def _navigate_to_editor(self):
+        self.order.append(("navigate_to_editor",))
 
     def _show_toast(self, message):
         self.toasts.append(message)
@@ -185,3 +194,153 @@ class TestOpenVideo:
 
         assert win.video_player.loaded is None
         assert len(win.errors) == 1
+
+
+@pytest.mark.unit
+class TestNavigateBeforeLoad:
+    """The editor view must be visible before the video is loaded."""
+
+    def test_load_video_path_navigates_before_loading(self):
+        win = _FakeWindow()
+        win.load_video_path = GsubWindow.load_video_path.__get__(win)
+        win.load_video_path("/movies/example.mkv")
+
+        assert win.order == [
+            ("navigate_to_editor",),
+            ("load_video", "/movies/example.mkv"),
+        ]
+
+    def test_open_video_navigates_before_loading(self):
+        # The "Open With" cold-start entry point goes through open_video.
+        win = _FakeWindow()
+        win.load_video_path = GsubWindow.load_video_path.__get__(win)
+        GsubWindow.open_video(win, _FakeGFile("/movies/example.mkv"))
+
+        assert win.order == [
+            ("navigate_to_editor",),
+            ("load_video", "/movies/example.mkv"),
+        ]
+
+
+class _FakeMpv:
+    """Records loadfile calls; attributes are set like on the real handle."""
+
+    def __init__(self, order=None):
+        self.loaded = None
+        self.pause = None
+        self.sid = True
+        self.order = order if order is not None else []
+
+    def loadfile(self, path):
+        self.loaded = path
+        self.order.append(("loadfile", path))
+
+
+class _FakeVideoArea:
+    """GLArea stand-in with a controllable realize state."""
+
+    def __init__(self, realized=False, order=None):
+        self._realized = realized
+        self.order = order if order is not None else []
+
+    def get_realized(self):
+        return self._realized
+
+    def set_realized(self, value):
+        self._realized = value
+
+    def make_current(self):
+        self.order.append("make_current")
+
+    def queue_render(self):
+        self.order.append("queue_render")
+
+
+class _BarePlayer:
+    """Just the state VideoPlayerWidget.load_video/_on_glarea_realize touch.
+
+    Lets the real methods run headlessly (no GTK widget, no real mpv).
+    """
+
+    def __init__(self, realized=False, order=None):
+        self.order = order if order is not None else []
+        self._mpv = _FakeMpv(order=self.order)
+        self.video_area = _FakeVideoArea(realized=realized, order=self.order)
+        self.document = None
+        self._disposed = False
+        self._video_path = None
+        self._pending_load_path = None
+        self._render_ctx = None
+        self._get_draw_fbo = None
+        self._editor_sub_id = "stale"
+        self._audio_tracks = ["stale"]
+        self._subtitle_tracks = ["stale"]
+        self._mpv_track_list = ["stale"]
+        self._tracks_detected = True
+        self._tracks_ready_emitted = True
+        self._current_audio_track = 3
+        self._current_subtitle_track = 4
+        self.sync_calls = 0
+
+    def _sync_editor_sub(self):
+        self.sync_calls += 1
+
+    def _on_mpv_update(self):
+        pass
+
+
+@pytest.mark.unit
+class TestDeferredVideoLoad:
+    """load_video defers the mpv loadfile until the GLArea is realized."""
+
+    def test_defers_loadfile_when_not_realized(self):
+        player = _BarePlayer(realized=False)
+        VideoPlayerWidget.load_video(player, "/movies/example.mkv")
+
+        assert player._mpv.loaded is None
+        assert player._pending_load_path == "/movies/example.mkv"
+        # Track state was still reset so stale state cannot leak.
+        assert player._video_path == "/movies/example.mkv"
+        assert player._editor_sub_id is None
+        assert player._audio_tracks == []
+        assert player._subtitle_tracks == []
+        assert player._mpv_track_list == []
+        assert player._tracks_detected is False
+        assert player._tracks_ready_emitted is False
+        assert player._current_audio_track == -1
+        assert player._current_subtitle_track == -1
+
+    def test_loads_immediately_when_realized(self):
+        player = _BarePlayer(realized=True)
+        VideoPlayerWidget.load_video(player, "/movies/example.mkv")
+
+        assert player._mpv.loaded == "/movies/example.mkv"
+        assert player._pending_load_path is None
+
+    def test_pending_load_replayed_after_render_context_exists(self, monkeypatch):
+        order = []
+
+        class _FakeRenderContext:
+            def __init__(self, mpv, api, opengl_init_params=None):
+                order.append("render-context")
+
+        monkeypatch.setattr(
+            video_player_module, "_make_get_proc_address", lambda: (None, None)
+        )
+        monkeypatch.setattr(video_player_module, "MpvRenderContext", _FakeRenderContext)
+
+        player = _BarePlayer(realized=False, order=order)
+        player.load_video = VideoPlayerWidget.load_video.__get__(player)
+        VideoPlayerWidget.load_video(player, "/movies/example.mkv")
+        assert player._mpv.loaded is None
+
+        # GTK has marked the area realized by the time the handler runs.
+        player.video_area.set_realized(True)
+        VideoPlayerWidget._on_glarea_realize(player, player.video_area)
+
+        assert player._mpv.loaded == "/movies/example.mkv"
+        assert player._pending_load_path is None
+        assert player._render_ctx is not None
+        # The deferred loadfile only runs after the render context exists.
+        loadfile_at = order.index(("loadfile", "/movies/example.mkv"))
+        assert order.index("render-context") < loadfile_at

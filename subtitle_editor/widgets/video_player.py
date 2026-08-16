@@ -217,6 +217,8 @@ class VideoPlayerWidget(Gtk.Box):
         self._render_ctx = None
         self._get_draw_fbo = None
         self._disposed = False
+        # Video load deferred until the GLArea is realized (see load_video).
+        self._pending_load_path = None
 
         try:
             self._mpv = MPV(
@@ -274,6 +276,13 @@ class VideoPlayerWidget(Gtk.Box):
         except Exception as exc:  # pragma: no cover - depends on GL stack
             logger.error(f"Failed to create mpv render context: {exc}")
             self._render_ctx = None
+        else:
+            # The GLArea realizes only when the editor page is mapped; replay
+            # a load deferred from a cold start now that rendering is possible.
+            pending = self._pending_load_path
+            self._pending_load_path = None
+            if pending is not None:
+                self.load_video(pending)
         area.queue_render()
 
     def _on_mpv_update(self):
@@ -325,7 +334,15 @@ class VideoPlayerWidget(Gtk.Box):
             GLib.idle_add(self.video_area.queue_render)
 
     def load_video(self, file_path: str):
-        """Load a video file into mpv."""
+        """Load a video file into mpv.
+
+        When the GLArea has not been realized yet (the editor page was never
+        mapped, e.g. a cold "Open With" start), the load is deferred: with
+        ``vo=libmpv`` a loadfile issued before a render context exists
+        initializes mpv without usable video output (audio-only).
+        ``_on_glarea_realize`` replays the pending path once the render
+        context is up.
+        """
         if self._mpv is None:
             return
 
@@ -340,6 +357,11 @@ class VideoPlayerWidget(Gtk.Box):
         # (editor document selected by default, no stale embedded track).
         self._current_audio_track = -1
         self._current_subtitle_track = -1
+
+        if not self.video_area.get_realized():
+            self._pending_load_path = file_path
+            return
+        self._pending_load_path = None
 
         try:
             self._mpv.loadfile(file_path)

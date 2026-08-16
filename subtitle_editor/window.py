@@ -1969,7 +1969,11 @@ class GsubWindow(Adw.ApplicationWindow):
         player's ``tracks-ready`` signal (emitted once mpv has parsed the
         track list) opens the track-selection dialog when the layout needs a
         user decision, replacing the old timeout-based checks.
+
+        Navigates to the editor view first so a video opened via "Open With"
+        (cold start on the home view) actually shows the player.
         """
+        self._navigate_to_editor()
         self.current_video_file = file_path
         self.video_player.load_video(file_path)
 
