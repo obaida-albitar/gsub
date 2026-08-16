@@ -163,6 +163,9 @@ class VideoPlayerWidget(Gtk.Box):
         "position-changed": (GObject.SignalFlags.RUN_FIRST, None, (float,)),
         "duration-changed": (GObject.SignalFlags.RUN_FIRST, None, (float,)),
         "state-changed": (GObject.SignalFlags.RUN_FIRST, None, (bool,)),  # True=playing
+        # Emitted once per loaded video, as soon as mpv's track-list has been
+        # parsed into a non-empty audio/subtitle list (replaces timeout hacks).
+        "tracks-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
     # Template children.
@@ -191,6 +194,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._current_audio_track = -1
         self._current_subtitle_track = -1
         self._tracks_detected = False
+        self._tracks_ready_emitted = False
         self._mpv_track_list = []
         # Maps the position in ``_subtitle_tracks`` (mpv's subtitle list) to the
         # matching PyAV ``SubtitleTrack`` so extraction uses the correct
@@ -213,6 +217,8 @@ class VideoPlayerWidget(Gtk.Box):
         self._render_ctx = None
         self._get_draw_fbo = None
         self._disposed = False
+        # Video load deferred until the GLArea is realized (see load_video).
+        self._pending_load_path = None
 
         try:
             self._mpv = MPV(
@@ -270,6 +276,13 @@ class VideoPlayerWidget(Gtk.Box):
         except Exception as exc:  # pragma: no cover - depends on GL stack
             logger.error(f"Failed to create mpv render context: {exc}")
             self._render_ctx = None
+        else:
+            # The GLArea realizes only when the editor page is mapped; replay
+            # a load deferred from a cold start now that rendering is possible.
+            pending = self._pending_load_path
+            self._pending_load_path = None
+            if pending is not None:
+                self.load_video(pending)
         area.queue_render()
 
     def _on_mpv_update(self):
@@ -321,7 +334,15 @@ class VideoPlayerWidget(Gtk.Box):
             GLib.idle_add(self.video_area.queue_render)
 
     def load_video(self, file_path: str):
-        """Load a video file into mpv."""
+        """Load a video file into mpv.
+
+        When the GLArea has not been realized yet (the editor page was never
+        mapped, e.g. a cold "Open With" start), the load is deferred: with
+        ``vo=libmpv`` a loadfile issued before a render context exists
+        initializes mpv without usable video output (audio-only).
+        ``_on_glarea_realize`` replays the pending path once the render
+        context is up.
+        """
         if self._mpv is None:
             return
 
@@ -331,10 +352,16 @@ class VideoPlayerWidget(Gtk.Box):
         self._subtitle_tracks = []
         self._mpv_track_list = []
         self._tracks_detected = False
+        self._tracks_ready_emitted = False
         # Reset the user's track selection so a fresh video starts clean
         # (editor document selected by default, no stale embedded track).
         self._current_audio_track = -1
         self._current_subtitle_track = -1
+
+        if not self.video_area.get_realized():
+            self._pending_load_path = file_path
+            return
+        self._pending_load_path = None
 
         try:
             self._mpv.loadfile(file_path)
@@ -514,6 +541,15 @@ class VideoPlayerWidget(Gtk.Box):
         self._mpv_track_list = track_list
         self._audio_tracks, self._subtitle_tracks = self._parse_tracks(track_list)
         self._tracks_detected = True
+        # Notify once per loaded video as soon as the parsed track lists are
+        # non-empty, so the window can react to the real track layout instead
+        # of polling with timeouts.
+        if (
+            not self._tracks_ready_emitted
+            and (self._audio_tracks or self._subtitle_tracks)
+        ):
+            self._tracks_ready_emitted = True
+            self.emit("tracks-ready")
         # Build the PyAV stream mapping in the background (it opens & probes the
         # file, which must not block the GTK main thread / contend with mpv).
         self._schedule_pyav_mapping()

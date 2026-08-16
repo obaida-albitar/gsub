@@ -3,6 +3,16 @@
 from typing import Iterable, List, Optional, Tuple
 
 
+def is_video_content_type(content_type: Optional[str]) -> bool:
+    """Return True if *content_type* is a video content type (``video/*``).
+
+    Empty/None values (unknown content type) are treated as non-video.
+    """
+    if not content_type:
+        return False
+    return content_type.startswith("video/")
+
+
 def is_font_installed(name: str, installed: Iterable[str]) -> bool:
     """Return True if ``name`` is among the installed font family names."""
     if not name:

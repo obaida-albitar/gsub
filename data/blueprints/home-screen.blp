@@ -77,14 +77,14 @@ template $GsubHomeScreen : Adw.Bin {
                 Label {
                   halign: start;
                   styles ["heading"]
-                  label: _("Open a Subtitle File");
+                  label: _("Start Editing");
                 }
 
                 Label {
                   halign: start;
                   styles ["dim-label"]
                   wrap: true;
-                  label: _("Edit a single file with video preview and undo/redo.");
+                  label: _("Create a new file or open one from the editor, with video preview and undo/redo.");
                 }
               }
 
@@ -94,7 +94,7 @@ template $GsubHomeScreen : Adw.Bin {
                 margin-end: 12;
                 margin-top: 14;
                 margin-bottom: 14;
-                label: _("Open File");
+                label: _("Start");
                 clicked => $on_open_clicked();
               }
             }

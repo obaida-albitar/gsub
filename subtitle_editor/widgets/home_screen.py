@@ -13,7 +13,7 @@ from subtitle_editor.resources import template_resource_path
 
 @Gtk.Template(resource_path=template_resource_path('home-screen'))
 class HomeScreenView(Adw.Bin):
-    """Landing page with two action cards: Open File and Batch Operations."""
+    """Landing page with two action cards: Start Editing and Batch Operations."""
 
     __gtype_name__ = 'GsubHomeScreen'
 
@@ -21,6 +21,10 @@ class HomeScreenView(Adw.Bin):
         'open-file': (GObject.SignalFlags.RUN_FIRST, None, ()),
         'open-batch': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
+
+    # Template children (exposed for tests and programmatic activation).
+    open_button = Gtk.Template.Child()
+    batch_button = Gtk.Template.Child()
 
     def __init__(self):
         super().__init__()
