@@ -4,15 +4,23 @@ Editor panel widget.
 Provides text and timing editing for the selected subtitle entry.
 """
 
+import gettext
 import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
+gi.require_version("Pango", "1.0")
 
-from gi.repository import Adw, GLib, GObject, Gtk
+from gi.repository import Adw, GLib, GObject, Gtk, Pango
 
 from subtitle_editor.models import SubtitleEntry, SubtitleFormat, TimeCode
+from subtitle_editor.parsers.ass_tags import BLOCK_PATTERN, split_leading_block  # noqa: E402
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.widgets.tag_editor import TagEditorRows  # noqa: E402
+
+# Same translation domain as the package-level gettext.install(); bound
+# explicitly so the `_` alias is visible to static analysis.
+_ = gettext.translation("gsub", fallback=True).gettext
 
 
 @Gtk.Template(resource_path=template_resource_path('editor-panel'))
@@ -32,6 +40,8 @@ class EditorPanel(Gtk.Box):
     style_row = Gtk.Template.Child()
     text_expander = Gtk.Template.Child()
     text_view = Gtk.Template.Child()
+    formatting_expander = Gtk.Template.Child()
+    add_tag_button = Gtk.Template.Child()
     start_expander = Gtk.Template.Child()
     start_hour = Gtk.Template.Child()
     start_minute = Gtk.Template.Child()
@@ -72,6 +82,16 @@ class EditorPanel(Gtk.Box):
         self.text_buffer = Gtk.TextBuffer()
         self.text_buffer.connect("changed", self._on_text_buffer_changed)
         self.text_view.set_buffer(self.text_buffer)
+
+        # Text tag used to visually dim mid-line {...} override blocks that
+        # stay inline in the text view (only the LEADING block gets widgets).
+        self._inline_tag = self.text_buffer.create_tag(
+            None, foreground="#888a85", style=Pango.Style.ITALIC)
+
+        # Visual editor for the leading override block (ASS/SSA only).
+        self.tag_editor = TagEditorRows(self.formatting_expander)
+        self.tag_editor.connect("changed", self._on_tag_editor_changed)
+        self.tag_editor.setup_add_button(self.add_tag_button)
 
         # Configure the time spin buttons (adjustments + scroll-wheel disabling).
         self._setup_spin_button(self.start_hour, 0, 23)
@@ -182,8 +202,20 @@ class EditorPanel(Gtk.Box):
             self.margin_r_spin.set_value(getattr(entry, 'margin_r', 0))
             self.margin_v_spin.set_value(getattr(entry, 'margin_v', 0))
 
-        # Update text
-        self.text_buffer.set_text(entry.text)
+        # Update text. For ASS/SSA the LEADING {...} override block is edited
+        # through the Formatting rows, so only the remainder goes into the
+        # text buffer; mid-line blocks stay inline (highlighted, raw-editable).
+        is_ass = self._format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
+        if is_ass:
+            block, rest = split_leading_block(entry.text)
+            self.text_buffer.set_text(rest)
+            self.tag_editor.load_body(block[1:-1] if block else None)
+        else:
+            self.text_buffer.set_text(entry.text)
+            self.tag_editor.load_body(None)
+        self.formatting_expander.set_visible(is_ass)
+        self._apply_inline_tag_highlight()
+        self._update_formatting_subtitle()
 
         # Update start time
         self.start_hour.set_value(entry.start_time.hours)
@@ -216,6 +248,8 @@ class EditorPanel(Gtk.Box):
         self._updating = True
 
         self.text_buffer.set_text("")
+        self.tag_editor.load_body(None)
+        self._apply_inline_tag_highlight()
 
         for spin in [
             self.start_hour,
@@ -282,22 +316,79 @@ class EditorPanel(Gtk.Box):
         if self._updating or self.current_position < 0:
             return
 
-        start = text_buffer.get_start_iter()
-        end = text_buffer.get_end_iter()
-        text = text_buffer.get_text(start, end, False)
+        # Refresh the inline-block highlighting; applying tags does not mark
+        # the buffer dirty, so no extra changed signals are emitted.
+        self._apply_inline_tag_highlight()
+        self._queue_text_change()
 
-        if self.current_entry and text != self.current_entry.text:
-            # Cancel any pending timeout
-            if self._text_change_timeout_id is not None:
-                GLib.source_remove(self._text_change_timeout_id)
+    def _compose_text(self) -> str:
+        """Full dialogue text: the serialized leading block plus the buffer.
 
-            # Store the pending text
-            self._pending_text = text
+        The buffer holds the text without the leading override block; the
+        block (if any) is managed by the Formatting rows.
+        """
+        start = self.text_buffer.get_start_iter()
+        end = self.text_buffer.get_end_iter()
+        rest = self.text_buffer.get_text(start, end, False)
+        block = self.tag_editor.get_block()
+        return (block or "") + rest
 
-            # Set a new timeout (500ms delay)
-            self._text_change_timeout_id = GLib.timeout_add(
-                500, self._emit_text_changed
-            )
+    def _queue_text_change(self):
+        """Debounce a text-changed emission for the recomposed full text.
+
+        A no-op recomposition (identical to the current entry text) never
+        schedules an emission, so loading a tagged line and changing nothing
+        stays silent.
+        """
+        if self._updating or self.current_position < 0:
+            return
+
+        text = self._compose_text()
+        if self.current_entry is not None and text == self.current_entry.text:
+            return
+
+        # Cancel any pending timeout
+        if self._text_change_timeout_id is not None:
+            GLib.source_remove(self._text_change_timeout_id)
+
+        # Store the pending text
+        self._pending_text = text
+
+        # Set a new timeout (500ms delay)
+        self._text_change_timeout_id = GLib.timeout_add(
+            500, self._emit_text_changed
+        )
+
+    def _on_tag_editor_changed(self, *args):
+        """A formatting row changed: recompose and debounce as a text change."""
+        self._update_formatting_subtitle()
+        self._queue_text_change()
+
+    def _update_formatting_subtitle(self):
+        """Show the tag count on the Formatting expander."""
+        count = self.tag_editor.get_tag_count()
+        if count == 0:
+            self.formatting_expander.set_subtitle(_("No tags"))
+        elif count == 1:
+            self.formatting_expander.set_subtitle(_("1 tag"))
+        else:
+            self.formatting_expander.set_subtitle(f"{count} tags")
+
+    def _apply_inline_tag_highlight(self):
+        """Dim every {...} override block left inline in the text buffer.
+
+        Complete blocks only (stray braces are ordinary text). Uses
+        apply_tag/remove_tag, which never move the cursor or emit
+        buffer-changed signals.
+        """
+        buffer = self.text_buffer
+        start, end = buffer.get_bounds()
+        text = buffer.get_text(start, end, False)
+        buffer.remove_tag(self._inline_tag, start, end)
+        for match in BLOCK_PATTERN.finditer(text):
+            tag_start = buffer.get_iter_at_offset(match.start())
+            tag_end = buffer.get_iter_at_offset(match.end())
+            buffer.apply_tag(self._inline_tag, tag_start, tag_end)
 
     def _emit_text_changed(self):
         """Emit the text-changed signal after debounce delay."""
