@@ -204,15 +204,11 @@ template $GsubASSStylesDialog : Adw.Dialog {
           };
         }
 
-        Adw.SpinRow style_alignment {
+        // The 3x3 alignment grid is attached as the suffix from code.
+        Adw.ActionRow style_alignment {
           title: _("Alignment");
-          subtitle: _("1-9 (ASS alignment grid)");
-          adjustment: Adjustment {
-            lower: 1;
-            upper: 9;
-            step-increment: 1;
-            page-increment: 1;
-          };
+          subtitle: _("Screen position of the subtitle text");
+          activatable: false;
         }
       }
 
@@ -221,15 +217,9 @@ template $GsubASSStylesDialog : Adw.Dialog {
         title: _("Layout");
         description: _("Margins, border style and character encoding");
 
-        Adw.SpinRow style_border_style {
+        Adw.ComboRow style_border_style {
           title: _("Border Style");
-          subtitle: _("1 = Outline + Shadow, 3 = Opaque Box");
-          adjustment: Adjustment {
-            lower: 1;
-            upper: 3;
-            step-increment: 2;
-            page-increment: 2;
-          };
+          // Model (Outline + Shadow / Opaque Box) is set from code.
         }
 
         Adw.SpinRow style_margin_l {
@@ -265,15 +255,9 @@ template $GsubASSStylesDialog : Adw.Dialog {
           };
         }
 
-        Adw.SpinRow style_encoding {
+        Adw.ComboRow style_encoding {
           title: _("Encoding");
-          subtitle: _("0 = default, 1 = ANSI, 2 = UTF-8 (etc.)");
-          adjustment: Adjustment {
-            lower: 0;
-            upper: 255;
-            step-increment: 1;
-            page-increment: 10;
-          };
+          // Model (the SSA/ASS charset table) is set from code.
         }
       }
 

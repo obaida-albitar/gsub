@@ -185,6 +185,54 @@ def test_row_values_default_to_first_target_style():
     assert editor.fontsize_row.get_value() == 42.0
 
 
+# --- Semantic inputs: Alignment / BorderStyle / Encoding ---------------------
+
+def test_checked_props_return_ints_for_semantic_widgets():
+    editor = _make_editor()
+    editor.alignment_check.set_active(True)
+    editor.border_style_check.set_active(True)
+    editor.encoding_check.set_active(True)
+    editor.alignment_grid.set_value(7)
+    editor._choice_rows['border_style'].set_value(3)
+    editor._choice_rows['encoding'].set_value(0)
+
+    props = editor.get_checked_props()
+    assert props['alignment'] == 7
+    assert props['border_style'] == 3
+    assert props['encoding'] == 0
+    for value in (props['alignment'], props['border_style'], props['encoding']):
+        assert isinstance(value, int)
+
+
+def test_semantic_widgets_load_values_from_style():
+    styles = [ASSStyle(name="Default", alignment=9, border_style=3, encoding=178)]
+    editor = _make_editor(styles=styles)
+    assert editor.alignment_grid.get_value() == 9
+    assert editor.alignment_grid._buttons[9].get_active() is True  # top right
+    assert editor._choice_rows['border_style'].get_value() == 3
+    assert editor.border_style_row.get_selected_item().get_string() == "Opaque Box"
+    assert editor._choice_rows['encoding'].get_value() == 178
+    assert editor.encoding_row.get_selected_item().get_string() == "Arabic (Windows)"
+
+
+def test_unknown_encoding_shows_custom_entry_and_round_trips():
+    editor = _make_editor(styles=[ASSStyle(name="Default", encoding=74)])
+    assert editor.encoding_row.get_selected_item().get_string() == "74 (custom)"
+
+    editor.encoding_check.set_active(True)
+    assert editor.get_checked_props()['encoding'] == 74
+
+
+def test_reset_unticks_semantic_rows():
+    editor = _make_editor()
+    editor.alignment_check.set_active(True)
+    editor.border_style_check.set_active(True)
+    editor.encoding_check.set_active(True)
+
+    editor.reset()
+    assert editor.get_checked_props() == {}
+
+
 def test_reset_clears_ticks_and_restores_default_target():
     editor = _make_editor()
     editor.target_choose_check.set_active(True)

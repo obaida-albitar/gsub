@@ -28,10 +28,14 @@ pytestmark = pytest.mark.skipif(
 
 
 def _make_dialog(fontname):
+    return _make_dialog_for_style(ASSStyle(name="Default", fontname=fontname))
+
+
+def _make_dialog_for_style(style):
     from subtitle_editor.widgets.dialogs import ASSStylesDialog
 
     doc = SubtitleDocument(format=SubtitleFormat.ASS)
-    doc.styles = [ASSStyle(name="Default", fontname=fontname)]
+    doc.styles = [style]
 
     class _FakeParent:
         def __init__(self, document):
@@ -62,3 +66,44 @@ def test_installed_font_has_no_warning():
     dlg2 = _make_dialog(real)
     assert dlg2._styles[0].fontname == real
     assert dlg2.font_warning.get_visible() is False
+
+
+# --- Semantic inputs: Alignment / BorderStyle / Encoding ---------------------
+
+def test_alignment_grid_reflects_loaded_style():
+    dlg = _make_dialog_for_style(ASSStyle(name="Default", alignment=3))
+    assert dlg.alignment_grid.get_value() == 3
+    assert dlg.alignment_grid._buttons[3].get_active() is True  # bottom right
+
+
+def test_border_style_combo_reflects_loaded_style():
+    dlg = _make_dialog_for_style(ASSStyle(name="Default", border_style=3))
+    assert dlg._border_style_choice.get_value() == 3
+    assert dlg.style_border_style.get_selected_item().get_string() == "Opaque Box"
+
+
+def test_encoding_combo_reflects_loaded_style():
+    dlg = _make_dialog_for_style(ASSStyle(name="Default", encoding=178))
+    assert dlg._encoding_choice.get_value() == 178
+    assert dlg.style_encoding.get_selected_item().get_string() == "Arabic (Windows)"
+
+
+def test_unknown_encoding_displays_as_custom_and_is_kept():
+    dlg = _make_dialog_for_style(ASSStyle(name="Default", encoding=74))
+    assert dlg.style_encoding.get_selected_item().get_string() == "74 (custom)"
+    # The stored value survives loading (no silent overwrite), and reading the
+    # widgets back still yields it.
+    dlg._on_style_field_changed()
+    assert dlg._styles[0].encoding == 74
+
+
+def test_semantic_widget_changes_update_style_copy():
+    dlg = _make_dialog_for_style(ASSStyle(name="Default"))
+    dlg.alignment_grid.set_value(9)
+    dlg._border_style_choice.set_value(3)
+    dlg._encoding_choice.set_value(0)
+
+    style = dlg._styles[0]
+    assert style.alignment == 9
+    assert style.border_style == 3
+    assert style.encoding == 0

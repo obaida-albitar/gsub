@@ -237,33 +237,19 @@ template $GsubStylePropsEditor : Adw.PreferencesGroup {
   Adw.ExpanderRow layout_expander {
     title: _("Layout");
 
-    Adw.SpinRow alignment_row {
+    // The 3x3 alignment grid is attached as the suffix from code.
+    Adw.ActionRow alignment_row {
       title: _("Alignment");
-      subtitle: _("1-9 (ASS alignment grid)");
-      numeric: true;
-      value: 2.0;
-      adjustment: Adjustment {
-        lower: 1;
-        upper: 9;
-        step-increment: 1;
-        page-increment: 1;
-      };
+      subtitle: _("Screen position of the subtitle text");
+      activatable: false;
 
       [prefix]
       CheckButton alignment_check {}
     }
 
-    Adw.SpinRow border_style_row {
+    Adw.ComboRow border_style_row {
       title: _("Border Style");
-      subtitle: _("1 = Outline + Shadow, 3 = Opaque Box");
-      numeric: true;
-      value: 1.0;
-      adjustment: Adjustment {
-        lower: 1;
-        upper: 3;
-        step-increment: 2;
-        page-increment: 2;
-      };
+      // Model (Outline + Shadow / Opaque Box) is set from code.
 
       [prefix]
       CheckButton border_style_check {}
@@ -379,17 +365,9 @@ template $GsubStylePropsEditor : Adw.PreferencesGroup {
       CheckButton margin_v_check {}
     }
 
-    Adw.SpinRow encoding_row {
+    Adw.ComboRow encoding_row {
       title: _("Encoding");
-      subtitle: _("0 = default, 1 = ANSI, 2 = UTF-8 (etc.)");
-      numeric: true;
-      value: 1.0;
-      adjustment: Adjustment {
-        lower: 0;
-        upper: 255;
-        step-increment: 1;
-        page-increment: 10;
-      };
+      // Model (the SSA/ASS charset table) is set from code.
 
       [prefix]
       CheckButton encoding_check {}

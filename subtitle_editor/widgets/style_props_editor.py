@@ -26,6 +26,12 @@ from gi.repository import Adw, Gdk, GObject, Gtk, Pango, PangoCairo
 from subtitle_editor.models import ASSStyle
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.utils import merge_font_families, parse_ass_color, format_ass_color
+from subtitle_editor.widgets.style_widgets import (  # noqa: E402
+    BORDER_STYLE_CHOICES,
+    ENCODING_CHOICES,
+    AlignmentGrid,
+    ChoiceRow,
+)
 
 
 # Human-readable labels for summaries (batch confirm dialog, toasts).
@@ -255,12 +261,16 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
         ('scale_y', 'scale_y_row', 'scale_y_check', float),
         ('outline', 'outline_width_row', 'outline_width_check', float),
         ('shadow', 'shadow_row', 'shadow_check', float),
-        ('alignment', 'alignment_row', 'alignment_check', int),
-        ('border_style', 'border_style_row', 'border_style_check', int),
         ('margin_l', 'margin_l_row', 'margin_l_check', int),
         ('margin_r', 'margin_r_row', 'margin_r_check', int),
         ('margin_v', 'margin_v_row', 'margin_v_check', int),
-        ('encoding', 'encoding_row', 'encoding_check', int),
+    ]
+
+    # Enumerative fields shown as choice combos instead of number spinners:
+    # (ASSStyle field, row attribute, check attribute, choices table).
+    _CHOICE_SPECS = [
+        ('border_style', 'border_style_row', 'border_style_check', BORDER_STYLE_CHOICES),
+        ('encoding', 'encoding_row', 'encoding_check', ENCODING_CHOICES),
     ]
 
     # (ASSStyle field, row attribute, check attribute)
@@ -302,6 +312,18 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
             Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION,
         )
 
+        # Semantic inputs for the enumerative fields: the alignment grid is
+        # attached as the row suffix (built in code); the combos are driven
+        # by the choice tables, which also represent unknown stored encodings
+        # as "(custom)".
+        self.alignment_grid = AlignmentGrid()
+        self.alignment_grid.set_valign(Gtk.Align.CENTER)
+        self.alignment_row.add_suffix(self.alignment_grid)
+
+        self._choice_rows = {}
+        for field, row_attr, _check_attr, choices in self._CHOICE_SPECS:
+            self._choice_rows[field] = ChoiceRow(getattr(self, row_attr), choices)
+
         self._connect_signals()
 
         # Target radios (grouped in code, like the dialog's scope radios).
@@ -318,6 +340,11 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
     def _connect_signals(self):
         self.font_row.connect('notify::selected', self._on_anything_changed)
         self.font_check.connect('toggled', self._on_anything_changed)
+        self.alignment_grid.connect('value-changed', self._on_anything_changed)
+        self.alignment_check.connect('toggled', self._on_anything_changed)
+        for _field, _row_attr, check_attr, _choices in self._CHOICE_SPECS:
+            self._choice_rows[_field].connect_changed(self._on_anything_changed)
+            getattr(self, check_attr).connect('toggled', self._on_anything_changed)
         for _field, row_attr, check_attr, _cast in self._SPIN_SPECS:
             getattr(self, row_attr).connect('notify::value', self._on_anything_changed)
             getattr(self, check_attr).connect('toggled', self._on_anything_changed)
@@ -476,6 +503,13 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
             if item is not None:
                 props['fontname'] = item.get_string()
 
+        if self.alignment_check.get_active():
+            props['alignment'] = int(self.alignment_grid.get_value())
+
+        for field, _row_attr, check_attr, _choices in self._CHOICE_SPECS:
+            if getattr(self, check_attr).get_active():
+                props[field] = int(self._choice_rows[field].get_value())
+
         for field, row_attr, check_attr, cast in self._SPIN_SPECS:
             if getattr(self, check_attr).get_active():
                 props[field] = cast(getattr(self, row_attr).get_value())
@@ -505,7 +539,8 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
             for check in self._style_checks.values():
                 check.set_active(False)
             self.font_check.set_active(False)
-            for attrs in (self._SPIN_SPECS, self._SWITCH_SPECS, self._COLOR_SPECS):
+            self.alignment_check.set_active(False)
+            for attrs in (self._SPIN_SPECS, self._CHOICE_SPECS, self._SWITCH_SPECS, self._COLOR_SPECS):
                 for spec in attrs:
                     getattr(self, spec[2]).set_active(False)
             self.preview_expander.set_expanded(False)
@@ -540,6 +575,9 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
                 font_idx = 0
             self.font_row.set_selected(font_idx)
             self.fontsize_row.set_value(int(style.fontsize))
+            self.alignment_grid.set_value(int(style.alignment))
+            for field, _row_attr, _check_attr, _choices in self._CHOICE_SPECS:
+                self._choice_rows[field].set_value(int(getattr(style, field)))
             for field, row_attr, _check_attr, cast in self._SPIN_SPECS:
                 getattr(self, row_attr).set_value(cast(getattr(style, field)))
             for field, row_attr, _check_attr in self._SWITCH_SPECS:
