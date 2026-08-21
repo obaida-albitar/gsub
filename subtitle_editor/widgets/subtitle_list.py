@@ -18,6 +18,7 @@ gi.require_version('Adw', '1')
 
 from gi.repository import Gtk, Adw, GObject, Gio, Gdk, GLib
 from subtitle_editor.models import SubtitleDocument
+from subtitle_editor.parsers.ass_tags import strip_override_blocks  # noqa: E402
 from subtitle_editor.resources import template_resource_path
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,9 @@ class SubtitleListItem(GObject.Object):
         self._text = None
         self._start = None
         self._end = None
-        # Lowercased full text, computed lazily for the search scan.
+        # Cleaned text (override blocks stripped) for display and search.
+        self._clean_text = ''
+        # Lowercased clean text, computed lazily for the search scan.
         self._lower_text = None
         if entry:
             self.update_from(entry)
@@ -88,8 +91,12 @@ class SubtitleListItem(GObject.Object):
         self._end = entry.end_time
         self._lower_text = None
         self.entry_index = entry.index
-        text = entry.text
-        self.entry_text = text[:DISPLAY_TEXT_LIMIT] if len(text) > DISPLAY_TEXT_LIMIT else text
+        # Rows show (and search matches) the human-readable text: ASS
+        # override blocks are stripped for display. The raw text stays on
+        # the entry model and in self._text untouched.
+        clean = strip_override_blocks(entry.text)
+        self._clean_text = clean
+        self.entry_text = clean[:DISPLAY_TEXT_LIMIT] if len(clean) > DISPLAY_TEXT_LIMIT else clean
         self.entry_start = str(entry.start_time)
         self.entry_end = str(entry.end_time)
         self.entry_style = entry.style or ''
@@ -561,14 +568,15 @@ class SubtitleListView(Gtk.Box):
         if self.document and term:
             # Scan through the store items (kept in sync with the document by
             # the incremental update methods) using the cached lowercased
-            # full text, so keystrokes stay cheap on long documents.
+            # clean text (tags stripped), so keystrokes stay cheap on long
+            # documents and matches reflect what the rows actually show.
             needle = term.lower()
             matches = []
             for i in range(n):
                 item = store.get_item(i)
                 low = item._lower_text
                 if low is None:
-                    low = item._text.lower()
+                    low = item._clean_text.lower()
                     item._lower_text = low
                 if needle in low:
                     matches.append(i)

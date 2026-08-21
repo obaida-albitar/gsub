@@ -75,6 +75,27 @@ template $GsubEditorPanel : Gtk.Box {
               };
             }
           }
+
+          // Visual editor for the leading ASS override block. Hidden for SRT
+          // documents and populated from code (widgets/tag_editor.py).
+          Adw.ExpanderRow formatting_expander {
+            title: _("Formatting");
+            subtitle: _("No tags");
+            visible: false;
+
+            [prefix]
+            Image {
+              icon-name: "format-text-italic-symbolic";
+            }
+
+            [suffix]
+            MenuButton add_tag_button {
+              icon-name: "list-add-symbolic";
+              tooltip-text: _("Add tag");
+              valign: center;
+              styles ["flat"]
+            }
+          }
         }
 
         // --- Timing ---
