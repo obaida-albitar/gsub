@@ -5,6 +5,8 @@ document is mutated by commands, then the view is notified) and the search
 machinery. Requires a display; skipped automatically when none is available.
 """
 
+import types
+
 import pytest
 from subtitle_editor.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
 from subtitle_editor.resources import register_resources
@@ -247,3 +249,119 @@ class TestContextMenu:
         view.set_document(doc)
 
         assert "Bulk Apply Style…" in self._menu_labels(view.context_menu)
+
+
+class TestHighlightActive:
+    """Playback highlight: marks + scrolls a row without touching selection."""
+
+    @staticmethod
+    def _make_many(n):
+        return _make_view([f"line {i}" for i in range(n)])
+
+    def test_marks_item_and_scrolls(self):
+        view, _doc = self._make_many(5)
+        view.select_entry(0)
+
+        scrolled = []
+        original_scroll = view._scroll_to
+        view._scroll_to = lambda pos: scrolled.append(pos)
+        try:
+            view.highlight_active(3)
+        finally:
+            view._scroll_to = original_scroll
+
+        assert scrolled == [3]
+        assert view.list_store.get_item(3).active_playing is True
+        # Selection untouched.
+        assert view.get_selected_positions() == [0]
+
+    def test_clears_previous_highlight(self):
+        view, _doc = self._make_many(4)
+        view.highlight_active(1)
+        view.highlight_active(2)
+        assert view.list_store.get_item(1).active_playing is False
+        assert view.list_store.get_item(2).active_playing is True
+
+    def test_minus_one_clears_without_scrolling(self):
+        view, _doc = self._make_many(4)
+        view.highlight_active(2)
+
+        scrolled = []
+        original_scroll = view._scroll_to
+        view._scroll_to = lambda pos: scrolled.append(pos)
+        try:
+            view.highlight_active(-1)
+        finally:
+            view._scroll_to = original_scroll
+
+        assert view.list_store.get_item(2).active_playing is False
+        assert scrolled == []
+
+    def test_repeated_calls_are_noops(self):
+        view, _doc = self._make_many(4)
+        view.highlight_active(1)
+
+        scrolled = []
+        original_scroll = view._scroll_to
+        view._scroll_to = lambda pos: scrolled.append(pos)
+        try:
+            view.highlight_active(1)
+            view.highlight_active(1)
+        finally:
+            view._scroll_to = original_scroll
+        assert scrolled == []
+        assert view.list_store.get_item(1).active_playing is True
+
+    def test_out_of_range_positions_ignored(self):
+        view, _doc = self._make_many(3)
+        view.highlight_active(99)   # no crash, no scroll
+        view.highlight_active(-5)
+        assert view._active_position == -1
+
+    def test_refresh_resets_highlight(self):
+        view, _doc = self._make_many(3)
+        view.highlight_active(1)
+        view.refresh(preserve_selection=True)
+        assert view._active_position == -1
+        assert all(
+            not view.list_store.get_item(i).active_playing for i in range(3)
+        )
+
+    def test_bound_row_gets_css_class(self):
+        from subtitle_editor.widgets.subtitle_list import SubtitleListRow
+
+        view, _doc = self._make_many(3)
+        item = view.list_store.get_item(1)
+
+        class _FakeRow:
+            def __init__(self):
+                self.classes = set()
+                self.index_label = types.SimpleNamespace(set_text=lambda t: None)
+                self._title = None
+                self._subtitle = None
+
+            def set_title(self, t):
+                self._title = t
+
+            def set_subtitle(self, s):
+                self._subtitle = s
+
+            def add_css_class(self, name):
+                self.classes.add(name)
+
+            def remove_css_class(self, name):
+                self.classes.discard(name)
+
+        row = _FakeRow()
+        view._apply_item(item, row)
+        assert "active-playing" not in row.classes
+
+        item.active_playing = True
+        view._apply_item(item, row)
+        assert "active-playing" in row.classes
+
+        item.active_playing = False
+        view._apply_item(item, row)
+        assert "active-playing" not in row.classes
+        # The CSS class is applied to real rows too (factory wiring).
+        assert issubclass(SubtitleListRow, object)

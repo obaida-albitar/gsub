@@ -19,6 +19,7 @@ import av
 from fractions import Fraction
 
 from . import (
+    AudioTrack,
     ExtractionError,
     SubtitleTrack,
     UnsupportedSubtitleCodec,
@@ -65,6 +66,31 @@ def list_subtitle_tracks(path: str) -> list:
                     index=stream.index,
                     codec=stream.codec_context.name,
                     codec_family=family,
+                    language=stream.language,
+                    title=getattr(stream, "title", None),
+                )
+            )
+        return tracks
+    finally:
+        container.close()
+
+
+def list_audio_streams(path: str) -> list:
+    """List the audio streams of *path* in container order.
+
+    The stream ``index`` is the container-level index used to address the
+    stream when decoding (e.g. the waveform peak extraction).
+    """
+    container = av.open(path)
+    try:
+        tracks = []
+        for stream in container.streams:
+            if stream.type != "audio":
+                continue
+            tracks.append(
+                AudioTrack(
+                    index=stream.index,
+                    codec=stream.codec_context.name,
                     language=stream.language,
                     title=getattr(stream, "title", None),
                 )

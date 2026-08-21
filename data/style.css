@@ -15,3 +15,8 @@
 .ass-preview-label {
   font-size: 20pt;
 }
+
+/* Subtitle list row of the entry currently visible in the video preview. */
+row.active-playing {
+  background-color: alpha(@accent_bg_color, 0.15);
+}

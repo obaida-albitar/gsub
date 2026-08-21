@@ -38,16 +38,20 @@ from mpv import MPV, MpvRenderContext, MpvGlGetProcAddressFn
 # libmpv stomps on the numeric locale, which breaks number parsing elsewhere.
 locale.setlocale(locale.LC_NUMERIC, "C")
 
+from subtitle_editor.audio_peaks import WaveformLoader
 from subtitle_editor.extractors import (
     extract_track,
+    list_audio_streams,
     list_subtitle_tracks,
 )
 from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers.ass_parser import ASSParser
 from subtitle_editor.parsers.srt_parser import SRTParser
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.widgets.timeline import TimelineWidget
 
 _DEBOUNCE_MS = 120
+_WAVEFORM_POLL_MS = 100
 
 
 # Map mpv-reported subtitle codec names to our internal family. mpv uses the
@@ -166,6 +170,11 @@ class VideoPlayerWidget(Gtk.Box):
         # Emitted once per loaded video, as soon as mpv's track-list has been
         # parsed into a non-empty audio/subtitle list (replaces timeout hacks).
         "tracks-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # Forwarded from the timeline: a region was Ctrl+dragged
+        # (entry position + committed whole-ms bounds) or Ctrl+clicked
+        # (entry position to select in the subtitle list).
+        "region-adjusted": (GObject.SignalFlags.RUN_FIRST, None, (int, int, int)),
+        "region-selected": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
     }
 
     # Template children.
@@ -174,10 +183,11 @@ class VideoPlayerWidget(Gtk.Box):
     controls_box = Gtk.Template.Child()
     play_button = Gtk.Template.Child()
     time_label = Gtk.Template.Child()
-    timeline_scale = Gtk.Template.Child()
+    timeline_slot = Gtk.Template.Child()
     duration_label = Gtk.Template.Child()
     volume_button = Gtk.Template.Child()
     volume_scale = Gtk.Template.Child()
+    waveform_toggle = Gtk.Template.Child()
     subtitle_size_button = Gtk.Template.Child()
 
     def __init__(self):
@@ -200,8 +210,13 @@ class VideoPlayerWidget(Gtk.Box):
         # matching PyAV ``SubtitleTrack`` so extraction uses the correct
         # container stream index (mpv's own track id is NOT the stream index).
         self._pyav_track_map = {}
-        # Path the mapping was built for, so we only probe the file once.
+        # Maps an mpv audio track id to the PyAV container stream index of the
+        # same stream, so the waveform decodes the audio actually played.
+        self._pyav_audio_map = {}
+        # Path the mapping was built for, so we only probe the file once, and
+        # whether that background probe finished for the current video.
         self._pyav_video_path = None
+        self._pyav_probe_done = False
         # Generation token: bumped on every (re)schedule so a stale background
         # build (e.g. one kicked off with an empty track list) cannot overwrite
         # a newer, correct mapping.
@@ -219,6 +234,12 @@ class VideoPlayerWidget(Gtk.Box):
         self._disposed = False
         # Video load deferred until the GLArea is realized (see load_video).
         self._pending_load_path = None
+
+        # Waveform state (background peak extraction, polled from the UI).
+        self._waveform_loader: Optional[WaveformLoader] = None
+        self._waveform_poll_id = None
+        # Created in _wire_controls (None when mpv failed to initialise).
+        self._timeline: Optional[TimelineWidget] = None
 
         try:
             self._mpv = MPV(
@@ -330,6 +351,7 @@ class VideoPlayerWidget(Gtk.Box):
         # empty document is set (e.g. "New File").
         self._remove_editor_sub(remove_temp=True)
         self._sync_editor_sub()
+        self.refresh_timeline_regions()
         if self._mpv is not None:
             GLib.idle_add(self.video_area.queue_render)
 
@@ -353,6 +375,10 @@ class VideoPlayerWidget(Gtk.Box):
         self._mpv_track_list = []
         self._tracks_detected = False
         self._tracks_ready_emitted = False
+        # The audio stream mapping of the previous video is invalid now; it
+        # is rebuilt (and the waveform restarted) once tracks are detected.
+        self._pyav_audio_map = {}
+        self._pyav_probe_done = False
         # Reset the user's track selection so a fresh video starts clean
         # (editor document selected by default, no stale embedded track).
         self._current_audio_track = -1
@@ -362,6 +388,10 @@ class VideoPlayerWidget(Gtk.Box):
             self._pending_load_path = file_path
             return
         self._pending_load_path = None
+
+        # Any waveform from the previous video is invalid now; restart the
+        # extraction for the new file when the strip is enabled.
+        self._stop_waveform_load()
 
         try:
             self._mpv.loadfile(file_path)
@@ -381,6 +411,7 @@ class VideoPlayerWidget(Gtk.Box):
 
         # Feed the editor document (if any) as an external subtitle track.
         self._sync_editor_sub()
+        self._start_waveform_load()
         GLib.idle_add(self.video_area.queue_render)
 
     def play(self):
@@ -413,6 +444,16 @@ class VideoPlayerWidget(Gtk.Box):
         if self._mpv is None:
             return
         self.seek(max(0.0, self.get_position() + offset_ms / 1000.0))
+
+    def frame_step(self, back: bool = False):
+        """Advance one frame (or go back one frame with ``back=True``)."""
+        if self._mpv is None:
+            return
+        try:
+            self._mpv.command("frame-back-step" if back else "frame-step")
+        except Exception as exc:
+            logger.error(f"mpv frame step failed: {exc}")
+        GLib.idle_add(self.video_area.queue_render)
 
     def get_position(self) -> float:
         """Get current playback position in seconds."""
@@ -478,14 +519,14 @@ class VideoPlayerWidget(Gtk.Box):
             return
         self.time_label.set_text(self._format_time(pos))
         if not self._is_seeking:
-            self.timeline_scale.set_value(pos)
+            self._timeline.set_position(pos)
         self.emit("position-changed", pos)
 
     def _set_duration(self, duration):
         if self._disposed:
             return
         self._duration = duration
-        self.timeline_scale.set_range(0, duration)
+        self._timeline.set_duration(duration)
         self.duration_label.set_text(self._format_time(duration))
         self.emit("duration-changed", duration)
 
@@ -577,13 +618,16 @@ class VideoPlayerWidget(Gtk.Box):
             self._resolve_editor_sub_id()
 
     def _schedule_pyav_mapping(self):
-        """Build the PyAV stream mapping once per loaded video, off the UI thread."""
-        if self._disposed or not self._video_path or not self._subtitle_tracks:
+        """Build the PyAV stream mappings once per loaded video, off the UI thread."""
+        if self._disposed or not self._video_path:
             return
-        if self._pyav_video_path == self._video_path and self._pyav_track_map:
+        if not (self._subtitle_tracks or self._audio_tracks):
+            return
+        if self._pyav_video_path == self._video_path and self._pyav_probe_done:
             return  # already built for this video
         self._pyav_video_path = self._video_path
-        snapshot = list(self._subtitle_tracks)
+        sub_snapshot = list(self._subtitle_tracks)
+        audio_snapshot = list(self._audio_tracks)
         path = self._video_path
         # Capture the current generation so an older build (started before the
         # tracks were fully populated) cannot clobber this one.
@@ -593,16 +637,39 @@ class VideoPlayerWidget(Gtk.Box):
         def build():
             if self._disposed or self._pyav_mapping_gen != gen:
                 return
-            mapping = self._build_pyav_mapping(snapshot, path)
+            sub_map = (
+                self._build_pyav_mapping(sub_snapshot, path)
+                if sub_snapshot
+                else {}
+            )
+            audio_map = (
+                self._build_pyav_audio_map(audio_snapshot, path)
+                if audio_snapshot
+                else {}
+            )
             if (
-                mapping
-                and not self._disposed
+                not self._disposed
                 and self._video_path == path
                 and self._pyav_mapping_gen == gen
             ):
-                self._pyav_track_map = mapping
+                if sub_map:
+                    self._pyav_track_map = sub_map
+                self._pyav_audio_map = audio_map
+                self._pyav_probe_done = True
+                # The waveform start waits for the mapping (it must decode
+                # the audio stream mpv actually plays); revisit on the UI
+                # thread now that stream ids can be resolved.
+                GLib.idle_add(self._on_pyav_probe_ready, path)
 
         threading.Thread(target=build, daemon=True).start()
+
+    def _on_pyav_probe_ready(self, path):
+        """UI-thread follow-up after the background stream probe finished."""
+        if self._disposed or self._video_path != path:
+            return False
+        if self.waveform_toggle.get_active():
+            self._start_waveform_load()
+        return False
 
     @staticmethod
     def _build_pyav_mapping(sub_tracks, path):
@@ -643,6 +710,47 @@ class VideoPlayerWidget(Gtk.Box):
                         break
             if match is not None:
                 mapping[pos] = match
+        return mapping
+
+    @staticmethod
+    def _build_pyav_audio_map(audio_tracks, path):
+        """Associate each mpv audio track id with its PyAV container stream.
+
+        Mirrors :meth:`_build_pyav_mapping`: mpv and PyAV enumerate audio
+        streams in container order, so the position in both audio-only lists
+        is the primary key. Language/codec matching is only a fallback for
+        when the lists disagree (mpv's track id is NOT the stream index).
+        """
+        if not path or not audio_tracks:
+            return {}
+        try:
+            pyav_streams = list_audio_streams(path)
+        except Exception as exc:  # pragma: no cover - depends on file/ffmpeg
+            logger.debug(f"Could not list PyAV audio streams: {exc}")
+            return {}
+
+        mapping = {}
+        for pos, mt in enumerate(audio_tracks):
+            lang = (mt.get("language") or "").lower()
+            codec = (mt.get("codec") or "").lower()
+            match = None
+            # Primary: same position in both audio-only, ordered lists. The
+            # codec must agree when both are known (a disagreement means the
+            # lists are not aligned, e.g. a stream missing from one backend).
+            if pos < len(pyav_streams):
+                cand = pyav_streams[pos]
+                if not codec or not cand.codec or cand.codec.lower() == codec:
+                    match = cand
+            # Fallback: language + codec match (used when positions disagree).
+            if match is None:
+                for s in pyav_streams:
+                    if (not lang or (s.language or "").lower() == lang) and (
+                        not codec or (s.codec or "").lower() == codec
+                    ):
+                        match = s
+                        break
+            if match is not None:
+                mapping[mt.get("id")] = match.index
         return mapping
 
     # ------------------------------------------------------------------ #
@@ -787,6 +895,9 @@ class VideoPlayerWidget(Gtk.Box):
         if self._disposed:
             return False
         self._sync_editor_sub()
+        # Timing edits move the timeline's subtitle regions; this debounced
+        # redraw is the single cheap refresh point for them.
+        self.refresh_timeline_regions()
         return False
 
     # ------------------------------------------------------------------ #
@@ -805,6 +916,25 @@ class VideoPlayerWidget(Gtk.Box):
                 logger.error(f"set_audio_track failed: {exc}")
             GLib.idle_add(self.video_area.queue_render)
         self._current_audio_track = track_index
+        # The waveform must show the audible track: regenerate the peaks for
+        # the newly selected stream when the strip is enabled.
+        self._on_audio_track_changed()
+
+    def _on_audio_track_changed(self):
+        """Restart waveform extraction after an audio track switch.
+
+        Goes through the probe-gated start: when the stream mapping is still
+        being built the restart waits for it (``_on_pyav_probe_ready`` then
+        decodes the newly selected stream), instead of decoding the default
+        stream first.
+        """
+        if self._timeline is None or self._disposed:
+            return
+        if self._pending_load_path is not None:
+            return
+        if not self.waveform_toggle.get_active():
+            return
+        self._start_waveform_load()
 
     def set_subtitle_track(self, track_index):
         """Select a subtitle track by mpv track id (-1 shows the editor doc)."""
@@ -930,9 +1060,31 @@ class VideoPlayerWidget(Gtk.Box):
     # Controls
     # ------------------------------------------------------------------ #
     def _wire_controls(self):
-        self.timeline_scale.set_range(0, 100)
-        self.timeline_scale.set_value(0)
-        self.timeline_scale.connect("change-value", self._on_timeline_seek)
+        # Custom timeline (blueprints cannot reference custom widget types,
+        # so it is created here and packed into the template's slot).
+        self._timeline = TimelineWidget()
+        self.timeline_slot.append(self._timeline)
+        self._timeline.connect("seek-requested", self._on_timeline_seek_requested)
+        self._timeline.connect("position-picked", self._on_timeline_position_picked)
+        self._timeline.connect("scrub-started", self._on_timeline_scrub_started)
+        self._timeline.connect("scrub-ended", self._on_timeline_scrub_ended)
+        # Region interactions are re-emitted for the window to act on (the
+        # player has no access to the command manager or the subtitle list).
+        self._timeline.connect(
+            "region-adjusted",
+            lambda _t, position, start_ms, end_ms: self.emit(
+                "region-adjusted", position, start_ms, end_ms
+            ),
+        )
+        self._timeline.connect(
+            "region-selected",
+            lambda _t, position: self.emit("region-selected", position),
+        )
+
+        waveform_enabled = self._load_waveform_preference()
+        self._timeline.set_waveform_enabled(waveform_enabled)
+        self.waveform_toggle.set_active(waveform_enabled)
+        self.waveform_toggle.connect("toggled", self._on_waveform_toggled)
 
         self.volume_scale.set_range(0, 1)
         self.volume_scale.set_value(1.0)
@@ -1017,12 +1169,222 @@ class VideoPlayerWidget(Gtk.Box):
     def on_play_pause(self, _button):
         self.toggle_play_pause()
 
-    def _on_timeline_seek(self, scale, scroll_type, value):
-        if not self._is_seeking:
-            self._is_seeking = True
-            GLib.timeout_add(50, lambda: setattr(self, "_is_seeking", False))
-        self.seek(value)
+    def _on_timeline_seek_requested(self, _timeline, seconds):
+        # Intermediate seeks (throttled scrub, scroll wheel): briefly mute the
+        # player's own position updates so the playhead does not fight them.
+        self._suppress_position_updates()
+        self.seek(seconds)
+
+    def _on_timeline_position_picked(self, _timeline, seconds):
+        # Definitive pick (click / drag release): one exact seek, with a
+        # slightly longer suppression while mpv chases the target position.
+        self._suppress_position_updates(ms=150)
+        self.seek(seconds)
+
+    def _on_timeline_scrub_started(self, _timeline):
+        self._is_seeking = True
+
+    def _on_timeline_scrub_ended(self, _timeline):
+        self._suppress_position_updates(ms=150)
+
+    def _suppress_position_updates(self, ms: int = 50):
+        self._is_seeking = True
+        GLib.timeout_add(ms, self._release_seek_suppression)
+
+    def _release_seek_suppression(self):
+        self._is_seeking = False
         return False
+
+    # ------------------------------------------------------------------ #
+    # Timeline subtitle regions
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _regions_from_document(document):
+        """Subtitle (start_s, end_s, position) triples for the region strip.
+
+        The position is the entry's index in the document so timeline region
+        drags can be routed back to the right entry.
+        """
+        if document is None:
+            return []
+        regions = []
+        for position, entry in enumerate(document.entries):
+            start = entry.start_time.total_milliseconds / 1000.0
+            end = entry.end_time.total_milliseconds / 1000.0
+            if end > start:
+                regions.append((start, end, position))
+        return regions
+
+    def refresh_timeline_regions(self):
+        """Push the document's regions to the timeline immediately.
+
+        ``_do_subtitle_redraw`` also refreshes them, but only after its
+        debounce; timing edits that move regions want the visual update now.
+        """
+        if self._disposed or self._timeline is None:
+            return
+        self._timeline.set_subtitle_regions(self._regions_from_document(self.document))
+
+    def set_selected_position(self, position: int):
+        """Highlight the timeline region of the selected entry (-1 clears)."""
+        if self._timeline is not None:
+            self._timeline.set_selected_position(position)
+
+    # ------------------------------------------------------------------ #
+    # Waveform
+    # ------------------------------------------------------------------ #
+    def _on_waveform_toggled(self, button):
+        enabled = button.get_active()
+        self._save_waveform_preference(enabled)
+        self._timeline.set_waveform_enabled(enabled)
+        if enabled:
+            self._start_waveform_load()
+        else:
+            self._stop_waveform_load()
+
+    def _start_waveform_load(self):
+        """Kick off peak extraction for the current video (when enabled).
+
+        Respects the pending-load pattern: while ``loadfile`` is deferred
+        (GLArea not realized yet) no extraction is started; the replayed
+        :meth:`load_video` call reaches this point again after the real load.
+
+        The start also waits for the freshly loaded video's PyAV stream
+        mapping: the peaks must come from the audio stream mpv actually
+        plays, which is only known once the track list has been parsed and
+        probed. ``_on_pyav_probe_ready`` re-invokes this when the mapping
+        lands, so there is exactly one decode per load.
+        """
+        if self._disposed or self._timeline is None:
+            return
+        if self._pending_load_path is not None:
+            return
+        if not (self.waveform_toggle.get_active() and self._video_path):
+            return
+        if not self._audio_tracks or not self._audio_mapping_ready():
+            # Nothing to decode, or the mpv<->PyAV audio mapping is still
+            # being built in the background.
+            return
+        self._restart_waveform_load()
+
+    def _audio_mapping_ready(self) -> bool:
+        """True when the audio stream mapping matches the loaded video."""
+        return self._pyav_probe_done and self._pyav_video_path == self._video_path
+
+    def _resolve_waveform_stream_index(self):
+        """PyAV stream index of the audio mpv plays (``None`` = default).
+
+        An explicit user selection wins; without one, mpv's own default
+        (language heuristics) is read from the live track list. The mpv track
+        id is translated to a container stream index through the
+        background-built audio mapping; an unmapped/unknown id falls back to
+        PyAV's first audio stream.
+        """
+        if not self._video_path or not self._audio_tracks:
+            return None
+        track_id = self._current_audio_track
+        if track_id is None or track_id < 0:
+            track_id = self._selected_audio_track_id()
+        if track_id is None:
+            return None
+        if not self._pyav_audio_map or self._pyav_video_path != self._video_path:
+            return None
+        return self._pyav_audio_map.get(track_id)
+
+    def _selected_audio_track_id(self):
+        """mpv id of the audio track mpv itself selected (``None`` if off)."""
+        for t in self._live_track_list():
+            if t.get("type") == "audio" and t.get("selected"):
+                return t.get("id")
+        return None
+
+    def _restart_waveform_load(self):
+        """Cancel any running extraction and decode the current audio stream."""
+        self._cancel_waveform_loader()
+        self._timeline.clear_peaks()
+
+        loader = WaveformLoader()
+        self._waveform_loader = loader
+        loader.start(
+            self._video_path,
+            duration_hint=self._duration or None,
+            stream_index=self._resolve_waveform_stream_index(),
+        )
+        self._waveform_poll_id = GLib.timeout_add(
+            _WAVEFORM_POLL_MS, self._poll_waveform_loader, loader
+        )
+
+    def _stop_waveform_load(self):
+        """Cancel any running extraction and drop its peaks."""
+        if self._timeline is None:
+            return
+        self._cancel_waveform_loader()
+        self._timeline.clear_peaks()
+
+    def _cancel_waveform_loader(self):
+        if self._waveform_poll_id is not None:
+            GLib.source_remove(self._waveform_poll_id)
+            self._waveform_poll_id = None
+        if self._waveform_loader is not None:
+            self._waveform_loader.cancel()
+            self._waveform_loader = None
+
+    def _poll_waveform_loader(self, loader):
+        if self._disposed or self._waveform_loader is not loader:
+            return False
+        if not loader.is_done():
+            return True
+        self._apply_waveform_result(self._timeline, loader.get_result())
+        self._waveform_poll_id = None
+        self._waveform_loader = None
+        return False
+
+    @staticmethod
+    def _apply_waveform_result(timeline, result):
+        """Hand a finished loader result to the timeline widget.
+
+        Extracted as a helper so the "final peaks for the widget" step can be
+        unit-tested without a running player: ``None`` (failed or cancelled
+        decode) simply leaves the waveform empty.
+        """
+        if result is not None:
+            peaks, peaks_per_second = result
+            timeline.set_peaks(peaks, peaks_per_second)
+            timeline.queue_draw()
+
+    @staticmethod
+    def _load_waveform_preference() -> bool:
+        try:
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            if os.path.exists(config_file):
+                with open(config_file, "r") as f:
+                    for line in f:
+                        if line.startswith("waveform_enabled="):
+                            return line.split("=", 1)[1].strip().lower() == "true"
+        except Exception as e:
+            logger.warning(f"Could not load waveform preference: {e}")
+        return False
+
+    @staticmethod
+    def _save_waveform_preference(value: bool):
+        try:
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            os.makedirs(config_dir, exist_ok=True)
+            prefs = {}
+            if os.path.exists(config_file):
+                with open(config_file, "r") as f:
+                    for line in f:
+                        if "=" in line:
+                            key, val = line.strip().split("=", 1)
+                            prefs[key] = val
+            prefs["waveform_enabled"] = "true" if value else "false"
+            with open(config_file, "w") as f:
+                for key, val in prefs.items():
+                    f.write(f"{key}={val}\n")
+        except Exception as e:
+            logger.error(f"Error saving waveform preference: {e}")
 
     def _on_volume_changed(self, scale):
         value = scale.get_value()
@@ -1114,6 +1476,7 @@ class VideoPlayerWidget(Gtk.Box):
         if self._redraw_source is not None:
             GLib.source_remove(self._redraw_source)
             self._redraw_source = None
+        self._cancel_waveform_loader()
         if self._render_ctx is not None:
             try:
                 self._render_ctx.free()

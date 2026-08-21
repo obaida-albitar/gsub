@@ -12,13 +12,14 @@ import json
 import subprocess
 
 from . import (
+    AudioTrack,
     ExtractionError,
     SubtitleTrack,
     UnsupportedSubtitleCodec,
 )
 
 
-def _probe(path: str) -> list:
+def _probe(path: str, codec_type: str = "subtitle") -> list:
     try:
         out = subprocess.run(
             [
@@ -44,7 +45,7 @@ def _probe(path: str) -> list:
     data = json.loads(out.stdout.decode("utf-8", "ignore"))
     tracks = []
     for stream in data.get("streams", []):
-        if stream.get("codec_type") != "subtitle":
+        if stream.get("codec_type") != codec_type:
             continue
         codec = stream.get("codec_name", "")
         family = {
@@ -55,23 +56,37 @@ def _probe(path: str) -> list:
             "mov_text": "srt",
             "text": "srt",
         }.get(codec)
-        if not family:
+        if codec_type == "subtitle" and not family:
             continue
         tags = stream.get("tags", {}) or {}
-        tracks.append(
-            SubtitleTrack(
-                index=int(stream["index"]),
-                codec=codec,
-                codec_family=family,
-                language=tags.get("language"),
-                title=tags.get("title"),
+        if codec_type == "subtitle":
+            tracks.append(
+                SubtitleTrack(
+                    index=int(stream["index"]),
+                    codec=codec,
+                    codec_family=family,
+                    language=tags.get("language"),
+                    title=tags.get("title"),
+                )
             )
-        )
+        else:
+            tracks.append(
+                AudioTrack(
+                    index=int(stream["index"]),
+                    codec=codec,
+                    language=tags.get("language"),
+                    title=tags.get("title"),
+                )
+            )
     return tracks
 
 
 def list_subtitle_tracks(path: str) -> list:
     return _probe(path)
+
+
+def list_audio_streams(path: str) -> list:
+    return _probe(path, codec_type="audio")
 
 
 def extract_track(path: str, track_index: int, out_path: str) -> str:
