@@ -594,8 +594,17 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _update_undo_redo_buttons(self):
         """Update undo/redo button sensitivity."""
-        self.undo_button.set_sensitive(self.command_manager.can_undo())
-        self.redo_button.set_sensitive(self.command_manager.can_redo())
+        can_undo = self.command_manager.can_undo()
+        can_redo = self.command_manager.can_redo()
+        self.undo_button.set_sensitive(can_undo)
+        self.redo_button.set_sensitive(can_redo)
+        # The buttons are action-mapped, so their sensitivity follows the
+        # action enabled state (which also greys out the menu items and
+        # blocks the accels); keep the actions in sync too.
+        for name, enabled in (("undo", can_undo), ("redo", can_redo)):
+            action = getattr(self, "_actions", {}).get(name)
+            if action is not None:
+                action.set_enabled(enabled)
 
     def _update_format_actions(self):
         """Enable/disable ASS-only actions based on current document format."""
@@ -608,13 +617,18 @@ class GsubWindow(Adw.ApplicationWindow):
                 action.set_enabled(bool(is_ass))
     
     def _update_document_actions(self):
-        """Enable/disable document-dependent actions."""
+        """Enable/disable document-dependent actions.
+
+        undo/redo are deliberately absent: their enabled state is owned by
+        ``_update_undo_redo_buttons`` (empty history → disabled even with a
+        document open).
+        """
         has_doc = self.document is not None
         for name in ("save", "save-as", "convert-to-srt", "convert-to-ass",
                      "select-tracks", "time-shift", "sort-by-time",
                      "add-entry", "remove-entry", "duplicate-entry",
                      "move-up", "move-down", "insert-above", "insert-below",
-                     "find", "undo", "redo"):
+                     "find"):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(has_doc)
@@ -799,6 +813,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.document.file_path = file_path
             self.current_file = file_path
             self.command_manager.clear()
+            self._update_undo_redo_buttons()
             
             # Update UI
             self.subtitle_list.set_document(self.document)
@@ -904,6 +919,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.document = SubtitleDocument(format=SubtitleFormat.SRT)
         self.current_file = None
         self.command_manager.clear()
+        self._update_undo_redo_buttons()
         self.subtitle_list.set_document(self.document)
         self._reset_playback_highlight()
         self.list_stack.set_visible_child_name("list")
