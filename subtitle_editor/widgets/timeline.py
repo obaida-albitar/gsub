@@ -12,14 +12,17 @@ translates pointer gestures into seeks:
 * Ctrl+scroll           -> zoom around the cursor (x1.25 per notch)
 * Shift+scroll          -> pan the view
 * plain vertical scroll -> seek +-1 s
+* drag the selected region's edge handle -> resize it (no modifier needed;
+  the handles are only drawn on the selected region)
 * Ctrl+click on region  -> select that subtitle entry
 * Ctrl+drag on region   -> move it, or resize when grabbed by an edge
+  (works on any region, selected or not)
 
 The widget never talks to the player directly: it emits ``seek-requested``
 (live/intermediate) and ``position-picked`` (click / final release) and the
 player decides what to do with them. Region interactions emit
-``region-selected`` (Ctrl+click) and ``region-adjusted`` (Ctrl+drag release,
-with the committed whole-millisecond bounds).
+``region-selected`` (Ctrl+click) and ``region-adjusted`` (drag release, with
+the committed whole-millisecond bounds — only when they actually changed).
 
 Drawing goes through cairo exclusively: recent GTK hands the draw function a
 ``cairo.Context`` directly, older versions a ``Gtk.Snapshot`` from which a
@@ -49,11 +52,21 @@ TICK_LADDER = (0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1200, 3600)
 MIN_TICK_PX = 60.0
 
 # Region interaction tuning: pointer distance from a region edge that grabs
-# the edge for resizing, pointer travel before a Ctrl+press counts as a drag
-# (below it the press is a select), and the shortest region a resize allows.
-REGION_EDGE_THRESHOLD_PX = 6.0
+# the edge for resizing (a constant number of screen pixels at any zoom),
+# pointer travel before a press counts as a drag (below it a Ctrl+press is a
+# select), and the shortest region a resize allows. The selected region also
+# draws grip handles on its edges; the grab zone is never narrower than the
+# drawn handle so what the user sees is always within pointer reach.
+REGION_EDGE_THRESHOLD_PX = 8.0
+REGION_HANDLE_WIDTH_PX = 4.0
+REGION_HANDLE_HEIGHT_FRACTION = 0.65
 REGION_DRAG_THRESHOLD_PX = 3.0
 MIN_REGION_LENGTH_S = 0.05  # 50 ms
+
+
+def region_edge_grab_px():
+    """Edge grab zone width in screen pixels (>= the drawn handle width)."""
+    return max(REGION_EDGE_THRESHOLD_PX, REGION_HANDLE_WIDTH_PX)
 
 
 class TimelineModel:
@@ -234,13 +247,14 @@ class TimelineModel:
         """Find the region under *seconds*: ``(position, mode)`` or ``None``.
 
         ``mode`` is ``"resize-start"``/``"resize-end"`` when the time is
-        within REGION_EDGE_THRESHOLD_PX (converted to seconds at the current
-        zoom) of an edge, ``"move"`` for the region body. With overlapping
-        regions the later region wins: it is drawn on top.
+        within region_edge_grab_px() screen pixels (converted to seconds at
+        the current zoom, so the zone covers the same on-screen width at
+        every zoom level) of an edge, ``"move"`` for the region body. With
+        overlapping regions the later region wins: it is drawn on top.
         """
         t = float(seconds)
         pps = self.px_per_second(width_px)
-        threshold = REGION_EDGE_THRESHOLD_PX / pps if pps > 0 else 0.0
+        threshold = region_edge_grab_px() / pps if pps > 0 else 0.0
         hit = None
         for start, end, position in self.subtitle_regions:
             if not (start <= t <= end):
@@ -353,6 +367,8 @@ COLOR_REGION = (0.35, 0.55, 0.85, 0.30)
 COLOR_REGION_EDGE = (0.35, 0.55, 0.85, 0.55)
 COLOR_REGION_SELECTED = (0.45, 0.65, 0.95, 0.55)
 COLOR_REGION_EDGE_SELECTED = (0.45, 0.65, 0.95, 0.95)
+COLOR_HANDLE = (0.58, 0.74, 1.00, 1.00)
+COLOR_HANDLE_HOVER = (0.75, 0.86, 1.00, 1.00)
 COLOR_TICK = (0.62, 0.62, 0.66, 0.90)
 COLOR_RULER_TEXT = (0.72, 0.72, 0.76, 0.95)
 COLOR_PLAYHEAD = (0.95, 0.30, 0.30, 1.0)
@@ -467,6 +483,15 @@ class TimelineWidget(Gtk.DrawingArea):
         self._selected_position = position
         self.queue_draw()
 
+    def has_edge_handles(self) -> bool:
+        """True when the selected region is visible and shows its handles."""
+        if self._selected_position < 0:
+            return False
+        return any(
+            position == self._selected_position
+            for _start, _end, position in self.model.visible_regions()
+        )
+
     def clear_peaks(self):
         self.set_peaks(None, 0.0)
 
@@ -497,10 +522,12 @@ class TimelineWidget(Gtk.DrawingArea):
     # Scrub (plain left button) ------------------------------------------- #
 
     def _on_drag_begin(self, gesture, start_x, _start_y):
-        # Ctrl+press inside a subtitle region starts a region drag instead of
-        # a scrub (see _begin_region_drag).
+        # Ctrl+press inside any subtitle region starts a region drag instead
+        # of a scrub (see _begin_region_drag); a plain press only grabs the
+        # selected region's edge handles (a direct resize).
         state = gesture.get_current_event_state()
-        if state & Gdk.ModifierType.CONTROL_MASK and self._begin_region_drag(start_x):
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        if self._begin_region_drag(start_x, select_on_click=ctrl):
             return
         self._scrubbing = True
         self._scrub_position = None
@@ -564,14 +591,24 @@ class TimelineWidget(Gtk.DrawingArea):
             self.model.pan(-dx_px / pps)
             self.queue_draw()
 
-    # Region dragging (Ctrl + left button) --------------------------------- #
+    # Region dragging (left button; Ctrl unlocks moves on any region) ----- #
 
-    def _begin_region_drag(self, start_x: float) -> bool:
-        """Try to grab a subtitle region at *start_x*; True when grabbed."""
+    def _begin_region_drag(self, start_x: float, select_on_click: bool) -> bool:
+        """Try to grab a subtitle region at *start_x*; True when grabbed.
+
+        With ``select_on_click`` (Ctrl) any region grabs and releasing the
+        grab without movement selects the entry. Without Ctrl only the
+        selected region's edge grab zone grabs (a resize of that edge): the
+        body stays scrub territory and unselected regions do not react.
+        """
         hit = self.model.region_hit(self._time_at_x(start_x), self.get_width())
         if hit is None:
             return False
         position, mode = hit
+        if not select_on_click and (
+            mode == "move" or position != self._selected_position
+        ):
+            return False
         for start, end, pos in self.model.subtitle_regions:
             if pos == position:
                 self._region_drag = {
@@ -583,6 +620,7 @@ class TimelineWidget(Gtk.DrawingArea):
                     "moved": False,
                     "preview_start": start,
                     "preview_end": end,
+                    "select_on_click": select_on_click,
                 }
                 self._set_cursor("ew-resize" if mode != "move" else "move")
                 self.queue_draw()
@@ -613,15 +651,24 @@ class TimelineWidget(Gtk.DrawingArea):
         drag = self._region_drag
         self._region_drag = None
         if not drag["moved"]:
-            # Ctrl+click without a drag selects the entry (no document change).
-            self.emit("region-selected", drag["position"])
+            # Ctrl+click without a drag selects the entry (no document
+            # change); a plain edge grab released without moving is a no-op.
+            if drag["select_on_click"]:
+                self.emit("region-selected", drag["position"])
         else:
+            preserve_length = drag["mode"] == "move"
             start_ms, end_ms = round_region_ms(
                 drag["preview_start"], drag["preview_end"],
                 self.model.duration,
-                preserve_length=(drag["mode"] == "move"),
+                preserve_length=preserve_length,
             )
-            self.emit("region-adjusted", drag["position"], start_ms, end_ms)
+            orig_start_ms, orig_end_ms = round_region_ms(
+                drag["orig_start"], drag["orig_end"],
+                self.model.duration,
+                preserve_length=preserve_length,
+            )
+            if (start_ms, end_ms) != (orig_start_ms, orig_end_ms):
+                self.emit("region-adjusted", drag["position"], start_ms, end_ms)
         self._set_cursor(None)
         self.queue_draw()
 
@@ -642,18 +689,37 @@ class TimelineWidget(Gtk.DrawingArea):
         self._set_cursor(None)
         self.queue_draw()
 
+    def _hovered_handle_mode(self):
+        """Edge handle under the pointer: ``"resize-start"``/``"resize-end"``/``None``.
+
+        Only the selected region's edges count: those are the only ones that
+        grab without Ctrl (both for the hover cursor and for highlighting).
+        """
+        if self._hover_x is None:
+            return None
+        hit = self.model.region_hit(
+            self._time_at_x(self._hover_x), self.get_width()
+        )
+        if hit is None or hit[0] != self._selected_position or hit[1] == "move":
+            return None
+        return hit[1]
+
     def _update_hover_cursor(self, controller):
-        """Cursor hint: resize/move over a region while Ctrl is held."""
+        """Cursor hint: resize/move over a region while Ctrl is held, resize
+        over the selected region's edge handles without it."""
         if self._panning or self._region_drag is not None:
             return
         name = "pointer"
         state = controller.get_current_event_state()
-        if state & Gdk.ModifierType.CONTROL_MASK and self._hover_x is not None:
-            hit = self.model.region_hit(
-                self._time_at_x(self._hover_x), self.get_width()
-            )
-            if hit is not None:
-                name = "move" if hit[1] == "move" else "ew-resize"
+        if self._hover_x is not None:
+            if state & Gdk.ModifierType.CONTROL_MASK:
+                hit = self.model.region_hit(
+                    self._time_at_x(self._hover_x), self.get_width()
+                )
+                if hit is not None:
+                    name = "move" if hit[1] == "move" else "ew-resize"
+            elif self._hovered_handle_mode() is not None:
+                name = "ew-resize"
         self._set_cursor(name)
 
     def _on_scroll(self, controller, dx, dy):
@@ -789,6 +855,32 @@ class TimelineWidget(Gtk.DrawingArea):
         self._paint_regions(cr, selected, COLOR_REGION_SELECTED,
                             COLOR_REGION_EDGE_SELECTED, 2.0, content_h, x_at,
                             radius)
+        self._draw_edge_handles(cr, content_h, x_at, selected)
+
+    def _draw_edge_handles(self, cr, content_h, x_at, regions):
+        """Grip bars on the selected region's edges (resize affordance).
+
+        Constant screen-space size (never scaled with px/second) so the
+        handles stay graspable at every zoom level; the one under the
+        pointer brightens. Drawn from the preview bounds while dragged, so
+        they track an in-progress resize.
+        """
+        if not regions or content_h <= 0:
+            return
+        hovered_mode = self._hovered_handle_mode()
+        handle_h = content_h * REGION_HANDLE_HEIGHT_FRACTION
+        y = (content_h - handle_h) / 2.0
+        for start, end, _position in regions:
+            edges = (
+                ("resize-start", x_at(start)),
+                ("resize-end", x_at(end)),
+            )
+            for mode, x in edges:
+                color = COLOR_HANDLE_HOVER if mode == hovered_mode else COLOR_HANDLE
+                self._fill_rect(
+                    cr, x - REGION_HANDLE_WIDTH_PX / 2.0, y,
+                    REGION_HANDLE_WIDTH_PX, handle_h, color,
+                )
 
     @staticmethod
     def _paint_regions(cr, regions, fill_color, edge_color, line_width,

@@ -15,10 +15,13 @@ try:
     resources.register_resources()
     from subtitle_editor.widgets.timeline import (
         MIN_WINDOW,
+        REGION_EDGE_THRESHOLD_PX,
+        REGION_HANDLE_WIDTH_PX,
         TimelineModel,
         active_entry_at,
         format_ruler_time,
         move_region_times,
+        region_edge_grab_px,
         resize_region_times,
         round_region_ms,
     )
@@ -229,7 +232,9 @@ class TestRegionHit:
     """region_hit(): body = move, edges = resize, miss = None.
 
     Default setup: duration 600 s over a 600 px widget (1 px = 1 s), so the
-    6 px edge threshold equals 6 s.
+    8 px edge threshold equals 8 s. The threshold is a constant number of
+    screen pixels: it converts to time at the current zoom instead of being
+    a fixed time span.
     """
 
     WIDTH = 600
@@ -252,8 +257,8 @@ class TestRegionHit:
 
     def test_just_past_threshold_is_body(self, model):
         self._model_with_region(model)
-        assert model.region_hit(106.5, self.WIDTH) == (0, "move")
-        assert model.region_hit(193.5, self.WIDTH) == (0, "move")
+        assert model.region_hit(108.5, self.WIDTH) == (0, "move")
+        assert model.region_hit(191.5, self.WIDTH) == (0, "move")
 
     def test_miss_outside_region(self, model):
         self._model_with_region(model)
@@ -262,12 +267,25 @@ class TestRegionHit:
         assert model.region_hit(1000.0, self.WIDTH) is None
         assert model.region_hit(-5.0, self.WIDTH) is None
 
-    def test_edge_threshold_scales_with_px_per_second(self, model):
-        # Zoomed to a 60 s window over 600 px: 10 px/s, so 6 px = 0.6 s.
+    def test_edge_threshold_constant_in_screen_pixels(self, model):
+        # The same pixel distance from the edge hits at every zoom level:
+        # 5 px into the region grabs, 12 px is already the body, whether a
+        # pixel is worth 1 s (full 600 s view) or 0.1 s (60 s window).
         self._model_with_region(model)
-        model.set_zoom_window(0.0, 60.0)
-        assert model.region_hit(100.5, self.WIDTH) == (0, "resize-start")
-        assert model.region_hit(101.0, self.WIDTH) == (0, "move")
+        for window, near, far in ((600.0, 105.0, 112.0), (60.0, 100.5, 101.2)):
+            model.set_zoom_window(0.0, window)
+            assert model.region_hit(near, self.WIDTH) == (0, "resize-start")
+            assert model.region_hit(far, self.WIDTH) == (0, "move")
+
+    def test_grab_zone_is_larger_of_constant_and_handle_width(self, model):
+        # The grab zone can never be narrower than the drawn handles (the
+        # pointer must always reach what is on screen).
+        grab = region_edge_grab_px()
+        assert grab == max(REGION_EDGE_THRESHOLD_PX, REGION_HANDLE_WIDTH_PX)
+        assert grab >= 8.0
+        self._model_with_region(model)  # 1 px = 1 s, so px and s coincide
+        assert model.region_hit(100.0 + grab - 0.5, self.WIDTH) == (0, "resize-start")
+        assert model.region_hit(100.0 + grab + 0.5, self.WIDTH) == (0, "move")
 
     def test_last_region_wins_on_overlap(self, model):
         model.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])

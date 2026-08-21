@@ -220,6 +220,137 @@ class TestRegionDrag:
         assert recorder.events == [("region-selected", 0)]
 
 
+class TestSelectedEdgeResize:
+    """Plain (no modifier) drags of the selected region's edge handles."""
+
+    def test_plain_press_on_selected_edge_begins_resize_without_scrub(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=101.0)
+
+        timeline._on_drag_begin(gesture, 101.0, 5.0)
+
+        assert timeline._region_drag is not None
+        assert timeline._region_drag["position"] == 0
+        assert timeline._region_drag["mode"] == "resize-start"
+        assert recorder.events == []  # no scrub-started, no seeks
+        assert timeline._scrubbing is False
+
+    def test_plain_press_on_selected_end_edge_grabs_end(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        timeline._on_drag_begin(_FakeGesture(timeline, start_x=199.0), 199.0, 5.0)
+        assert timeline._region_drag["mode"] == "resize-end"
+
+    def test_plain_edge_drag_release_emits_exact_ms(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=199.0)
+
+        timeline._on_drag_begin(gesture, 199.0, 5.0)
+        timeline._on_drag_update(gesture, -49.0, 0.0)  # pointer at 150 s
+        timeline._on_drag_end(gesture, -49.0, 0.0)
+
+        assert recorder.events == [("region-adjusted", 0, 100000, 150000)]
+        assert timeline._region_drag is None
+
+    def test_plain_press_on_selected_body_still_scrubs(self):
+        # Regression: the selected region's body stays scrub/seek territory.
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=150.0)
+
+        timeline._on_drag_begin(gesture, 150.0, 5.0)
+        assert recorder.names() == ["scrub-started"]
+        assert timeline._region_drag is None
+        assert timeline._scrubbing is True
+        timeline._on_drag_update(gesture, 20.0, 0.0)
+        assert ("seek-requested", 170.0) in recorder.events
+        timeline._on_drag_end(gesture, 20.0, 0.0)
+        assert ("position-picked", 170.0) in recorder.events
+        assert recorder.names()[-1] == "scrub-ended"
+
+    def test_plain_press_on_unselected_region_edge_still_scrubs(self):
+        # Without Ctrl only the selected region reacts; the edge of another
+        # region keeps seeking/scrubbing like empty timeline space.
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=301.0)
+
+        timeline._on_drag_begin(gesture, 301.0, 5.0)
+
+        assert recorder.names() == ["scrub-started"]
+        assert timeline._region_drag is None
+        assert timeline._scrubbing is True
+
+    def test_ctrl_edge_on_unselected_region_still_resizes(self):
+        # Regression: Ctrl keeps working on any region, selected or not.
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=301.0, state=CTRL)
+
+        timeline._on_drag_begin(gesture, 301.0, 5.0)
+        assert timeline._region_drag["position"] == 1
+        assert timeline._region_drag["mode"] == "resize-start"
+        timeline._on_drag_update(gesture, -10.0, 0.0)  # pointer at 291 s
+        timeline._on_drag_end(gesture, -10.0, 0.0)
+
+        assert recorder.events == [("region-adjusted", 1, 291000, 350000)]
+
+    def test_noop_release_emits_nothing(self):
+        # A plain grab released without moving: no select, no adjustment.
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=101.0)
+
+        timeline._on_drag_begin(gesture, 101.0, 5.0)
+        timeline._on_drag_end(gesture, 0.0, 0.0)
+
+        assert recorder.events == []
+
+    def test_release_with_unchanged_values_emits_nothing(self):
+        # A real drag whose clamped bounds round back to the committed ones
+        # (end edge pinned at the media duration) must not emit.
+        timeline = _make_timeline()
+        timeline.set_subtitle_regions([(100.0, 200.0, 0), (590.0, 600.0, 1)])
+        timeline.set_selected_position(1)
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=599.0)
+
+        timeline._on_drag_begin(gesture, 599.0, 5.0)
+        timeline._on_drag_update(gesture, 50.0, 0.0)  # pointer clamps to 600 s
+        timeline._on_drag_end(gesture, 50.0, 0.0)
+
+        assert recorder.events == []
+
+    def test_hover_cursor_over_selected_edge_without_ctrl(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        timeline._hover_x = 101.0
+
+        timeline._update_hover_cursor(_FakeGesture(timeline, start_x=101.0))
+
+        cursor = timeline.get_cursor()
+        assert cursor is not None
+        assert cursor.get_name() == "ew-resize"
+
+    def test_hover_cursor_over_selected_body_stays_pointer(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        timeline._hover_x = 150.0
+
+        timeline._update_hover_cursor(_FakeGesture(timeline, start_x=150.0))
+
+        cursor = timeline.get_cursor()
+        assert cursor is None or cursor.get_name() == "pointer"
+
+
 class TestPanDrag:
     """Middle/right-button drag pans the view 1:1 with the pointer."""
 
@@ -275,3 +406,23 @@ class TestSelectedRegion:
         assert timeline._selected_position == 1
         timeline.set_selected_position(-1)
         assert timeline._selected_position == -1
+
+    def test_edge_handles_follow_selection(self):
+        timeline = _make_timeline()
+        assert timeline.has_edge_handles() is False  # nothing selected
+        timeline.set_selected_position(0)
+        assert timeline.has_edge_handles() is True
+        timeline.set_selected_position(-1)
+        assert timeline.has_edge_handles() is False
+
+    def test_edge_handles_need_a_matching_region(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(7)  # no such region
+        assert timeline.has_edge_handles() is False
+
+    def test_edge_handles_hidden_when_region_scrolled_out(self):
+        timeline = _make_timeline()
+        timeline.set_selected_position(0)
+        assert timeline.has_edge_handles() is True
+        timeline.model.set_zoom_window(300.0, 350.0)  # region 0 out of view
+        assert timeline.has_edge_handles() is False
