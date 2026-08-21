@@ -34,15 +34,19 @@ pytestmark = pytest.mark.skipif(
 )
 
 try:
-    from subtitle_editor.window import GsubWindow
+    from subtitle_editor.window import (
+        GsubWindow, _window_key_lookup, _window_key_table,
+    )
 except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
     pytest.skip(
         f"window module not importable in this environment: {exc}",
         allow_module_level=True,
     )
 
+from subtitle_editor import window as window_module  # noqa: E402
 from subtitle_editor.models import SubtitleFormat, TimeCode  # noqa: E402
 from subtitle_editor.commands.subtitle_commands import EditTextCommand  # noqa: E402
+from subtitle_editor.shortcuts import window_key_entries  # noqa: E402
 
 SRT_CONTENT = """1
 00:00:00,500 --> 00:00:02,000
@@ -156,6 +160,37 @@ class StubPlayer:
                 continue
             results.append(args[0] if len(args) == 1 else tuple(args))
         return results
+
+
+class RecordingTrackDialog:
+    """Stands in for TrackSelectionDialog, recording construction.
+
+    The window builds the real dialog via the module-level name, so tests
+    monkeypatch subtitle_editor.window.TrackSelectionDialog with this class
+    to observe that the dialog was created, presented, and with which
+    track lists — without driving a real Adw.Dialog.
+    """
+
+    created = []
+
+    def __init__(self, parent, audio_tracks, subtitle_tracks,
+                 current_audio=-1, current_subtitle=-1):
+        self.parent = parent
+        self.audio_tracks = list(audio_tracks)
+        self.subtitle_tracks = list(subtitle_tracks)
+        self.connected = []
+        self.presented = False
+        RecordingTrackDialog.created.append(self)
+
+    @classmethod
+    def reset(cls):
+        cls.created = []
+
+    def connect(self, signal, handler):
+        self.connected.append(signal)
+
+    def present(self):
+        self.presented = True
 
 
 @pytest.fixture(scope="module")
@@ -862,6 +897,176 @@ class TestVideoPlayerIntegration:
         player.embedded = (True, False)
         window._on_select_tracks(None, None)
         assert shown == [True]
+
+
+@pytest.mark.unit
+class TestWindowKeyLookup:
+    """The pure (keyval, state) -> action lookup behind the controller."""
+
+    @pytest.fixture(scope="class")
+    def table(self):
+        return _window_key_table(window_key_entries())
+
+    def test_plain_keys_match_with_clean_state(self, table):
+        for key_name, action in (
+            ("space", "win.play-pause"),
+            ("period", "win.frame-step"),
+            ("comma", "win.frame-back-step"),
+        ):
+            assert _window_key_lookup(
+                table, Gdk.keyval_from_name(key_name), 0) == action
+
+    def test_control_held_does_not_match(self, table):
+        for key_name in ("space", "period", "comma"):
+            assert _window_key_lookup(
+                table, Gdk.keyval_from_name(key_name),
+                Gdk.ModifierType.CONTROL_MASK) is None
+
+    def test_shift_held_does_not_match_plain_keys(self, table):
+        assert _window_key_lookup(
+            table, Gdk.keyval_from_name("space"),
+            Gdk.ModifierType.SHIFT_MASK) is None
+
+    def test_unrelated_keyvals_do_not_match(self, table):
+        for key_name in ("a", "Return", "Left", "Escape"):
+            assert _window_key_lookup(
+                table, Gdk.keyval_from_name(key_name), 0) is None
+
+    def test_table_covers_exactly_the_window_key_actions(self, table):
+        assert set(table.values()) == {
+            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+        assert set(table) == {
+            (Gdk.keyval_from_name("space"), 0),
+            (Gdk.keyval_from_name("period"), 0),
+            (Gdk.keyval_from_name("comma"), 0),
+        }
+
+
+@pytest.mark.integration
+class TestWindowKeyController:
+    """The bubble-phase controller dispatching window-handled keys.
+
+    Real key events are unreliable headless, so the controller's handler is
+    invoked directly with the keyvals the signal would deliver. That Space
+    no longer intercepts typing in editor_panel.text_view is a property of
+    the bubble phase itself — a focused text widget consumes the key before
+    the window ever sees it — and needs manual GUI verification.
+    """
+
+    def test_window_keys_not_registered_as_accels(self, window):
+        app = window.get_application()
+        for name in ("play-pause", "frame-step", "frame-back-step"):
+            assert app.get_accels_for_action(f"win.{name}") == [], name
+        # The controller dispatches them from its own lookup table instead.
+        assert set(window._window_keys.values()) == {
+            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+
+    def test_space_toggles_playback_with_a_video(self, window):
+        window.current_video_file = "/movies/example.mkv"
+        window.video_player.calls.clear()
+
+        handled = window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("space"), 0, 0)
+
+        assert handled is True
+        assert window.video_player.named("toggle_play_pause") == [()]
+
+    def test_space_without_video_is_consumed_but_silent(self, window):
+        window.current_video_file = None
+        window.video_player.calls.clear()
+
+        handled = window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("space"), 0, 0)
+
+        # Same as the old accel: the key is consumed, the handler no-ops
+        # because there is no video to play.
+        assert handled is True
+        assert window.video_player.calls == []
+
+    def test_period_and_comma_frame_step(self, window):
+        window.current_video_file = "/movies/example.mkv"
+        window.video_player.calls.clear()
+
+        assert window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("period"), 0, 0) is True
+        assert window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("comma"), 0, 0) is True
+        assert window.video_player.named("frame_step") == [False, True]
+
+    def test_modifier_combos_fall_through(self, window):
+        window.current_video_file = "/movies/example.mkv"
+        window.video_player.calls.clear()
+
+        combos = (
+            Gdk.ModifierType.CONTROL_MASK,
+            Gdk.ModifierType.SHIFT_MASK,
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK,
+        )
+        for state in combos:
+            handled = window._on_window_key_pressed(
+                None, Gdk.keyval_from_name("space"), 0, state)
+            assert handled is False, state
+
+        assert window.video_player.calls == []
+
+    def test_unrelated_key_falls_through(self, window):
+        assert window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("a"), 0, 0) is False
+
+
+@pytest.mark.integration
+class TestSelectTracksWithoutDocument:
+    """win.select-tracks needs a loaded video, not a subtitle document."""
+
+    def test_action_enabled_without_document(self, window):
+        window.document = None
+        window._update_document_actions()
+
+        assert window.lookup_action("select-tracks").get_enabled() is True
+        # The other video actions are not document-gated either.
+        for name in ("open-video", "play-pause", "toggle-video"):
+            assert window.lookup_action(name).get_enabled() is True, name
+
+    def test_action_still_enabled_with_document(self, window):
+        _new_document(window)
+        window._update_document_actions()
+        assert window.lookup_action("select-tracks").get_enabled() is True
+
+    def test_video_with_audio_only_opens_dialog(self, window, monkeypatch):
+        # 1 audio track, 0 embedded subtitles, and no document at all.
+        window.document = None
+        window._update_document_actions()
+        player = window.video_player
+        player.audio_tracks = [{"id": 1, "index": 1, "title": "Audio 1"}]
+        player.subtitle_tracks = []
+        player.embedded = (True, False)
+        window.current_video_file = "/movies/example.mkv"
+
+        RecordingTrackDialog.reset()
+        monkeypatch.setattr(
+            window_module, "TrackSelectionDialog", RecordingTrackDialog)
+
+        assert window.activate_action("win.select-tracks") is True
+
+        assert len(RecordingTrackDialog.created) == 1
+        dialog = RecordingTrackDialog.created[0]
+        assert len(dialog.audio_tracks) == 1
+        assert dialog.subtitle_tracks == []
+        assert dialog.presented is True
+        assert "tracks-selected" in dialog.connected
+
+    def test_no_video_toasts_instead_of_opening_dialog(self, window,
+                                                       monkeypatch):
+        window.current_video_file = None
+        window.toasts.clear()
+        RecordingTrackDialog.reset()
+        monkeypatch.setattr(
+            window_module, "TrackSelectionDialog", RecordingTrackDialog)
+
+        assert window.activate_action("win.select-tracks") is True
+
+        assert any("No video loaded" in t for t in window.toasts)
+        assert RecordingTrackDialog.created == []
 
 
 @pytest.mark.integration

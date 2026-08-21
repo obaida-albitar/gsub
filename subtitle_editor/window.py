@@ -12,7 +12,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Gtk, Adw, Gio, GLib, PangoCairo
+from gi.repository import Gtk, Adw, Gio, GLib, Gdk, PangoCairo
 import copy
 import json
 import os
@@ -39,7 +39,7 @@ from subtitle_editor.commands import (
 from subtitle_editor.commands.ass_commands import ReplaceASSHeaderCommand
 from subtitle_editor.commands.subtitle_commands import EditTextCommand, build_new_entry
 from subtitle_editor.resources import template_resource_path
-from subtitle_editor.shortcuts import accels_for_action
+from subtitle_editor.shortcuts import accels_for_action, window_key_entries
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
 from subtitle_editor.widgets.timeline import active_entry_at
 from subtitle_editor.widgets.editor_panel import EditorPanel
@@ -70,6 +70,36 @@ def should_show_track_dialog(n_audio: int, n_subs: int) -> bool:
     shown for that (common) case.
     """
     return n_subs >= 1 or n_audio > 1
+
+
+def _window_key_table(shortcuts_entries):
+    """Build the (keyval, mods) -> action lookup for window-handled keys.
+
+    Each entry accel is parsed with GTK's accelerator parser so the table
+    speaks the same keyval/modifier language as the key events the window
+    controller reports. Returns {} when there are no window keys.
+    """
+    table = {}
+    for shortcut in shortcuts_entries:
+        for accel in shortcut.accels:
+            valid, keyval, mods = Gtk.accelerator_parse(accel)
+            if valid:
+                table[(int(keyval), int(mods))] = shortcut.action
+    return table
+
+
+def _window_key_lookup(table, keyval, state):
+    """Return the action name a key event dispatches to, or None.
+
+    *state* is the raw modifier state of the key press. Only
+    accelerator-relevant bits take part in the comparison — GTK's default
+    accelerator mod mask (which includes Shift) — so modifier combos like
+    Ctrl+Space or Shift+Space never trigger a plain "space" entry, and
+    numlock/button masks are ignored.
+    """
+    mask = int(Gtk.accelerator_get_default_mod_mask()
+               | Gdk.ModifierType.SHIFT_MASK)
+    return table.get((int(keyval), int(state) & mask))
 
 
 # Playback -> list highlight sync: minimum interval between active-entry
@@ -131,6 +161,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._build_ui()
         self._update_header_bar()
         self._setup_actions()
+        self._setup_window_key_controller()
         self._update_title()
         self._update_format_actions()
         self._update_document_actions()
@@ -569,7 +600,42 @@ class GsubWindow(Adw.ApplicationWindow):
             shortcuts = accels_for_action(f"win.{name}")
         if shortcuts:
             self.get_application().set_accels_for_action(f"win.{name}", shortcuts)
-    
+
+    def _setup_window_key_controller(self):
+        """Dispatch window-handled keys (space, period, comma) ourselves.
+
+        Registering these as application accels would let the accel win
+        over text input, so a plain "space" accel swallowed Space in the
+        subtitle text editor and entries. A bubble-phase key controller on
+        the window only runs after the focused widget had its chance, so
+        text widgets consume these keys for typing while the rest of the
+        window (subtitle list, timeline, ...) still gets the shortcut.
+        Focusable buttons keep consuming Space to activate themselves, as
+        is standard. The keys and their dialog display accels live in the
+        shortcuts table (window_key entries).
+        """
+        self._window_keys = _window_key_table(window_key_entries())
+        key_controller = Gtk.EventControllerKey()
+        key_controller.set_propagation_phase(Gtk.PropagationPhase.BUBBLE)
+        key_controller.connect("key-pressed", self._on_window_key_pressed)
+        self.add_controller(key_controller)
+
+    def _on_window_key_pressed(self, controller, keyval, keycode, state):
+        """Activate the action matching a window-handled key, if any.
+
+        Returns True (stopping propagation) only when a window key matched
+        and its action is enabled; otherwise the event continues to other
+        handlers.
+        """
+        action_name = _window_key_lookup(self._window_keys, keyval, state)
+        if action_name is None:
+            return False
+        action = self.lookup_action(action_name.split(".", 1)[1])
+        if action is None or not action.get_enabled():
+            return False
+        action.activate(None)
+        return True
+
     def _update_title(self):
         """Update window title based on current file."""
         if self.current_file:
@@ -621,11 +687,15 @@ class GsubWindow(Adw.ApplicationWindow):
 
         undo/redo are deliberately absent: their enabled state is owned by
         ``_update_undo_redo_buttons`` (empty history → disabled even with a
-        document open).
+        document open). ``select-tracks`` is absent too: it needs a loaded
+        video, not a document, and its handler (_on_select_tracks) already
+        toasts when there is no video or no embedded tracks. The other
+        video actions (open-video, toggle-video, play-pause) were never
+        gated here either.
         """
         has_doc = self.document is not None
         for name in ("save", "save-as", "convert-to-srt", "convert-to-ass",
-                     "select-tracks", "time-shift", "sort-by-time",
+                     "time-shift", "sort-by-time",
                      "add-entry", "remove-entry", "duplicate-entry",
                      "move-up", "move-down", "insert-above", "insert-below",
                      "find"):

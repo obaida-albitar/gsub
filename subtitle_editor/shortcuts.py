@@ -12,6 +12,17 @@ rather than "Space" and "+". Entries with action=None describe keys
 handled by widget key controllers (video player zoom, search matches);
 they are shown in the dialog but never registered as action accels.
 
+Entries flagged ``window_key`` (space, period, comma) are plain typable
+keys that must not become application accels at all: accels win over text
+input, so registering "space" would steal Space from the text editor and
+entries (and period/comma likewise). The window dispatches them itself
+from a bubble-phase key controller, which only runs after the focused
+widget declined the key — so text widgets consume them for typing while
+the rest of the window still gets the shortcut (see
+window._setup_window_key_controller). Their accels stay in the table for
+display in the dialog; accels_for_action returns [] for them so no accel
+is ever registered.
+
 Mouse gestures (timeline scrolling/dragging) have no GTK accelerator
 syntax. Their entries carry the closest parseable approximation in
 ``accels`` — wheel events parse natively ("ScrollUp", "<Ctrl>ScrollUp"),
@@ -47,6 +58,11 @@ class Shortcut:
         section: Dialog section (one of the SECTION_* constants).
         gesture: Free display text for mouse gestures ("Ctrl + Drag"),
             rendered as the row subtitle; None for pure key shortcuts.
+        window_key: True for keys the window dispatches itself from a
+            bubble-phase key controller instead of an application accel
+            (plain typable keys like space that would otherwise steal text
+            input). Never registered as an accel; the accels stay for the
+            dialog display.
     """
 
     action: str | None
@@ -54,6 +70,7 @@ class Shortcut:
     title: str
     section: str
     gesture: str | None = None
+    window_key: bool = False
 
 
 SHORTCUTS = (
@@ -72,22 +89,27 @@ SHORTCUTS = (
     Shortcut("win.move-down", ("<Ctrl>Down",), "Move Down", SECTION_EDITING),
     # Video
     Shortcut("win.open-video", ("<Ctrl><Shift>O",), "Open Video…", SECTION_VIDEO),
-    Shortcut("win.play-pause", ("space",), "Play/Pause", SECTION_VIDEO),
+    # Window key: as a plain accel, space would win over text input and
+    # steal typing in the subtitle text editor; see the module docstring.
+    Shortcut("win.play-pause", ("space",), "Play/Pause", SECTION_VIDEO,
+             window_key=True),
     Shortcut("win.toggle-video", ("<Ctrl><Shift>V",), "Toggle Video Player", SECTION_VIDEO),
     Shortcut("win.select-tracks", ("<Ctrl><Shift>T",), "Select Audio/Subtitle Tracks…", SECTION_VIDEO),
     # Handled by the video player's key controller, not an action accel.
     Shortcut(None, ("plus", "equal", "minus", "0"),
              "Subtitle Size: Increase / Decrease / Reset", SECTION_VIDEO),
-    # Timeline: precise navigation on the custom timeline. The nudge/frame
-    # actions are window accels: they only fire when no focused widget
-    # consumed the key, so the caret still moves inside text fields (same
-    # mechanism as space).
+    # Timeline: precise navigation on the custom timeline. The arrow-key
+    # accels are keybinding-class and coexist fine with text editing, but
+    # the plain typable frame-step keys (period/comma) are window keys —
+    # otherwise typing "." or "," in the text editor would step the video.
     Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE),
     Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE),
     Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE),
     Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE),
-    Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_TIMELINE),
-    Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE),
+    Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE,
+             window_key=True),
     Shortcut("win.seek-to-selection", ("<Ctrl>J",), "Play from Selected Subtitle", SECTION_TIMELINE),
     # Mouse gestures on the timeline widget, documented in the dialog only
     # (see the module docstring about their accel approximations).
@@ -120,14 +142,28 @@ def accels_for_action(action):
 
     Args:
         action: Qualified action name, e.g. "win.undo". Widget-level
-            entries (action=None) are never registrable.
+            entries (action=None) and window-key entries (handled by the
+            window's key controller, not accels) are never registrable.
     """
     if action is None:
         return []
     for shortcut in SHORTCUTS:
         if shortcut.action == action:
+            if shortcut.window_key:
+                return []
             return list(shortcut.accels)
     return []
+
+
+def window_key_entries():
+    """Return the entries the window dispatches from its key controller.
+
+    These are the keys that must not be application accels because accels
+    win over text input for plain typable keys (see the module docstring).
+    The window parses their accels with gtk_accelerator_parse to build its
+    (keyval, modifiers) dispatch table.
+    """
+    return [shortcut for shortcut in SHORTCUTS if shortcut.window_key]
 
 
 def entries_for_section(section):

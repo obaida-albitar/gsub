@@ -19,6 +19,7 @@ from subtitle_editor.shortcuts import (
     SHORTCUTS,
     accels_for_action,
     entries_for_section,
+    window_key_entries,
 )
 
 # Same translation setup as subtitle_editor/__init__.py installs app-wide.
@@ -69,8 +70,33 @@ class TestShortcutsTable:
 
     @pytest.mark.unit
     def test_play_pause_bound_to_space(self):
-        """Space toggles playback."""
-        assert accels_for_action("win.play-pause") == ["space"]
+        """Space toggles playback via the window key controller, not an accel."""
+        play_pause = next(s for s in SHORTCUTS if s.action == "win.play-pause")
+        assert play_pause.window_key is True
+        assert play_pause.accels == ("space",)
+        assert accels_for_action("win.play-pause") == []
+
+    @pytest.mark.unit
+    def test_window_keys_are_never_registered_as_accels(self):
+        """Window-handled keys (space/period/comma) must not be app accels.
+
+        Accels win over text input for plain typable keys, so they would
+        steal Space/period/comma from the text editor.
+        """
+        entries = window_key_entries()
+        assert {shortcut.action for shortcut in entries} == {
+            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+        for shortcut in entries:
+            # Display accels stay for the shortcuts dialog...
+            assert shortcut.accels, f"{shortcut.action} needs a display accel"
+            # ...but nothing is registered for them.
+            assert accels_for_action(shortcut.action) == []
+
+    @pytest.mark.unit
+    def test_window_keys_still_appear_in_the_dialog_sections(self):
+        """Window keys are shown in the dialog like every other entry."""
+        for shortcut in window_key_entries():
+            assert shortcut in entries_for_section(shortcut.section)
 
     @pytest.mark.unit
     def test_toggle_video_moved_off_ctrl_v(self):
