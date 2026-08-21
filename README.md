@@ -11,22 +11,22 @@ tags.
 
 ## Screenshots
 
-**The editor with live video preview** — subtitle list on the left, your
-subtitles rendered over the video by libmpv, and the editing panel below:
-![Editing with video preview](screenshots/2.png)
-
-**Visual override-tag editing** — the list shows clean, readable text while
-the leading `{…}` tag block is exposed in the Formatting expander as proper
-controls (font, size, colours, position, …):
-![Visual tag editing](screenshots/3.png)
+**The home screen**:
+![Home screen](screenshots/1.png)
 
 **The timeline** — precise seeking with an optional audio waveform (off by
 default); subtitle regions are drawn on the timeline and can be dragged to
 retime a line or stretched by their handles to change its duration:
 ![Waveform timeline](screenshots/4.png)
 
-**The home screen**:
-![Home screen](screenshots/1.png)
+**Visual override-tag editing** — the list shows clean, readable text while
+the leading `{…}` tag block is exposed in the Formatting expander as proper
+controls (font, size, colours, position, …):
+![Visual tag editing](screenshots/3.png)
+
+**The editor with live video preview** — subtitle list on the left, your
+subtitles rendered over the video by libmpv, and the editing panel below:
+![Editing with video preview](screenshots/2.png)
 
 ## Features
 
