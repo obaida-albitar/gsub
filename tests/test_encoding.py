@@ -5,7 +5,7 @@ import os
 import pytest
 
 from subtitle_editor.parsers.encoding import decode_subtitle_text
-from subtitle_editor.parsers import ASSParser, SRTParser
+from subtitle_editor.parsers import ASSParser
 
 
 def test_decode_utf8_bom():
@@ -36,6 +36,30 @@ def test_decode_cp1252_fallback():
 
 def test_decode_empty():
     assert decode_subtitle_text(b"") == ""
+
+
+def test_decode_bom_utf8_with_invalid_body_never_raises():
+    # A UTF-8 BOM followed by bytes that are not valid UTF-8: the decoder
+    # must still return usable text (via the legacy fallbacks) instead of
+    # raising. The exact replacement bytes depend on charset-normalizer's
+    # best guess, so only the stable prefix is asserted.
+    raw = b"\xef\xbb\xbf" + b"Hello " + b"\x81"
+    text = decode_subtitle_text(raw)
+    assert isinstance(text, str)
+    assert text.startswith("Hello")
+
+
+def test_decode_utf16_be_bom():
+    raw = b"\xfe\xff" + "héllo wörld".encode("utf-16-be")
+    text = decode_subtitle_text(raw)
+    assert text == "héllo wörld"
+
+
+def test_decode_undefined_cp1252_byte_never_raises():
+    # 0x81 is undefined in strict cp1252; with charset-normalizer or the
+    # replacement fallback the decoder still returns a string.
+    raw = "Café".encode("cp1252") + b"\x81"
+    assert isinstance(decode_subtitle_text(raw), str)
 
 
 def test_ass_parse_bom_populates_metadata():
