@@ -25,7 +25,7 @@ from subtitle_editor.batch_logic import (
     compute_shared_styles,
 )
 from subtitle_editor.extractors import EXTENSION_FOR_FORMAT
-from subtitle_editor.models import SubtitleDocument, SubtitleFormat
+from subtitle_editor.models import SubtitleDocument, SubtitleFormat, TimeCode
 from subtitle_editor.parsers import SRTParser, ASSParser, parse_subtitle_document
 from subtitle_editor.parsers.encoding import decode_subtitle_text
 from subtitle_editor.commands import (
@@ -316,6 +316,10 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_player.connect('tracks-ready', self._on_tracks_ready)
         # Highlight the subtitle under the playhead while playing.
         self.video_player.connect('position-changed', self._on_player_position_changed)
+        # Timeline region interactions: Ctrl+drag adjusts timing (undoable),
+        # Ctrl+click selects the entry.
+        self.video_player.connect('region-adjusted', self._on_region_adjusted)
+        self.video_player.connect('region-selected', self._on_region_selected)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
 
@@ -1717,10 +1721,18 @@ class GsubWindow(Adw.ApplicationWindow):
         if len(self.subtitle_list.get_selected_positions()) > 1:
             self.editor_panel.clear()
             self.editor_panel.set_sensitive(False)
+            if self.video_player:
+                self.video_player.set_selected_position(-1)
             return
         if 0 <= position < len(self.document.entries):
             entry = self.document.entries[position]
             self.editor_panel.set_entry(entry, position)
+            if self.video_player:
+                self.video_player.set_selected_position(position)
+        elif self.video_player:
+            # Selection lost (e.g. everything unselected): clear the region
+            # highlight too.
+            self.video_player.set_selected_position(-1)
     
     def _on_entry_activated(self, widget, position):
         """Handle subtitle entry activation (double-click)."""
@@ -2119,6 +2131,50 @@ class GsubWindow(Adw.ApplicationWindow):
         if position_index != self._active_highlight:
             self._active_highlight = position_index
             self.subtitle_list.highlight_active(position_index)
+
+    # --- Timeline region interactions --------------------------------------
+
+    def _on_region_adjusted(self, player, position, start_ms, end_ms):
+        """Commit a region drag on the timeline as an undoable timing edit.
+
+        Mirrors :meth:`_on_timing_changed` (same command and refresh
+        sequence) and additionally refreshes the timeline's regions
+        immediately instead of waiting for the debounced subtitle redraw.
+        """
+        if not self.document or not (0 <= position < len(self.document.entries)):
+            return
+        entry = self.document.entries[position]
+        if (entry.start_time.total_milliseconds == start_ms
+                and entry.end_time.total_milliseconds == end_ms):
+            return  # no-op: nothing moved
+
+        from subtitle_editor.commands import EditTimingCommand
+
+        cmd = EditTimingCommand(
+            self.document, position,
+            TimeCode.from_milliseconds(start_ms),
+            TimeCode.from_milliseconds(end_ms),
+        )
+        self.command_manager.execute(cmd)
+
+        self.subtitle_list.refresh_entry(position)
+        if self.editor_panel.current_position == position:
+            self.editor_panel.set_entry(entry, position)
+        self._update_title()
+        self._update_undo_redo_buttons()
+        if self.video_player:
+            self.video_player.queue_subtitle_redraw()
+            self.video_player.refresh_timeline_regions()
+
+    def _on_region_selected(self, player, position):
+        """A region was Ctrl+clicked on the timeline: select that entry.
+
+        Routes through the subtitle list so the existing selection path runs
+        (editor panel update and the region highlight feedback loop).
+        """
+        if not self.document or not (0 <= position < len(self.document.entries)):
+            return
+        self.subtitle_list.select_entry(position)
     
     def _on_video_toggle(self, button):
         """Handle video player toggle button."""

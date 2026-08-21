@@ -8,13 +8,18 @@ translates pointer gestures into seeks:
 
 * left click            -> exact seek to the clicked time
 * click-drag            -> scrub (throttled live seeks + one final exact seek)
+* middle/right drag     -> pan the view 1:1 with the pointer (click = no-op)
 * Ctrl+scroll           -> zoom around the cursor (x1.25 per notch)
 * Shift+scroll          -> pan the view
 * plain vertical scroll -> seek +-1 s
+* Ctrl+click on region  -> select that subtitle entry
+* Ctrl+drag on region   -> move it, or resize when grabbed by an edge
 
 The widget never talks to the player directly: it emits ``seek-requested``
 (live/intermediate) and ``position-picked`` (click / final release) and the
-player decides what to do with them.
+player decides what to do with them. Region interactions emit
+``region-selected`` (Ctrl+click) and ``region-adjusted`` (Ctrl+drag release,
+with the committed whole-millisecond bounds).
 
 Drawing goes through cairo exclusively: recent GTK hands the draw function a
 ``cairo.Context`` directly, older versions a ``Gtk.Snapshot`` from which a
@@ -43,6 +48,13 @@ MIN_WINDOW = 0.5
 TICK_LADDER = (0.1, 0.25, 0.5, 1, 2, 5, 10, 30, 60, 120, 300, 600, 1200, 3600)
 MIN_TICK_PX = 60.0
 
+# Region interaction tuning: pointer distance from a region edge that grabs
+# the edge for resizing, pointer travel before a Ctrl+press counts as a drag
+# (below it the press is a select), and the shortest region a resize allows.
+REGION_EDGE_THRESHOLD_PX = 6.0
+REGION_DRAG_THRESHOLD_PX = 3.0
+MIN_REGION_LENGTH_S = 0.05  # 50 ms
+
 
 class TimelineModel:
     """Pure state + math for the timeline: view window, peaks, regions.
@@ -60,7 +72,7 @@ class TimelineModel:
         # how many buckets cover one second.
         self.peaks = None
         self.peaks_per_second = 0.0
-        # Subtitle regions as (start_s, end_s) pairs.
+        # Subtitle regions as (start_s, end_s, position) triples.
         self.subtitle_regions = []
 
     # -- state setters ---------------------------------------------------- #
@@ -82,8 +94,18 @@ class TimelineModel:
         self.peaks_per_second = float(peaks_per_second or 0.0)
 
     def set_subtitle_regions(self, regions):
-        """Set subtitle regions as an iterable of (start_s, end_s) pairs."""
-        self.subtitle_regions = [(float(s), float(e)) for s, e in regions or []]
+        """Set subtitle regions as ``(start_s, end_s, position)`` triples.
+
+        ``position`` is the entry's index in the document (used to route
+        region drags back to the right entry); plain ``(start_s, end_s)``
+        pairs are tolerated and stored with position -1.
+        """
+        out = []
+        for region in regions or []:
+            start, end = float(region[0]), float(region[1])
+            position = int(region[2]) if len(region) > 2 else -1
+            out.append((start, end, position))
+        self.subtitle_regions = out
 
     # -- view window ------------------------------------------------------- #
 
@@ -189,23 +211,91 @@ class TimelineModel:
         """Subtitle regions intersecting the view, clamped to media + view.
 
         Regions are clipped to [0, duration] and to the visible window;
-        degenerate (inverted or empty) regions are dropped.
+        degenerate (inverted or empty) regions are dropped. The entry
+        position is carried along so drags and highlights stay attached.
         """
         duration = self.duration
         out = []
-        for start, end in self.subtitle_regions:
+        for start, end, position in self.subtitle_regions:
             s = max(0.0, start)
             if duration <= 0:
                 # No media yet: keep regions unclamped (nothing to clip to).
                 if end > s:
-                    out.append((s, end))
+                    out.append((s, end, position))
                 continue
             e = min(end, duration)
             s = max(s, self.view_start)
             e = min(e, self.view_end)
             if e > s:
-                out.append((s, e))
+                out.append((s, e, position))
         return out
+
+    def region_hit(self, seconds: float, width_px: float):
+        """Find the region under *seconds*: ``(position, mode)`` or ``None``.
+
+        ``mode`` is ``"resize-start"``/``"resize-end"`` when the time is
+        within REGION_EDGE_THRESHOLD_PX (converted to seconds at the current
+        zoom) of an edge, ``"move"`` for the region body. With overlapping
+        regions the later region wins: it is drawn on top.
+        """
+        t = float(seconds)
+        pps = self.px_per_second(width_px)
+        threshold = REGION_EDGE_THRESHOLD_PX / pps if pps > 0 else 0.0
+        hit = None
+        for start, end, position in self.subtitle_regions:
+            if not (start <= t <= end):
+                continue
+            if t - start <= threshold:
+                mode = "resize-start"
+            elif end - t <= threshold:
+                mode = "resize-end"
+            else:
+                mode = "move"
+            hit = (position, mode)
+        return hit
+
+
+def move_region_times(start_s, end_s, delta_s, duration_s):
+    """Shift a region by *delta_s*, keeping its length, clamped to the media."""
+    length = end_s - start_s
+    limit = max(float(duration_s), length)
+    new_start = min(max(start_s + delta_s, 0.0), limit - length)
+    return new_start, new_start + length
+
+
+def resize_region_times(start_s, end_s, edge, time_s, duration_s):
+    """Move one region edge (``"start"``/``"end"``) to *time_s*.
+
+    The other edge stays put; MIN_REGION_LENGTH_S is always enforced and the
+    region is clamped to [0, duration].
+    """
+    duration_s = float(duration_s)
+    if edge == "start":
+        new_start = min(max(float(time_s), 0.0), end_s - MIN_REGION_LENGTH_S)
+        return new_start, end_s
+    min_end = start_s + MIN_REGION_LENGTH_S
+    new_end = max(float(time_s), min_end)
+    return start_s, min(new_end, max(duration_s, min_end))
+
+
+def round_region_ms(start_s, end_s, duration_s, preserve_length=False):
+    """Round tentative region bounds to committed whole milliseconds.
+
+    Returns ``(start_ms, end_ms)`` clamped to start >= 0, end <= duration and
+    end > start. With ``preserve_length`` (region moves) the original length
+    survives the rounding; otherwise a minimum of MIN_REGION_LENGTH_S is
+    enforced (resizes).
+    """
+    duration_ms = max(0, int(round(float(duration_s) * 1000)))
+    length_ms = max(1, int(round((float(end_s) - float(start_s)) * 1000)))
+    start_ms = max(0, int(round(float(start_s) * 1000)))
+    if preserve_length:
+        start_ms = min(start_ms, max(0, duration_ms - length_ms))
+        return start_ms, start_ms + length_ms
+    end_ms = max(int(round(float(end_s) * 1000)), start_ms + int(round(MIN_REGION_LENGTH_S * 1000)))
+    if duration_ms > 0:
+        end_ms = min(end_ms, max(duration_ms, start_ms + 1))
+    return start_ms, end_ms
 
 
 def format_ruler_time(seconds: float, show_millis: bool) -> str:
@@ -261,6 +351,8 @@ COLOR_WAVE = (0.45, 0.65, 0.95, 0.90)
 COLOR_WAVE_CENTER = (0.45, 0.65, 0.95, 0.35)
 COLOR_REGION = (0.35, 0.55, 0.85, 0.30)
 COLOR_REGION_EDGE = (0.35, 0.55, 0.85, 0.55)
+COLOR_REGION_SELECTED = (0.45, 0.65, 0.95, 0.55)
+COLOR_REGION_EDGE_SELECTED = (0.45, 0.65, 0.95, 0.95)
 COLOR_TICK = (0.62, 0.62, 0.66, 0.90)
 COLOR_RULER_TEXT = (0.72, 0.72, 0.76, 0.95)
 COLOR_PLAYHEAD = (0.95, 0.30, 0.30, 1.0)
@@ -282,6 +374,10 @@ class TimelineWidget(Gtk.DrawingArea):
         # updates while the user controls the playhead.
         "scrub-started": (GObject.SignalFlags.RUN_FIRST, None, ()),
         "scrub-ended": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # A region was Ctrl+dragged: committed whole-ms bounds.
+        "region-adjusted": (GObject.SignalFlags.RUN_FIRST, None, (int, int, int)),
+        # A region was Ctrl+clicked (no drag): entry to select.
+        "region-selected": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
     }
 
     def __init__(self):
@@ -293,6 +389,13 @@ class TimelineWidget(Gtk.DrawingArea):
         self._scrub_position = None
         self._last_scrub_seek = 0
         self._layout = None
+        # Middle/right-button view panning (1:1 with pointer movement).
+        self._panning = False
+        self._pan_last_offset_x = 0.0
+        # Region interaction state: entry whose region is selected (-1 = none)
+        # and the active Ctrl-drag (a dict, see _begin_region_drag).
+        self._selected_position = -1
+        self._region_drag = None
 
         self.set_hexpand(True)
         self._apply_height()
@@ -305,6 +408,16 @@ class TimelineWidget(Gtk.DrawingArea):
         drag.connect("drag-update", self._on_drag_update)
         drag.connect("drag-end", self._on_drag_end)
         self.add_controller(drag)
+
+        # Middle and right buttons both pan (a click without movement, i.e.
+        # begin+end with no update, does nothing: no seek, no context menu).
+        for button in (2, 3):
+            pan = Gtk.GestureDrag()
+            pan.set_button(button)
+            pan.connect("drag-begin", self._on_pan_begin)
+            pan.connect("drag-update", self._on_pan_update)
+            pan.connect("drag-end", self._on_pan_end)
+            self.add_controller(pan)
 
         motion = Gtk.EventControllerMotion()
         motion.connect("enter", self._on_motion_enter)
@@ -346,6 +459,14 @@ class TimelineWidget(Gtk.DrawingArea):
         self.model.set_subtitle_regions(regions)
         self.queue_draw()
 
+    def set_selected_position(self, position: int):
+        """Highlight the region of the selected entry (-1 clears)."""
+        position = int(position)
+        if position == self._selected_position:
+            return
+        self._selected_position = position
+        self.queue_draw()
+
     def clear_peaks(self):
         self.set_peaks(None, 0.0)
 
@@ -358,25 +479,39 @@ class TimelineWidget(Gtk.DrawingArea):
     def _time_at_x(self, x: float) -> float:
         return self.model.time_at_px(x, self.get_width())
 
-    @staticmethod
-    def _absolute_x(gesture, offset_x) -> float:
+    def _absolute_x(self, gesture, offset_x) -> float:
         """Drag gestures report offsets; convert to widget coordinates."""
         ok, start_x, _start_y = gesture.get_start_point()
         base = start_x if ok else 0.0
-        widget = gesture.get_widget()
-        width = widget.get_width() if widget is not None else 0
+        width = self.get_width()
         if width <= 0:
             return 0.0
         return min(max(base + offset_x, 0.0), float(width))
 
-    def _on_drag_begin(self, _gesture, _start_x, _start_y):
+    def _set_cursor(self, name):
+        if name is None:
+            self.set_cursor(None)
+        else:
+            self.set_cursor_from_name(name)
+
+    # Scrub (plain left button) ------------------------------------------- #
+
+    def _on_drag_begin(self, gesture, start_x, _start_y):
+        # Ctrl+press inside a subtitle region starts a region drag instead of
+        # a scrub (see _begin_region_drag).
+        state = gesture.get_current_event_state()
+        if state & Gdk.ModifierType.CONTROL_MASK and self._begin_region_drag(start_x):
+            return
         self._scrubbing = True
         self._scrub_position = None
         self._last_scrub_seek = 0
         self.emit("scrub-started")
         self.queue_draw()
 
-    def _on_drag_update(self, gesture, offset_x, _offset_y):
+    def _on_drag_update(self, gesture, offset_x, offset_y):
+        if self._region_drag is not None:
+            self._update_region_drag(gesture, offset_x, offset_y)
+            return
         if not self._scrubbing:
             return
         self._scrub_position = self._time_at_x(self._absolute_x(gesture, offset_x))
@@ -387,6 +522,9 @@ class TimelineWidget(Gtk.DrawingArea):
         self.queue_draw()
 
     def _on_drag_end(self, gesture, offset_x, _offset_y):
+        if self._region_drag is not None:
+            self._end_region_drag()
+            return
         if not self._scrubbing:
             return
         final = self._time_at_x(self._absolute_x(gesture, offset_x))
@@ -396,21 +534,131 @@ class TimelineWidget(Gtk.DrawingArea):
         self.emit("scrub-ended")
         self.queue_draw()
 
-    def _on_motion_enter(self, _motion, x, _y):
-        self._hover_x = x
-        self.set_cursor_from_name("pointer")
+    # View panning (middle/right button) ---------------------------------- #
+
+    def _on_pan_begin(self, _gesture, _start_x, _start_y):
+        if self._region_drag is not None:
+            return
+        self._panning = True
+        self._pan_last_offset_x = 0.0
+        self._set_cursor("grabbing")
+
+    def _on_pan_update(self, _gesture, offset_x, _offset_y):
+        if not self._panning:
+            return
+        # Incremental deltas (not the accumulated offset) so view clamping
+        # during the drag does not desynchronise the pointer.
+        self._pan_by_px(offset_x - self._pan_last_offset_x)
+        self._pan_last_offset_x = offset_x
+
+    def _on_pan_end(self, _gesture, _offset_x, _offset_y):
+        if not self._panning:
+            return
+        self._panning = False
+        self._set_cursor(None)
+
+    def _pan_by_px(self, dx_px: float):
+        """Pan 1:1 with pointer movement (pixels -> seconds at current zoom)."""
+        pps = self.model.px_per_second(self.get_width())
+        if pps > 0 and dx_px:
+            self.model.pan(-dx_px / pps)
+            self.queue_draw()
+
+    # Region dragging (Ctrl + left button) --------------------------------- #
+
+    def _begin_region_drag(self, start_x: float) -> bool:
+        """Try to grab a subtitle region at *start_x*; True when grabbed."""
+        hit = self.model.region_hit(self._time_at_x(start_x), self.get_width())
+        if hit is None:
+            return False
+        position, mode = hit
+        for start, end, pos in self.model.subtitle_regions:
+            if pos == position:
+                self._region_drag = {
+                    "position": position,
+                    "mode": mode,
+                    "orig_start": start,
+                    "orig_end": end,
+                    "anchor_time": self._time_at_x(start_x),
+                    "moved": False,
+                    "preview_start": start,
+                    "preview_end": end,
+                }
+                self._set_cursor("ew-resize" if mode != "move" else "move")
+                self.queue_draw()
+                return True
+        return False
+
+    def _update_region_drag(self, gesture, offset_x, offset_y):
+        drag = self._region_drag
+        if not drag["moved"]:
+            if math.hypot(offset_x, offset_y) < REGION_DRAG_THRESHOLD_PX:
+                return  # still within click tolerance: keep preview put
+            drag["moved"] = True
+        pointer_time = self._time_at_x(self._absolute_x(gesture, offset_x))
+        if drag["mode"] == "move":
+            delta = pointer_time - drag["anchor_time"]
+            drag["preview_start"], drag["preview_end"] = move_region_times(
+                drag["orig_start"], drag["orig_end"], delta, self.model.duration
+            )
+        else:
+            edge = "start" if drag["mode"] == "resize-start" else "end"
+            drag["preview_start"], drag["preview_end"] = resize_region_times(
+                drag["orig_start"], drag["orig_end"], edge,
+                pointer_time, self.model.duration,
+            )
         self.queue_draw()
 
-    def _on_motion(self, _motion, x, _y):
+    def _end_region_drag(self):
+        drag = self._region_drag
+        self._region_drag = None
+        if not drag["moved"]:
+            # Ctrl+click without a drag selects the entry (no document change).
+            self.emit("region-selected", drag["position"])
+        else:
+            start_ms, end_ms = round_region_ms(
+                drag["preview_start"], drag["preview_end"],
+                self.model.duration,
+                preserve_length=(drag["mode"] == "move"),
+            )
+            self.emit("region-adjusted", drag["position"], start_ms, end_ms)
+        self._set_cursor(None)
+        self.queue_draw()
+
+    # Pointer tracking ------------------------------------------------------ #
+
+    def _on_motion_enter(self, motion, x, _y):
         self._hover_x = x
+        self._update_hover_cursor(motion)
+        self.queue_draw()
+
+    def _on_motion(self, motion, x, _y):
+        self._hover_x = x
+        self._update_hover_cursor(motion)
         self.queue_draw()
 
     def _on_motion_leave(self, _motion):
         self._hover_x = None
-        self.set_cursor(None)
+        self._set_cursor(None)
         self.queue_draw()
 
+    def _update_hover_cursor(self, controller):
+        """Cursor hint: resize/move over a region while Ctrl is held."""
+        if self._panning or self._region_drag is not None:
+            return
+        name = "pointer"
+        state = controller.get_current_event_state()
+        if state & Gdk.ModifierType.CONTROL_MASK and self._hover_x is not None:
+            hit = self.model.region_hit(
+                self._time_at_x(self._hover_x), self.get_width()
+            )
+            if hit is not None:
+                name = "move" if hit[1] == "move" else "ew-resize"
+        self._set_cursor(name)
+
     def _on_scroll(self, controller, dx, dy):
+        if self._region_drag is not None:
+            return True  # gestures stay suppressed while region-dragging
         state = controller.get_current_event_state()
         ctrl = state & Gdk.ModifierType.CONTROL_MASK
         shift = state & Gdk.ModifierType.SHIFT_MASK
@@ -476,7 +724,7 @@ class TimelineWidget(Gtk.DrawingArea):
                     COLOR_NO_DATA,
                 )
 
-        if self._hover_x is not None and not self._scrubbing:
+        if self._hover_x is not None and not self._scrubbing and self._region_drag is None:
             self._draw_hover(cr, width, height)
 
         # Playhead (follows the pointer while scrubbing).
@@ -490,6 +738,7 @@ class TimelineWidget(Gtk.DrawingArea):
             self._fill_rect(cr, px - 1.0, 0, 2.0, content_h, COLOR_PLAYHEAD)
 
         self._draw_ruler(cr, width, height, x_at)
+        self._draw_region_drag_overlay(cr, width)
 
     def _draw_waveform(self, cr, width, content_h, center_y):
         model = self.model
@@ -521,24 +770,70 @@ class TimelineWidget(Gtk.DrawingArea):
         regions = self.model.visible_regions()
         if not regions or content_h <= 0:
             return
+        drag = self._region_drag
+        if drag is not None:
+            # The dragged region renders at its tentative position; the
+            # others stay at their committed one.
+            regions = [
+                (drag["preview_start"], drag["preview_end"], drag["position"])
+                if position == drag["position"]
+                else (start, end, position)
+                for start, end, position in regions
+            ]
+        selected = [r for r in regions if r[2] == self._selected_position]
+        normal = [r for r in regions if r[2] != self._selected_position]
         radius = min(5.0, content_h / 2.0)
+        self._paint_regions(cr, normal, COLOR_REGION, COLOR_REGION_EDGE, 1.0,
+                            content_h, x_at, radius)
+        # The selected entry's region reads brighter, with a crisper border.
+        self._paint_regions(cr, selected, COLOR_REGION_SELECTED,
+                            COLOR_REGION_EDGE_SELECTED, 2.0, content_h, x_at,
+                            radius)
+
+    @staticmethod
+    def _paint_regions(cr, regions, fill_color, edge_color, line_width,
+                       content_h, x_at, radius):
+        if not regions:
+            return
         # Translucent fill for all regions in one pass.
-        cr.set_source_rgba(*COLOR_REGION)
-        for start, end in regions:
+        cr.set_source_rgba(*fill_color)
+        for start, end, _position in regions:
             _rounded_rect_path(
                 cr, x_at(start), 0.0, max(x_at(end) - x_at(start), 1.0),
                 content_h, radius,
             )
         cr.fill()
         # Crisper outline.
-        cr.set_source_rgba(*COLOR_REGION_EDGE)
-        cr.set_line_width(1.0)
-        for start, end in regions:
+        cr.set_source_rgba(*edge_color)
+        cr.set_line_width(line_width)
+        for start, end, _position in regions:
             w = max(x_at(end) - x_at(start), 1.0)
             _rounded_rect_path(
                 cr, x_at(start), 0.5, w, max(content_h - 1.0, 1.0), radius
             )
         cr.stroke()
+
+    def _draw_region_drag_overlay(self, cr, width):
+        """Time bubble with the tentative bounds while a region drag is live."""
+        drag = self._region_drag
+        if drag is None or not drag["moved"]:
+            return
+        label = "{} \u2192 {}".format(
+            format_ruler_time(drag["preview_start"], True),
+            format_ruler_time(drag["preview_end"], True),
+        )
+        layout = self._pango_layout()
+        layout.set_text(label, -1)
+        lw, lh = layout.get_pixel_size()
+        center_x = self.model.fraction_at(
+            (drag["preview_start"] + drag["preview_end"]) / 2.0
+        ) * width
+        bubble_w = min(lw + 8.0, width)
+        bubble_x = min(max(center_x - bubble_w / 2.0, 0.0), width - bubble_w)
+        self._fill_rect(cr, bubble_x, 0, bubble_w, lh + 4.0, COLOR_BACKGROUND)
+        cr.set_source_rgba(*COLOR_RULER_TEXT)
+        cr.move_to(bubble_x + 4, 1)
+        PangoCairo.show_layout(cr, layout)
 
     def _draw_hover(self, cr, width, height):
         x = self._hover_x

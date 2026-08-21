@@ -305,7 +305,7 @@ class TestRegionsFromDocument:
     def test_none_document(self):
         assert VideoPlayerWidget._regions_from_document(None) == []
 
-    def test_entries_converted_to_seconds(self):
+    def test_entries_converted_to_seconds_with_position(self):
         from subtitle_editor.models import SubtitleEntry, TimeCode
 
         doc = type("D", (), {})()
@@ -324,7 +324,7 @@ class TestRegionsFromDocument:
             ),
         ]
         regions = VideoPlayerWidget._regions_from_document(doc)
-        assert regions == [(0.5, 2.0), (2.5, 5.0)]
+        assert regions == [(0.5, 2.0, 0), (2.5, 5.0, 1)]
 
     def test_inverted_entries_dropped(self):
         from subtitle_editor.models import SubtitleEntry, TimeCode
@@ -337,6 +337,15 @@ class TestRegionsFromDocument:
                           TimeCode.from_milliseconds(1000), "inverted"),
         ]
         assert VideoPlayerWidget._regions_from_document(doc) == []
+
+
+@pytest.mark.unit
+class TestRegionSignalsDeclared:
+    def test_player_declares_region_signals(self):
+        from gi.repository import GObject
+
+        assert GObject.signal_lookup("region-adjusted", VideoPlayerWidget) != 0
+        assert GObject.signal_lookup("region-selected", VideoPlayerWidget) != 0
 
 
 @pytest.mark.unit

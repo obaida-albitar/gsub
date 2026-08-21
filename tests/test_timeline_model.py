@@ -18,6 +18,9 @@ try:
         TimelineModel,
         active_entry_at,
         format_ruler_time,
+        move_region_times,
+        resize_region_times,
+        round_region_ms,
     )
     from subtitle_editor.models import SubtitleEntry, TimeCode
 except Exception as exc:  # pragma: no cover - depends on GTK stack
@@ -193,23 +196,146 @@ class TestBucketRange:
 @pytest.mark.unit
 class TestSubtitleRegions:
     def test_regions_clamped_to_duration_and_view(self, model):
-        model.set_subtitle_regions([(-10.0, 5.0), (10.0, 20.0), (590.0, 900.0)])
+        model.set_subtitle_regions(
+            [(-10.0, 5.0, 0), (10.0, 20.0, 1), (590.0, 900.0, 2)]
+        )
         model.set_zoom_window(0.0, 30.0)
-        assert model.visible_regions() == [(0.0, 5.0), (10.0, 20.0)]
+        assert model.visible_regions() == [(0.0, 5.0, 0), (10.0, 20.0, 1)]
 
     def test_degenerate_regions_dropped(self, model):
-        model.set_subtitle_regions([(5.0, 5.0), (8.0, 6.0), (1.0, 2.0)])
-        assert model.visible_regions() == [(1.0, 2.0)]
+        model.set_subtitle_regions([(5.0, 5.0, 0), (8.0, 6.0, 1), (1.0, 2.0, 2)])
+        assert model.visible_regions() == [(1.0, 2.0, 2)]
 
     def test_regions_partial_overlap_with_view(self, model):
-        model.set_subtitle_regions([(100.0, 200.0)])
+        model.set_subtitle_regions([(100.0, 200.0, 3)])
         model.set_zoom_window(150.0, 300.0)
-        assert model.visible_regions() == [(150.0, 200.0)]
+        assert model.visible_regions() == [(150.0, 200.0, 3)]
 
     def test_no_duration_keeps_regions(self):
         m = TimelineModel()
-        m.set_subtitle_regions([(5.0, 10.0)])
-        assert m.visible_regions() == [(5.0, 10.0)]
+        m.set_subtitle_regions([(5.0, 10.0, 1)])
+        assert m.visible_regions() == [(5.0, 10.0, 1)]
+
+    def test_region_tuples_carry_position(self, model):
+        model.set_subtitle_regions([(1.0, 2.0, 5), (3.0, 4.0, 6)])
+        assert model.subtitle_regions == [(1.0, 2.0, 5), (3.0, 4.0, 6)]
+        model.set_subtitle_regions([(1.0, 2.0)])
+        # Plain (start, end) pairs are tolerated with position -1.
+        assert model.subtitle_regions == [(1.0, 2.0, -1)]
+
+
+@pytest.mark.unit
+class TestRegionHit:
+    """region_hit(): body = move, edges = resize, miss = None.
+
+    Default setup: duration 600 s over a 600 px widget (1 px = 1 s), so the
+    6 px edge threshold equals 6 s.
+    """
+
+    WIDTH = 600
+
+    @staticmethod
+    def _model_with_region(model):
+        model.set_subtitle_regions([(100.0, 200.0, 0)])
+        return model
+
+    def test_body_is_move(self, model):
+        self._model_with_region(model)
+        assert model.region_hit(150.0, self.WIDTH) == (0, "move")
+
+    def test_edges_are_resize(self, model):
+        self._model_with_region(model)
+        assert model.region_hit(100.0, self.WIDTH) == (0, "resize-start")
+        assert model.region_hit(103.0, self.WIDTH) == (0, "resize-start")
+        assert model.region_hit(197.0, self.WIDTH) == (0, "resize-end")
+        assert model.region_hit(200.0, self.WIDTH) == (0, "resize-end")
+
+    def test_just_past_threshold_is_body(self, model):
+        self._model_with_region(model)
+        assert model.region_hit(106.5, self.WIDTH) == (0, "move")
+        assert model.region_hit(193.5, self.WIDTH) == (0, "move")
+
+    def test_miss_outside_region(self, model):
+        self._model_with_region(model)
+        assert model.region_hit(50.0, self.WIDTH) is None
+        assert model.region_hit(250.0, self.WIDTH) is None
+        assert model.region_hit(1000.0, self.WIDTH) is None
+        assert model.region_hit(-5.0, self.WIDTH) is None
+
+    def test_edge_threshold_scales_with_px_per_second(self, model):
+        # Zoomed to a 60 s window over 600 px: 10 px/s, so 6 px = 0.6 s.
+        self._model_with_region(model)
+        model.set_zoom_window(0.0, 60.0)
+        assert model.region_hit(100.5, self.WIDTH) == (0, "resize-start")
+        assert model.region_hit(101.0, self.WIDTH) == (0, "move")
+
+    def test_last_region_wins_on_overlap(self, model):
+        model.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])
+        assert model.region_hit(175.0, self.WIDTH) == (1, "move")
+
+    def test_no_regions(self, model):
+        assert model.region_hit(10.0, self.WIDTH) is None
+
+
+@pytest.mark.unit
+class TestRegionMoveMath:
+    def test_move_preserves_length(self):
+        assert move_region_times(10.0, 13.5, 5.0, 600.0) == (15.0, 18.5)
+
+    def test_move_clamps_at_zero(self):
+        assert move_region_times(10.0, 13.5, -100.0, 600.0) == (0.0, 3.5)
+
+    def test_move_clamps_at_duration(self):
+        assert move_region_times(595.0, 605.0, 50.0, 600.0) == (590.0, 600.0)
+
+    def test_negative_move(self):
+        assert move_region_times(100.0, 110.0, -30.0, 600.0) == (70.0, 80.0)
+
+
+@pytest.mark.unit
+class TestRegionResizeMath:
+    def test_resize_start(self):
+        assert resize_region_times(10.0, 20.0, "start", 5.0, 600.0) == (5.0, 20.0)
+
+    def test_resize_start_clamped_at_zero(self):
+        assert resize_region_times(10.0, 20.0, "start", -5.0, 600.0) == (0.0, 20.0)
+
+    def test_resize_start_min_length_enforced(self):
+        # 50 ms minimum: the start cannot pass end - 0.05.
+        result = resize_region_times(10.0, 20.0, "start", 19.98, 600.0)
+        assert result == pytest.approx((19.95, 20.0))
+
+    def test_resize_end(self):
+        assert resize_region_times(10.0, 20.0, "end", 25.0, 600.0) == (10.0, 25.0)
+
+    def test_resize_end_clamped_at_duration(self):
+        assert resize_region_times(10.0, 20.0, "end", 900.0, 600.0) == (10.0, 600.0)
+
+    def test_resize_end_min_length_enforced(self):
+        assert resize_region_times(10.0, 20.0, "end", 10.01, 600.0) == (10.0, 10.05)
+
+
+@pytest.mark.unit
+class TestRoundRegionMs:
+    def test_rounds_to_whole_ms(self):
+        assert round_region_ms(1.2345, 5.6789, 600.0) == (1234, 5679)
+
+    def test_move_preserves_length_after_rounding(self):
+        assert round_region_ms(9.9999, 13.4999, 600.0, preserve_length=True) == (10000, 13500)
+
+    def test_start_clamped_at_zero(self):
+        assert round_region_ms(-0.01, 1.0, 600.0) == (0, 1000)
+
+    def test_end_clamped_at_duration(self):
+        assert round_region_ms(599.5, 601.0, 600.0) == (599500, 600000)
+
+    def test_move_clamped_at_duration_boundary(self):
+        # A 3.5 s region dragged so its rounded start would push its end
+        # past 600 s: the start backs off to keep the length and the clamp.
+        assert round_region_ms(598.0, 601.5, 600.0, preserve_length=True) == (596500, 600000)
+
+    def test_resize_enforces_min_length(self):
+        assert round_region_ms(10.0, 10.01, 600.0) == (10000, 10050)
 
 
 @pytest.mark.unit

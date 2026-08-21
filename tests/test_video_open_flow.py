@@ -369,3 +369,214 @@ class TestDeferredVideoLoad:
         # The deferred loadfile only runs after the render context exists.
         loadfile_at = order.index(("loadfile", "/movies/example.mkv"))
         assert order.index("render-context") < loadfile_at
+
+
+# --------------------------------------------------------------------- #
+# Timeline region interactions (region-adjusted / region-selected)
+# --------------------------------------------------------------------- #
+
+class _RecordingCommandManager:
+    """Stub command manager: records and runs commands (like the real one)."""
+
+    def __init__(self):
+        self.executed = []
+
+    def execute(self, cmd):
+        self.executed.append(cmd)
+        cmd.execute()
+
+
+class _RegionSubtitleList:
+    """The SubtitleListView API the region handlers touch."""
+
+    def __init__(self, selected=()):
+        self.refreshed = []
+        self.selected = []
+        self._selected = list(selected)
+
+    def refresh_entry(self, position):
+        self.refreshed.append(position)
+
+    def select_entry(self, position, clear_others=True):
+        self.selected.append(position)
+
+    def get_selected_positions(self):
+        return list(self._selected)
+
+
+class _RegionEditorPanel:
+    def __init__(self):
+        self.current_position = -1
+        self.entries = []
+        self.cleared = 0
+        self.sensitivity = []
+
+    def set_entry(self, entry, position):
+        self.entries.append(position)
+        self.current_position = position
+
+    def clear(self):
+        self.cleared += 1
+        self.current_position = -1
+
+    def set_sensitive(self, value):
+        self.sensitivity.append(value)
+
+
+class _RegionPlayer:
+    def __init__(self):
+        self.redraws = 0
+        self.region_refreshes = 0
+        self.selected_positions = []
+
+    def queue_subtitle_redraw(self):
+        self.redraws += 1
+
+    def refresh_timeline_regions(self):
+        self.region_refreshes += 1
+
+    def set_selected_position(self, position):
+        self.selected_positions.append(position)
+
+
+class _RegionWindow:
+    """Just the attributes the region handlers touch on GsubWindow."""
+
+    def __init__(self, document):
+        self.document = document
+        self.command_manager = _RecordingCommandManager()
+        self.subtitle_list = _RegionSubtitleList()
+        self.editor_panel = _RegionEditorPanel()
+        self.video_player = _RegionPlayer()
+        self.titles = 0
+        self.undo_buttons = 0
+
+    def _update_title(self):
+        self.titles += 1
+
+    def _update_undo_redo_buttons(self):
+        self.undo_buttons += 1
+
+
+def _region_document():
+    from subtitle_editor.models import (
+        SubtitleDocument,
+        SubtitleEntry,
+        SubtitleFormat,
+        TimeCode,
+    )
+
+    doc = SubtitleDocument(format=SubtitleFormat.SRT)
+    doc.entries = [
+        SubtitleEntry(
+            1,
+            TimeCode.from_milliseconds(100_000),
+            TimeCode.from_milliseconds(103_500),
+            "a",
+        ),
+        SubtitleEntry(
+            2,
+            TimeCode.from_milliseconds(200_000),
+            TimeCode.from_milliseconds(204_000),
+            "b",
+        ),
+    ]
+    return doc
+
+
+@pytest.mark.unit
+class TestRegionAdjusted:
+    def test_executes_edit_timing_command_with_new_times(self):
+        from subtitle_editor.commands import EditTimingCommand
+
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_region_adjusted(win, None, 0, 101_500, 105_000)
+
+        (cmd,) = win.command_manager.executed
+        assert isinstance(cmd, EditTimingCommand)
+        assert cmd.position == 0
+        assert cmd.new_start.total_milliseconds == 101_500
+        assert cmd.new_end.total_milliseconds == 105_000
+        # The document was mutated and the refresh path ran.
+        entry = win.document.entries[0]
+        assert entry.start_time.total_milliseconds == 101_500
+        assert entry.end_time.total_milliseconds == 105_000
+        assert win.subtitle_list.refreshed == [0]
+        assert win.titles == 1
+        assert win.undo_buttons == 1
+        assert win.video_player.redraws == 1
+        assert win.video_player.region_refreshes == 1
+
+    def test_noop_when_times_unchanged(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_region_adjusted(win, None, 0, 100_000, 103_500)
+
+        assert win.command_manager.executed == []
+        assert win.video_player.redraws == 0
+        assert win.subtitle_list.refreshed == []
+
+    def test_refreshes_editor_panel_when_position_shown(self):
+        win = _RegionWindow(_region_document())
+        win.editor_panel.current_position = 0
+        GsubWindow._on_region_adjusted(win, None, 0, 101_000, 104_000)
+
+        assert win.editor_panel.entries == [0]
+
+    def test_invalid_position_ignored(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_region_adjusted(win, None, 5, 0, 1000)
+        GsubWindow._on_region_adjusted(win, None, -1, 0, 1000)
+
+        assert win.command_manager.executed == []
+
+    def test_missing_document_ignored(self):
+        win = _RegionWindow(None)
+        GsubWindow._on_region_adjusted(win, None, 0, 0, 1000)
+
+        assert win.command_manager.executed == []
+
+
+@pytest.mark.unit
+class TestRegionSelected:
+    def test_selects_entry_in_list(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_region_selected(win, None, 1)
+
+        assert win.subtitle_list.selected == [1]
+
+    def test_invalid_position_ignored(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_region_selected(win, None, 9)
+
+        assert win.subtitle_list.selected == []
+
+    def test_missing_document_ignored(self):
+        win = _RegionWindow(None)
+        GsubWindow._on_region_selected(win, None, 0)
+
+        assert win.subtitle_list.selected == []
+
+
+@pytest.mark.unit
+class TestEntrySelectedForwardsToTimeline:
+    def test_single_selection_highlights_region(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_entry_selected(win, None, 1)
+
+        assert win.video_player.selected_positions == [1]
+        assert win.editor_panel.entries == [1]
+
+    def test_lost_selection_clears_highlight(self):
+        win = _RegionWindow(_region_document())
+        GsubWindow._on_entry_selected(win, None, -1)
+
+        assert win.video_player.selected_positions == [-1]
+
+    def test_multi_selection_clears_highlight(self):
+        win = _RegionWindow(_region_document())
+        win.subtitle_list = _RegionSubtitleList(selected=[0, 1])
+        GsubWindow._on_entry_selected(win, None, 0)
+
+        assert win.video_player.selected_positions == [-1]
+        assert win.editor_panel.cleared == 1
+        assert win.editor_panel.sensitivity == [False]

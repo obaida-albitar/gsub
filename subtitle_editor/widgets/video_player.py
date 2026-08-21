@@ -169,6 +169,11 @@ class VideoPlayerWidget(Gtk.Box):
         # Emitted once per loaded video, as soon as mpv's track-list has been
         # parsed into a non-empty audio/subtitle list (replaces timeout hacks).
         "tracks-ready": (GObject.SignalFlags.RUN_FIRST, None, ()),
+        # Forwarded from the timeline: a region was Ctrl+dragged
+        # (entry position + committed whole-ms bounds) or Ctrl+clicked
+        # (entry position to select in the subtitle list).
+        "region-adjusted": (GObject.SignalFlags.RUN_FIRST, None, (int, int, int)),
+        "region-selected": (GObject.SignalFlags.RUN_FIRST, None, (int,)),
     }
 
     # Template children.
@@ -340,7 +345,7 @@ class VideoPlayerWidget(Gtk.Box):
         # empty document is set (e.g. "New File").
         self._remove_editor_sub(remove_temp=True)
         self._sync_editor_sub()
-        self._refresh_timeline_regions()
+        self.refresh_timeline_regions()
         if self._mpv is not None:
             GLib.idle_add(self.video_area.queue_render)
 
@@ -815,7 +820,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._sync_editor_sub()
         # Timing edits move the timeline's subtitle regions; this debounced
         # redraw is the single cheap refresh point for them.
-        self._refresh_timeline_regions()
+        self.refresh_timeline_regions()
         return False
 
     # ------------------------------------------------------------------ #
@@ -967,6 +972,18 @@ class VideoPlayerWidget(Gtk.Box):
         self._timeline.connect("position-picked", self._on_timeline_position_picked)
         self._timeline.connect("scrub-started", self._on_timeline_scrub_started)
         self._timeline.connect("scrub-ended", self._on_timeline_scrub_ended)
+        # Region interactions are re-emitted for the window to act on (the
+        # player has no access to the command manager or the subtitle list).
+        self._timeline.connect(
+            "region-adjusted",
+            lambda _t, position, start_ms, end_ms: self.emit(
+                "region-adjusted", position, start_ms, end_ms
+            ),
+        )
+        self._timeline.connect(
+            "region-selected",
+            lambda _t, position: self.emit("region-selected", position),
+        )
 
         waveform_enabled = self._load_waveform_preference()
         self._timeline.set_waveform_enabled(waveform_enabled)
@@ -1087,21 +1104,35 @@ class VideoPlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------ #
     @staticmethod
     def _regions_from_document(document):
-        """Subtitle (start_s, end_s) pairs for the timeline's region strip."""
+        """Subtitle (start_s, end_s, position) triples for the region strip.
+
+        The position is the entry's index in the document so timeline region
+        drags can be routed back to the right entry.
+        """
         if document is None:
             return []
         regions = []
-        for entry in document.entries:
+        for position, entry in enumerate(document.entries):
             start = entry.start_time.total_milliseconds / 1000.0
             end = entry.end_time.total_milliseconds / 1000.0
             if end > start:
-                regions.append((start, end))
+                regions.append((start, end, position))
         return regions
 
-    def _refresh_timeline_regions(self):
+    def refresh_timeline_regions(self):
+        """Push the document's regions to the timeline immediately.
+
+        ``_do_subtitle_redraw`` also refreshes them, but only after its
+        debounce; timing edits that move regions want the visual update now.
+        """
         if self._disposed or self._timeline is None:
             return
         self._timeline.set_subtitle_regions(self._regions_from_document(self.document))
+
+    def set_selected_position(self, position: int):
+        """Highlight the timeline region of the selected entry (-1 clears)."""
+        if self._timeline is not None:
+            self._timeline.set_selected_position(position)
 
     # ------------------------------------------------------------------ #
     # Waveform
