@@ -63,6 +63,16 @@ SHORTCUTS = (
     Shortcut("win.play-pause", ("space",), "Play/Pause", SECTION_VIDEO),
     Shortcut("win.toggle-video", ("<Ctrl><Shift>V",), "Toggle Video Player", SECTION_VIDEO),
     Shortcut("win.select-tracks", ("<Ctrl><Shift>T",), "Select Audio/Subtitle Tracks…", SECTION_VIDEO),
+    # Precise navigation on the custom timeline. The nudge/frame actions are
+    # window accels: they only fire when no focused widget consumed the key,
+    # so the caret still moves inside text fields (same mechanism as space).
+    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_VIDEO),
+    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_VIDEO),
+    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_VIDEO),
+    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_VIDEO),
+    Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_VIDEO),
+    Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_VIDEO),
+    Shortcut("win.seek-to-selection", ("<Ctrl>J",), "Play from Selected Subtitle", SECTION_VIDEO),
     # Handled by the video player's key controller, not an action accel.
     Shortcut(None, ("plus", "equal", "minus", "0"),
              "Subtitle Size: Increase / Decrease / Reset", SECTION_VIDEO),

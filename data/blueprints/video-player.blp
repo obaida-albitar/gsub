@@ -55,9 +55,10 @@ template $GsubVideoPlayer : Gtk.Box {
       label: "0:00";
     }
 
-    Scale timeline_scale {
+    // Custom timeline (created in code: blueprint cannot reference the
+    // app's custom widget types) is packed into this slot.
+    Box timeline_slot {
       hexpand: true;
-      draw-value: false;
     }
 
     Label duration_label {
@@ -86,6 +87,12 @@ template $GsubVideoPlayer : Gtk.Box {
           };
         };
       };
+    }
+
+    // Waveform strip toggle (state persists via preferences.conf).
+    ToggleButton waveform_toggle {
+      icon-name: "audio-x-generic-symbolic";
+      tooltip-text: _("Waveform");
     }
 
     // Subtitle-size popover button (popover content built from code).

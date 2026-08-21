@@ -41,6 +41,7 @@ from subtitle_editor.commands.subtitle_commands import EditTextCommand, build_ne
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.shortcuts import accels_for_action
 from subtitle_editor.widgets.subtitle_list import SubtitleListView
+from subtitle_editor.widgets.timeline import active_entry_at
 from subtitle_editor.widgets.editor_panel import EditorPanel
 from subtitle_editor.widgets.dialogs import TimeShiftDialog, BulkApplyStyleDialog, BatchStylePropsDialog, ASSInfoDialog, ASSStylesDialog, TrackSelectionDialog, build_shortcuts_dialog
 from subtitle_editor.widgets.video_player import VideoPlayerWidget
@@ -69,6 +70,11 @@ def should_show_track_dialog(n_audio: int, n_subs: int) -> bool:
     shown for that (common) case.
     """
     return n_subs >= 1 or n_audio > 1
+
+
+# Playback -> list highlight sync: minimum interval between active-entry
+# lookups (microseconds).
+_HIGHLIGHT_INTERVAL_US = 300_000
 
 
 @Gtk.Template(resource_path=template_resource_path('window'))
@@ -107,6 +113,10 @@ class GsubWindow(Adw.ApplicationWindow):
         config = self._load_config()
         self.last_directory = config.get("last_directory")
         self._list_pane_position = config.get("list_pane_position", 440)
+
+        # Playback <-> subtitle list sync state (position highlight).
+        self._last_highlight_time = 0
+        self._active_highlight = -1
 
         # Set up window properties
         width = config.get("window_width", 1200)
@@ -304,6 +314,8 @@ class GsubWindow(Adw.ApplicationWindow):
         # Show the unified track-selection dialog once mpv has parsed the
         # loaded video's track list (replaces the old timeout-based checks).
         self.video_player.connect('tracks-ready', self._on_tracks_ready)
+        # Highlight the subtitle under the playhead while playing.
+        self.video_player.connect('position-changed', self._on_player_position_changed)
         video_container.append(self.video_player)
         self.right_paned.set_start_child(video_container)
 
@@ -499,6 +511,15 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("play-pause", self._on_play_pause)
         self._create_action("toggle-video", self._on_toggle_video)
         self._create_action("select-tracks", self._on_select_tracks)
+
+        # Precise video navigation (see the shortcuts table for accels).
+        self._create_action("seek-nudge-back", self._on_seek_nudge_back)
+        self._create_action("seek-nudge-forward", self._on_seek_nudge_forward)
+        self._create_action("seek-nudge-back-large", self._on_seek_nudge_back_large)
+        self._create_action("seek-nudge-forward-large", self._on_seek_nudge_forward_large)
+        self._create_action("frame-step", self._on_frame_step)
+        self._create_action("frame-back-step", self._on_frame_back_step)
+        self._create_action("seek-to-selection", self._on_seek_to_selection)
 
         # Navigation actions
         self._create_action("home", self._on_home)
@@ -777,6 +798,7 @@ class GsubWindow(Adw.ApplicationWindow):
             
             # Update UI
             self.subtitle_list.set_document(self.document)
+            self._reset_playback_highlight()
             self.list_stack.set_visible_child_name("list")
             # Provide ASS/SSA style context for per-entry style selection
             style_names = [s.name for s in (self.document.styles or [])] if self.document else []
@@ -879,6 +901,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.current_file = None
         self.command_manager.clear()
         self.subtitle_list.set_document(self.document)
+        self._reset_playback_highlight()
         self.list_stack.set_visible_child_name("list")
         style_names = [s.name for s in (self.document.styles or [])] if self.document else []
         self.editor_panel.set_document_context(self.document.format, style_names)
@@ -1016,6 +1039,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     from subtitle_editor.converters import FormatConverter
                     self.document = FormatConverter.convert(self.document, target_format)
                     self.subtitle_list.set_document(self.document)
+                    self._reset_playback_highlight()
                     style_names = [s.name for s in (self.document.styles or [])] if self.document else []
                     self.editor_panel.set_document_context(self.document.format, style_names)
                     self._update_format_actions()
@@ -1661,6 +1685,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
             # Update UI
             self.subtitle_list.set_document(self.document)
+            self._reset_playback_highlight()
             style_names = [s.name for s in (self.document.styles or [])] if self.document else []
             self.editor_panel.set_document_context(self.document.format, style_names)
             self._update_format_actions()
@@ -2024,6 +2049,76 @@ class GsubWindow(Adw.ApplicationWindow):
         """Toggle video playback (Space)."""
         if self.current_video_file:
             self.video_player.toggle_play_pause()
+
+    # Precise navigation on the timeline (all guarded on a loaded video).
+
+    def _nudge_video(self, seconds: float):
+        """Exact-seek relative to the current position (clamped at 0)."""
+        if not self.current_video_file:
+            return
+        target = self.video_player.get_position() + seconds
+        self.video_player.seek(max(0.0, target))
+
+    def _on_seek_nudge_back(self, action, param):
+        """Nudge 0.1 s back (Left)."""
+        self._nudge_video(-0.1)
+
+    def _on_seek_nudge_forward(self, action, param):
+        """Nudge 0.1 s forward (Right)."""
+        self._nudge_video(0.1)
+
+    def _on_seek_nudge_back_large(self, action, param):
+        """Jump 5 s back (Shift+Left)."""
+        self._nudge_video(-5.0)
+
+    def _on_seek_nudge_forward_large(self, action, param):
+        """Jump 5 s forward (Shift+Right)."""
+        self._nudge_video(5.0)
+
+    def _on_frame_step(self, action, param):
+        """Advance one frame (period)."""
+        if self.current_video_file:
+            self.video_player.frame_step(back=False)
+
+    def _on_frame_back_step(self, action, param):
+        """Go back one frame (comma)."""
+        if self.current_video_file:
+            self.video_player.frame_step(back=True)
+
+    def _on_seek_to_selection(self, action, param):
+        """Play from the selected subtitle's start (Ctrl+J)."""
+        if not self.current_video_file:
+            return
+        position = self.subtitle_list.get_selected_position()
+        if (position < 0 or not self.document
+                or position >= len(self.document.entries)):
+            self._show_toast("No subtitle selected")
+            return
+        start_ms = self.document.entries[position].start_time.total_milliseconds
+        self.video_player.seek(start_ms / 1000.0)
+
+    # --- Playback <-> subtitle list sync ---------------------------------
+
+    def _reset_playback_highlight(self):
+        """Forget the highlight cache after the document was replaced."""
+        self._active_highlight = -1
+        self._last_highlight_time = 0
+
+    def _on_player_position_changed(self, player, position):
+        """Highlight the entry under the playhead (throttled).
+
+        A pure lookup (binary search) runs at most every ~300 ms; the list is
+        only touched when the active position actually changed.
+        """
+        now = GLib.get_monotonic_time()
+        if now - self._last_highlight_time < _HIGHLIGHT_INTERVAL_US:
+            return
+        self._last_highlight_time = now
+        entries = self.document.entries if self.document else []
+        position_index = active_entry_at(entries, position)
+        if position_index != self._active_highlight:
+            self._active_highlight = position_index
+            self.subtitle_list.highlight_active(position_index)
     
     def _on_video_toggle(self, button):
         """Handle video player toggle button."""

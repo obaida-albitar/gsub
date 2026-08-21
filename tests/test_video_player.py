@@ -4,8 +4,11 @@ These tests deliberately avoid instantiating :class:`VideoPlayerWidget` (which
 needs GTK4, libmpv and a display). They cover the framework-independent helpers
 that were refactored out of the class: codec-family mapping, track-list
 parsing, mpv-id -> list-position resolution, the PyAV stream mapping, time
-formatting and the subtitle-scale preference persistence.
+formatting, the subtitle-scale and waveform preference persistence, frame
+stepping and the timeline peaks handoff.
 """
+
+import types
 
 import pytest
 
@@ -255,3 +258,153 @@ class TestSubtitleScalePreference:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("subtitle_scale=1.25\n")
         assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.25
+
+
+class _FakeMpv:
+    """Records commands issued through the player's mpv handle."""
+
+    def __init__(self):
+        self.commands = []
+
+    def command(self, name, *args):
+        self.commands.append((name,) + args)
+
+
+def _bare_player(mpv=None):
+    """A lightweight stand-in ``self`` for the player's pure helpers.
+
+    GObject widgets cannot be created without full initialisation, so method
+    tests call the unbound function with this namespace providing exactly the
+    attributes the method touches.
+    """
+    return types.SimpleNamespace(
+        _mpv=mpv,
+        _disposed=False,
+        video_area=types.SimpleNamespace(queue_render=lambda: None),
+    )
+
+
+@pytest.mark.unit
+class TestFrameStep:
+    def test_forward_calls_frame_step(self):
+        mpv = _FakeMpv()
+        VideoPlayerWidget.frame_step(_bare_player(mpv))
+        assert mpv.commands == [("frame-step",)]
+
+    def test_back_calls_frame_back_step(self):
+        mpv = _FakeMpv()
+        VideoPlayerWidget.frame_step(_bare_player(mpv), back=True)
+        assert mpv.commands == [("frame-back-step",)]
+
+    def test_no_mpv_is_noop(self):
+        VideoPlayerWidget.frame_step(_bare_player(None))  # must not raise
+
+
+@pytest.mark.unit
+class TestRegionsFromDocument:
+    def test_none_document(self):
+        assert VideoPlayerWidget._regions_from_document(None) == []
+
+    def test_entries_converted_to_seconds(self):
+        from subtitle_editor.models import SubtitleEntry, TimeCode
+
+        doc = type("D", (), {})()
+        doc.entries = [
+            SubtitleEntry(
+                1,
+                TimeCode.from_milliseconds(500),
+                TimeCode.from_milliseconds(2000),
+                "a",
+            ),
+            SubtitleEntry(
+                2,
+                TimeCode.from_milliseconds(2500),
+                TimeCode.from_milliseconds(5000),
+                "b",
+            ),
+        ]
+        regions = VideoPlayerWidget._regions_from_document(doc)
+        assert regions == [(0.5, 2.0), (2.5, 5.0)]
+
+    def test_inverted_entries_dropped(self):
+        from subtitle_editor.models import SubtitleEntry, TimeCode
+
+        doc = type("D", (), {})()
+        doc.entries = [
+            SubtitleEntry(1, TimeCode.from_milliseconds(2000),
+                          TimeCode.from_milliseconds(2000), "zero"),
+            SubtitleEntry(2, TimeCode.from_milliseconds(3000),
+                          TimeCode.from_milliseconds(1000), "inverted"),
+        ]
+        assert VideoPlayerWidget._regions_from_document(doc) == []
+
+
+@pytest.mark.unit
+class TestApplyWaveformResult:
+    class _FakeTimeline:
+        def __init__(self):
+            self.set_peaks_calls = []
+            self.draws = 0
+
+        def set_peaks(self, peaks, pps):
+            self.set_peaks_calls.append((peaks, pps))
+
+        def queue_draw(self):
+            self.draws += 1
+
+    def test_result_handed_to_widget(self):
+        timeline = self._FakeTimeline()
+        VideoPlayerWidget._apply_waveform_result(timeline, ([(-1, 1)], 100.0))
+        assert timeline.set_peaks_calls == [([(-1, 1)], 100.0)]
+        assert timeline.draws == 1
+
+    def test_none_leaves_waveform_empty(self):
+        timeline = self._FakeTimeline()
+        VideoPlayerWidget._apply_waveform_result(timeline, None)
+        assert timeline.set_peaks_calls == []
+        assert timeline.draws == 0
+
+
+@pytest.mark.unit
+class TestWaveformPreference:
+    """Same expanduser-directory monkeypatch pattern as the scale tests."""
+
+    @pytest.fixture
+    def fake_home(self, tmp_path, monkeypatch):
+        cfg_dir = tmp_path / "prefs"
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            lambda p: str(cfg_dir),
+        )
+        return cfg_dir
+
+    def test_default_off(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            lambda p: str(tmp_path / "nope"),
+        )
+        assert VideoPlayerWidget._load_waveform_preference() is False
+
+    def test_roundtrip(self, fake_home):
+        VideoPlayerWidget._save_waveform_preference(True)
+        assert VideoPlayerWidget._load_waveform_preference() is True
+        VideoPlayerWidget._save_waveform_preference(False)
+        assert VideoPlayerWidget._load_waveform_preference() is False
+
+    def test_only_true_enables(self, fake_home):
+        path = fake_home / "preferences.conf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("waveform_enabled=true\n")
+        assert VideoPlayerWidget._load_waveform_preference() is True
+        path.write_text("waveform_enabled=false\n")
+        assert VideoPlayerWidget._load_waveform_preference() is False
+        path.write_text("waveform_enabled=banana\n")
+        assert VideoPlayerWidget._load_waveform_preference() is False
+
+    def test_keeps_other_preferences(self, fake_home):
+        path = fake_home / "preferences.conf"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("subtitle_scale=1.25\n")
+        VideoPlayerWidget._save_waveform_preference(True)
+        assert "subtitle_scale=1.25" in path.read_text()
+        assert "waveform_enabled=true" in path.read_text()

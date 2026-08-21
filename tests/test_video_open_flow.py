@@ -256,6 +256,19 @@ class _FakeVideoArea:
         self.order.append("queue_render")
 
 
+class _FakeToggle:
+    """Just the ToggleButton API the waveform code touches."""
+
+    def __init__(self, active=False):
+        self._active = active
+
+    def get_active(self):
+        return self._active
+
+    def set_active(self, value):
+        self._active = value
+
+
 class _BarePlayer:
     """Just the state VideoPlayerWidget.load_video/_on_glarea_realize touch.
 
@@ -281,6 +294,18 @@ class _BarePlayer:
         self._current_audio_track = 3
         self._current_subtitle_track = 4
         self.sync_calls = 0
+        # Waveform state (load_video restarts/cancels extraction).
+        self._timeline = None
+        self._waveform_loader = None
+        self._waveform_poll_id = None
+        self._duration = 0.0
+        self.waveform_toggle = _FakeToggle(active=False)
+        # Bind the real waveform helpers so load_video exercises them.
+        self._stop_waveform_load = VideoPlayerWidget._stop_waveform_load.__get__(self)
+        self._start_waveform_load = VideoPlayerWidget._start_waveform_load.__get__(self)
+        self._cancel_waveform_loader = (
+            VideoPlayerWidget._cancel_waveform_loader.__get__(self)
+        )
 
     def _sync_editor_sub(self):
         self.sync_calls += 1

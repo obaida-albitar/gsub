@@ -64,6 +64,9 @@ class SubtitleListItem(GObject.Object):
     entry_end = GObject.Property(type=str, default='')
     entry_style = GObject.Property(type=str, default='')
     search_term = GObject.Property(type=str, default='')
+    # True while this entry is the one under the video playhead; bound rows
+    # re-render (adding/removing the 'active-playing' CSS class) via notify.
+    active_playing = GObject.Property(type=bool, default=False)
 
     def __init__(self, position=0, entry=None, search_term=''):
         super().__init__()
@@ -150,6 +153,8 @@ class SubtitleListView(Gtk.Box):
 
         self.document: SubtitleDocument = None
         self._selected_positions = []
+        # Position of the row highlighted as "currently playing" (-1 = none).
+        self._active_position = -1
 
         # Debounce for single-entry refreshes driven by editor-panel edits.
         self._refresh_timeout_id = None
@@ -374,6 +379,14 @@ class SubtitleListView(Gtk.Box):
             GLib.source_remove(self._refresh_timeout_id)
             self._refresh_timeout_id = None
         self._pending_refresh_positions.clear()
+        # Rebuilt items start unhighlighted; forget the stale position and
+        # clear any highlight kept alive by unchanged (identity-preserved)
+        # items so the view does not show a stale "playing" row.
+        self._active_position = -1
+        for i in range(self.list_store.get_n_items()):
+            item = self.list_store.get_item(i)
+            if item is not None and item.active_playing:
+                item.active_playing = False
 
         old_selection = self._selected_positions.copy() if preserve_selection else []
 
@@ -467,6 +480,27 @@ class SubtitleListView(Gtk.Box):
         """Get the first selected position (for backward compatibility)."""
         return self._selected_positions[0] if self._selected_positions else -1
 
+    def highlight_active(self, position: int):
+        """Mark the row playing in the video, without touching selection.
+
+        Scrolls the row into view and toggles the 'active-playing' CSS class
+        on it. Repeated calls with the same position are cheap no-ops.
+        """
+        position = position if position >= 0 else -1
+        if position == self._active_position:
+            return
+        previous = self._active_position
+        self._active_position = position
+
+        changed = {p for p in (previous, position) if 0 <= p < self.list_store.get_n_items()}
+        for pos in changed:
+            item = self.list_store.get_item(pos)
+            if item is not None:
+                item.active_playing = pos == position
+
+        if 0 <= position < self.list_store.get_n_items():
+            self._scroll_to(position)
+
     # --- List factory -------------------------------------------------------
 
     def _on_factory_setup(self, factory, list_item):
@@ -507,6 +541,11 @@ class SubtitleListView(Gtk.Box):
         if item.entry_style:
             subtitle_parts.append(GLib.markup_escape_text(f"Style: {item.entry_style}"))
         row.set_subtitle(" • ".join(subtitle_parts))
+        # Playback highlight is presentation-only (never selection).
+        if item.active_playing:
+            row.add_css_class('active-playing')
+        else:
+            row.remove_css_class('active-playing')
 
     def _on_selection_changed(self, selection_model, position, n_items):
         """Handle selection changes in the ListView."""

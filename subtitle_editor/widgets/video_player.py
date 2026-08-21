@@ -38,6 +38,7 @@ from mpv import MPV, MpvRenderContext, MpvGlGetProcAddressFn
 # libmpv stomps on the numeric locale, which breaks number parsing elsewhere.
 locale.setlocale(locale.LC_NUMERIC, "C")
 
+from subtitle_editor.audio_peaks import WaveformLoader
 from subtitle_editor.extractors import (
     extract_track,
     list_subtitle_tracks,
@@ -46,8 +47,10 @@ from subtitle_editor.models import SubtitleDocument, SubtitleFormat
 from subtitle_editor.parsers.ass_parser import ASSParser
 from subtitle_editor.parsers.srt_parser import SRTParser
 from subtitle_editor.resources import template_resource_path
+from subtitle_editor.widgets.timeline import TimelineWidget
 
 _DEBOUNCE_MS = 120
+_WAVEFORM_POLL_MS = 100
 
 
 # Map mpv-reported subtitle codec names to our internal family. mpv uses the
@@ -174,10 +177,11 @@ class VideoPlayerWidget(Gtk.Box):
     controls_box = Gtk.Template.Child()
     play_button = Gtk.Template.Child()
     time_label = Gtk.Template.Child()
-    timeline_scale = Gtk.Template.Child()
+    timeline_slot = Gtk.Template.Child()
     duration_label = Gtk.Template.Child()
     volume_button = Gtk.Template.Child()
     volume_scale = Gtk.Template.Child()
+    waveform_toggle = Gtk.Template.Child()
     subtitle_size_button = Gtk.Template.Child()
 
     def __init__(self):
@@ -219,6 +223,12 @@ class VideoPlayerWidget(Gtk.Box):
         self._disposed = False
         # Video load deferred until the GLArea is realized (see load_video).
         self._pending_load_path = None
+
+        # Waveform state (background peak extraction, polled from the UI).
+        self._waveform_loader: Optional[WaveformLoader] = None
+        self._waveform_poll_id = None
+        # Created in _wire_controls (None when mpv failed to initialise).
+        self._timeline: Optional[TimelineWidget] = None
 
         try:
             self._mpv = MPV(
@@ -330,6 +340,7 @@ class VideoPlayerWidget(Gtk.Box):
         # empty document is set (e.g. "New File").
         self._remove_editor_sub(remove_temp=True)
         self._sync_editor_sub()
+        self._refresh_timeline_regions()
         if self._mpv is not None:
             GLib.idle_add(self.video_area.queue_render)
 
@@ -363,6 +374,10 @@ class VideoPlayerWidget(Gtk.Box):
             return
         self._pending_load_path = None
 
+        # Any waveform from the previous video is invalid now; restart the
+        # extraction for the new file when the strip is enabled.
+        self._stop_waveform_load()
+
         try:
             self._mpv.loadfile(file_path)
             self._mpv.pause = True
@@ -381,6 +396,7 @@ class VideoPlayerWidget(Gtk.Box):
 
         # Feed the editor document (if any) as an external subtitle track.
         self._sync_editor_sub()
+        self._start_waveform_load()
         GLib.idle_add(self.video_area.queue_render)
 
     def play(self):
@@ -413,6 +429,16 @@ class VideoPlayerWidget(Gtk.Box):
         if self._mpv is None:
             return
         self.seek(max(0.0, self.get_position() + offset_ms / 1000.0))
+
+    def frame_step(self, back: bool = False):
+        """Advance one frame (or go back one frame with ``back=True``)."""
+        if self._mpv is None:
+            return
+        try:
+            self._mpv.command("frame-back-step" if back else "frame-step")
+        except Exception as exc:
+            logger.error(f"mpv frame step failed: {exc}")
+        GLib.idle_add(self.video_area.queue_render)
 
     def get_position(self) -> float:
         """Get current playback position in seconds."""
@@ -478,14 +504,14 @@ class VideoPlayerWidget(Gtk.Box):
             return
         self.time_label.set_text(self._format_time(pos))
         if not self._is_seeking:
-            self.timeline_scale.set_value(pos)
+            self._timeline.set_position(pos)
         self.emit("position-changed", pos)
 
     def _set_duration(self, duration):
         if self._disposed:
             return
         self._duration = duration
-        self.timeline_scale.set_range(0, duration)
+        self._timeline.set_duration(duration)
         self.duration_label.set_text(self._format_time(duration))
         self.emit("duration-changed", duration)
 
@@ -787,6 +813,9 @@ class VideoPlayerWidget(Gtk.Box):
         if self._disposed:
             return False
         self._sync_editor_sub()
+        # Timing edits move the timeline's subtitle regions; this debounced
+        # redraw is the single cheap refresh point for them.
+        self._refresh_timeline_regions()
         return False
 
     # ------------------------------------------------------------------ #
@@ -930,9 +959,19 @@ class VideoPlayerWidget(Gtk.Box):
     # Controls
     # ------------------------------------------------------------------ #
     def _wire_controls(self):
-        self.timeline_scale.set_range(0, 100)
-        self.timeline_scale.set_value(0)
-        self.timeline_scale.connect("change-value", self._on_timeline_seek)
+        # Custom timeline (blueprints cannot reference custom widget types,
+        # so it is created here and packed into the template's slot).
+        self._timeline = TimelineWidget()
+        self.timeline_slot.append(self._timeline)
+        self._timeline.connect("seek-requested", self._on_timeline_seek_requested)
+        self._timeline.connect("position-picked", self._on_timeline_position_picked)
+        self._timeline.connect("scrub-started", self._on_timeline_scrub_started)
+        self._timeline.connect("scrub-ended", self._on_timeline_scrub_ended)
+
+        waveform_enabled = self._load_waveform_preference()
+        self._timeline.set_waveform_enabled(waveform_enabled)
+        self.waveform_toggle.set_active(waveform_enabled)
+        self.waveform_toggle.connect("toggled", self._on_waveform_toggled)
 
         self.volume_scale.set_range(0, 1)
         self.volume_scale.set_value(1.0)
@@ -1017,12 +1056,159 @@ class VideoPlayerWidget(Gtk.Box):
     def on_play_pause(self, _button):
         self.toggle_play_pause()
 
-    def _on_timeline_seek(self, scale, scroll_type, value):
-        if not self._is_seeking:
-            self._is_seeking = True
-            GLib.timeout_add(50, lambda: setattr(self, "_is_seeking", False))
-        self.seek(value)
+    def _on_timeline_seek_requested(self, _timeline, seconds):
+        # Intermediate seeks (throttled scrub, scroll wheel): briefly mute the
+        # player's own position updates so the playhead does not fight them.
+        self._suppress_position_updates()
+        self.seek(seconds)
+
+    def _on_timeline_position_picked(self, _timeline, seconds):
+        # Definitive pick (click / drag release): one exact seek, with a
+        # slightly longer suppression while mpv chases the target position.
+        self._suppress_position_updates(ms=150)
+        self.seek(seconds)
+
+    def _on_timeline_scrub_started(self, _timeline):
+        self._is_seeking = True
+
+    def _on_timeline_scrub_ended(self, _timeline):
+        self._suppress_position_updates(ms=150)
+
+    def _suppress_position_updates(self, ms: int = 50):
+        self._is_seeking = True
+        GLib.timeout_add(ms, self._release_seek_suppression)
+
+    def _release_seek_suppression(self):
+        self._is_seeking = False
         return False
+
+    # ------------------------------------------------------------------ #
+    # Timeline subtitle regions
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _regions_from_document(document):
+        """Subtitle (start_s, end_s) pairs for the timeline's region strip."""
+        if document is None:
+            return []
+        regions = []
+        for entry in document.entries:
+            start = entry.start_time.total_milliseconds / 1000.0
+            end = entry.end_time.total_milliseconds / 1000.0
+            if end > start:
+                regions.append((start, end))
+        return regions
+
+    def _refresh_timeline_regions(self):
+        if self._disposed or self._timeline is None:
+            return
+        self._timeline.set_subtitle_regions(self._regions_from_document(self.document))
+
+    # ------------------------------------------------------------------ #
+    # Waveform
+    # ------------------------------------------------------------------ #
+    def _on_waveform_toggled(self, button):
+        enabled = button.get_active()
+        self._save_waveform_preference(enabled)
+        self._timeline.set_waveform_enabled(enabled)
+        if enabled:
+            self._start_waveform_load()
+        else:
+            self._stop_waveform_load()
+
+    def _start_waveform_load(self):
+        """Kick off peak extraction for the current video (when enabled).
+
+        Respects the pending-load pattern: while ``loadfile`` is deferred
+        (GLArea not realized yet) no extraction is started; the replayed
+        :meth:`load_video` call reaches this point again after the real load.
+        """
+        if self._disposed or self._timeline is None:
+            return
+        if self._pending_load_path is not None:
+            return
+        if not (self.waveform_toggle.get_active() and self._video_path):
+            return
+        self._cancel_waveform_loader()
+        self._timeline.clear_peaks()
+
+        loader = WaveformLoader()
+        self._waveform_loader = loader
+        loader.start(self._video_path, duration_hint=self._duration or None)
+        self._waveform_poll_id = GLib.timeout_add(
+            _WAVEFORM_POLL_MS, self._poll_waveform_loader, loader
+        )
+
+    def _stop_waveform_load(self):
+        """Cancel any running extraction and drop its peaks."""
+        if self._timeline is None:
+            return
+        self._cancel_waveform_loader()
+        self._timeline.clear_peaks()
+
+    def _cancel_waveform_loader(self):
+        if self._waveform_poll_id is not None:
+            GLib.source_remove(self._waveform_poll_id)
+            self._waveform_poll_id = None
+        if self._waveform_loader is not None:
+            self._waveform_loader.cancel()
+            self._waveform_loader = None
+
+    def _poll_waveform_loader(self, loader):
+        if self._disposed or self._waveform_loader is not loader:
+            return False
+        if not loader.is_done():
+            return True
+        self._apply_waveform_result(self._timeline, loader.get_result())
+        self._waveform_poll_id = None
+        self._waveform_loader = None
+        return False
+
+    @staticmethod
+    def _apply_waveform_result(timeline, result):
+        """Hand a finished loader result to the timeline widget.
+
+        Extracted as a helper so the "final peaks for the widget" step can be
+        unit-tested without a running player: ``None`` (failed or cancelled
+        decode) simply leaves the waveform empty.
+        """
+        if result is not None:
+            peaks, peaks_per_second = result
+            timeline.set_peaks(peaks, peaks_per_second)
+            timeline.queue_draw()
+
+    @staticmethod
+    def _load_waveform_preference() -> bool:
+        try:
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            if os.path.exists(config_file):
+                with open(config_file, "r") as f:
+                    for line in f:
+                        if line.startswith("waveform_enabled="):
+                            return line.split("=", 1)[1].strip().lower() == "true"
+        except Exception as e:
+            logger.warning(f"Could not load waveform preference: {e}")
+        return False
+
+    @staticmethod
+    def _save_waveform_preference(value: bool):
+        try:
+            config_dir = os.path.expanduser("~/.config/subtitle-editor")
+            config_file = os.path.join(config_dir, "preferences.conf")
+            os.makedirs(config_dir, exist_ok=True)
+            prefs = {}
+            if os.path.exists(config_file):
+                with open(config_file, "r") as f:
+                    for line in f:
+                        if "=" in line:
+                            key, val = line.strip().split("=", 1)
+                            prefs[key] = val
+            prefs["waveform_enabled"] = "true" if value else "false"
+            with open(config_file, "w") as f:
+                for key, val in prefs.items():
+                    f.write(f"{key}={val}\n")
+        except Exception as e:
+            logger.error(f"Error saving waveform preference: {e}")
 
     def _on_volume_changed(self, scale):
         value = scale.get_value()
@@ -1114,6 +1300,7 @@ class VideoPlayerWidget(Gtk.Box):
         if self._redraw_source is not None:
             GLib.source_remove(self._redraw_source)
             self._redraw_source = None
+        self._cancel_waveform_loader()
         if self._render_ctx is not None:
             try:
                 self._render_ctx.free()
