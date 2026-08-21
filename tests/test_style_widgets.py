@@ -10,7 +10,7 @@ because importing the widgets package loads the template classes.
 
 import pytest
 
-from subtitle_editor.resources import register_resources
+from gsub.resources import register_resources
 
 try:
     register_resources()
@@ -19,7 +19,7 @@ except Exception:  # pragma: no cover - unbuilt resources
 
 # Imported after register_resources(): the widgets package __init__ loads
 # template classes, which validate their resource paths at import time.
-from subtitle_editor.widgets.style_widgets import (  # noqa: E402
+from gsub.widgets.style_widgets import (  # noqa: E402
     BORDER_STYLE_CHOICES,
     ENCODING_CHOICES,
     AlignmentGrid,

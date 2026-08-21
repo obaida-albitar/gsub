@@ -1,5 +1,5 @@
 """
-Tests for the shortcuts table in subtitle_editor.shortcuts (the single
+Tests for the shortcuts table in gsub.shortcuts (the single
 source of truth shared by accel registration and the shortcuts dialog)
 and for the dialog built from it.
 
@@ -12,16 +12,17 @@ import gettext
 
 import pytest
 
-from subtitle_editor.shortcuts import (
+from gsub.shortcuts import (
     SECTION_ORDER,
     SECTION_TIMELINE,
     SECTION_VIDEO,
     SHORTCUTS,
     accels_for_action,
     entries_for_section,
+    window_key_entries,
 )
 
-# Same translation setup as subtitle_editor/__init__.py installs app-wide.
+# Same translation setup as gsub/__init__.py installs app-wide.
 _translation = gettext.translation("gsub", fallback=True)
 
 
@@ -69,8 +70,33 @@ class TestShortcutsTable:
 
     @pytest.mark.unit
     def test_play_pause_bound_to_space(self):
-        """Space toggles playback."""
-        assert accels_for_action("win.play-pause") == ["space"]
+        """Space toggles playback via the window key controller, not an accel."""
+        play_pause = next(s for s in SHORTCUTS if s.action == "win.play-pause")
+        assert play_pause.window_key is True
+        assert play_pause.accels == ("space",)
+        assert accels_for_action("win.play-pause") == []
+
+    @pytest.mark.unit
+    def test_window_keys_are_never_registered_as_accels(self):
+        """Window-handled keys (space/period/comma) must not be app accels.
+
+        Accels win over text input for plain typable keys, so they would
+        steal Space/period/comma from the text editor.
+        """
+        entries = window_key_entries()
+        assert {shortcut.action for shortcut in entries} == {
+            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+        for shortcut in entries:
+            # Display accels stay for the shortcuts dialog...
+            assert shortcut.accels, f"{shortcut.action} needs a display accel"
+            # ...but nothing is registered for them.
+            assert accels_for_action(shortcut.action) == []
+
+    @pytest.mark.unit
+    def test_window_keys_still_appear_in_the_dialog_sections(self):
+        """Window keys are shown in the dialog like every other entry."""
+        for shortcut in window_key_entries():
+            assert shortcut in entries_for_section(shortcut.section)
 
     @pytest.mark.unit
     def test_toggle_video_moved_off_ctrl_v(self):
@@ -157,7 +183,7 @@ class TestTimelineSection:
 
 try:
     from gi.repository import Adw, Gdk, Gtk
-    from subtitle_editor.resources import register_resources
+    from gsub.resources import register_resources
     register_resources()
     try:
         Gtk.init()
@@ -195,7 +221,7 @@ def test_every_entry_constructs_as_a_shortcuts_item():
     AdwShortcutsSection only accepts AdwShortcutsItem children, so gesture
     entries ride along as a subtitle next to their parseable accel.
     """
-    from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
+    from gsub.widgets.dialogs import build_shortcuts_dialog
 
     dialog = build_shortcuts_dialog()
     assert isinstance(dialog, Adw.ShortcutsDialog)
@@ -225,7 +251,7 @@ def test_shortcuts_dialog_covers_the_table():
     consumes (SECTION_ORDER + entries_for_section). Entries with and
     without a gesture are both covered by that path.
     """
-    from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
+    from gsub.widgets.dialogs import build_shortcuts_dialog
 
     dialog = build_shortcuts_dialog()
     assert isinstance(dialog, Adw.ShortcutsDialog)

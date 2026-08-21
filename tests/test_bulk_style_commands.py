@@ -4,8 +4,8 @@ import copy
 import dataclasses
 
 import pytest
-from subtitle_editor.commands import BulkUpdateStylePropsCommand, CommandManager
-from subtitle_editor.models import ASSStyle
+from gsub.commands import BulkUpdateStylePropsCommand, CommandManager
+from gsub.models import ASSStyle
 
 
 def _snapshot(styles):

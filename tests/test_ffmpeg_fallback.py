@@ -11,9 +11,9 @@ import json
 
 import pytest
 
-import subtitle_editor.extractors as extractors
-from subtitle_editor.extractors import ffmpeg_fallback
-from subtitle_editor.extractors.ffmpeg_fallback import (
+import gsub.extractors as extractors
+from gsub.extractors import ffmpeg_fallback
+from gsub.extractors.ffmpeg_fallback import (
     ExtractionError,
     _probe,
     extract_track,
@@ -384,7 +384,7 @@ class TestPyavListing:
             opened.append("open")
             return _Container(list(holder.streams))
 
-        import subtitle_editor.extractors.pyav_extractor as pyav
+        import gsub.extractors.pyav_extractor as pyav
 
         monkeypatch.setattr(pyav.av, "open", fake_open)
         self.pyav = pyav

@@ -1,12 +1,12 @@
 """Unit tests for command pattern and subtitle commands."""
 
 import pytest
-from subtitle_editor.commands import (
+from gsub.commands import (
     CommandManager, AddEntryCommand, RemoveEntryCommand, EditTextCommand,
     EditTimingCommand, DuplicateEntryCommand, MoveEntryCommand,
     TimeShiftCommand
 )
-from subtitle_editor.models import TimeCode, SubtitleEntry
+from gsub.models import TimeCode, SubtitleEntry
 
 
 class TestCommandManager:

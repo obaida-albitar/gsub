@@ -10,16 +10,16 @@ import copy
 
 import pytest
 
-from subtitle_editor.commands import CommandManager
-from subtitle_editor.models import (
+from gsub.commands import CommandManager
+from gsub.models import (
     ASSStyle,
     SubtitleDocument,
     SubtitleEntry,
     SubtitleFormat,
     TimeCode,
 )
-from subtitle_editor.resources import register_resources
-from subtitle_editor.utils import is_valid_ass_color
+from gsub.resources import register_resources
+from gsub.utils import is_valid_ass_color
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -39,7 +39,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _make_editor(styles=None, source=None):
-    from subtitle_editor.widgets.style_props_editor import GsubStylePropsEditor
+    from gsub.widgets.style_props_editor import GsubStylePropsEditor
 
     editor = GsubStylePropsEditor()
     if source is not None:
@@ -249,7 +249,7 @@ def test_reset_clears_ticks_and_restores_default_target():
 
 
 def test_property_labels_cover_checked_props():
-    from subtitle_editor.widgets.style_props_editor import PROP_LABELS
+    from gsub.widgets.style_props_editor import PROP_LABELS
 
     editor = _make_editor()
     editor.font_check.set_active(True)
@@ -294,13 +294,13 @@ class _FakeWindow:
 
 
 def _make_assign_dialog(document):
-    from subtitle_editor.widgets.dialogs import BulkApplyStyleDialog
+    from gsub.widgets.dialogs import BulkApplyStyleDialog
 
     return BulkApplyStyleDialog(_FakeWindow(document))
 
 
 def _make_props_dialog(document):
-    from subtitle_editor.widgets.dialogs import BatchStylePropsDialog
+    from gsub.widgets.dialogs import BatchStylePropsDialog
 
     return BatchStylePropsDialog(_FakeWindow(document))
 

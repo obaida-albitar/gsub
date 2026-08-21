@@ -1,17 +1,17 @@
 """GTK-free tests for the headless ASS compatibility validator and helpers."""
 
 import pytest
-from subtitle_editor.parsers.ass_validator import (
+from gsub.parsers.ass_validator import (
     validate_document,
     CompatIssue,
     fix_color,
     clamp_blur,
     strip_fsp,
 )
-from subtitle_editor.parsers.ass_tags import extract_override_tags, get_positioning, has_unbalanced_braces
-from subtitle_editor.utils import parse_ass_color, is_valid_ass_color, format_ass_color
-from subtitle_editor.models import SubtitleDocument, ASSStyle, SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.parsers.ass_parser import ASSParser
+from gsub.parsers.ass_tags import extract_override_tags, get_positioning, has_unbalanced_braces
+from gsub.utils import parse_ass_color, is_valid_ass_color, format_ass_color
+from gsub.models import SubtitleDocument, ASSStyle, SubtitleEntry, SubtitleFormat, TimeCode
+from gsub.parsers.ass_parser import ASSParser
 
 
 def make_doc(entries_text=None, styles=None, meta=None):

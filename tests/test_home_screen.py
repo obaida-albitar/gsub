@@ -7,7 +7,7 @@ none is available.
 """
 
 import pytest
-from subtitle_editor.resources import register_resources
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -27,7 +27,7 @@ pytestmark = pytest.mark.skipif(
 
 
 def _make_view():
-    from subtitle_editor.widgets.home_screen import HomeScreenView
+    from gsub.widgets.home_screen import HomeScreenView
 
     return HomeScreenView()
 

@@ -1,8 +1,8 @@
 """Unit tests for ASS/SSA command operations."""
 
 import pytest
-from subtitle_editor.commands import ReplaceASSHeaderCommand
-from subtitle_editor.models import ASSStyle
+from gsub.commands import ReplaceASSHeaderCommand
+from gsub.models import ASSStyle
 
 
 class TestReplaceASSHeaderCommand:

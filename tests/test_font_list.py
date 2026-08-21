@@ -6,7 +6,7 @@ save). The helpers are GTK-free so they run headlessly.
 """
 
 import pytest
-from subtitle_editor.utils import merge_font_families, is_font_installed
+from gsub.utils import merge_font_families, is_font_installed
 
 
 @pytest.mark.unit

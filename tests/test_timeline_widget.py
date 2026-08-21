@@ -11,7 +11,7 @@ import pytest
 try:
     from gi.repository import Gdk, GObject, Gtk
 
-    from subtitle_editor.resources import register_resources
+    from gsub.resources import register_resources
 
     register_resources()
     try:
@@ -26,7 +26,7 @@ pytestmark = pytest.mark.skipif(
     not _HAS_DISPLAY, reason="no display available for GTK widget tests"
 )
 
-from subtitle_editor.widgets.timeline import TimelineWidget  # noqa: E402
+from gsub.widgets.timeline import TimelineWidget  # noqa: E402
 
 WIDTH = 600  # fixed fake allocation: with duration 600 s, 1 px = 1 s
 

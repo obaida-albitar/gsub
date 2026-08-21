@@ -6,8 +6,8 @@ when none is available.
 """
 
 import pytest
-from subtitle_editor.parsers.ass_validator import CompatIssue, CompatSeverity
-from subtitle_editor.resources import register_resources
+from gsub.parsers.ass_validator import CompatIssue, CompatSeverity
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Gdk, Gtk
@@ -42,7 +42,7 @@ def _issue(severity, location="Style 'Default'", message="Something is off",
 
 
 def _make_panel():
-    from subtitle_editor.widgets.compatibility_panel import CompatibilityPanel
+    from gsub.widgets.compatibility_panel import CompatibilityPanel
 
     panel = CompatibilityPanel()
     fixed = []

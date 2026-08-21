@@ -1,6 +1,6 @@
 project(
   'gsub',
-  version: '0.5',
+  version: '0.6',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63.0',
   default_options: [
@@ -96,14 +96,14 @@ desktop_dir = get_option('datadir') / 'applications'
 install_data('data' / 'app.gsub.desktop', install_dir: desktop_dir)
 
 # --- Python package ---------------------------------------------------------
-# Install the whole subtitle_editor package into the system/venv site-packages.
+# Install the whole gsub package into the system/venv site-packages.
 fs = import('fs')
 
 # Enumerate every .py in the package so the install set is explicit and
 # __pycache__ artifacts are never picked up.
 package_files = run_command(
   python,
-  ['-c', 'import os,sys; r="subtitle_editor"; out=[];\n'
+  ['-c', 'import os,sys; r="gsub"; out=[];\n'
           + '[out.append(os.path.relpath(os.path.join(d,f), r)) for d,_,fs in os.walk(r) for f in fs if f.endswith(".py")]\n'
           + 'print("\\n".join(out))'],
   check: true,
@@ -111,8 +111,8 @@ package_files = run_command(
 
 foreach src : package_files
   install_data(
-    meson.current_source_dir() / 'subtitle_editor' / src,
-    install_dir: python_dir / 'subtitle_editor' / fs.parent(src),
+    meson.current_source_dir() / 'gsub' / src,
+    install_dir: python_dir / 'gsub' / fs.parent(src),
     rename: fs.name(src),
   )
 endforeach

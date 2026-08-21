@@ -1,4 +1,4 @@
-"""Tests for the waveform peak extraction module (subtitle_editor.audio_peaks).
+"""Tests for the waveform peak extraction module (gsub.audio_peaks).
 
 The pure functions (bucketing, cache keys, disk cache) run headless; the
 WaveformLoader tests inject a fake ``av`` module (following the fake-object
@@ -15,7 +15,7 @@ from fractions import Fraction
 
 import pytest
 
-from subtitle_editor.audio_peaks import (
+from gsub.audio_peaks import (
     BUCKETS_PER_SECOND,
     MAX_BUCKETS,
     RESAMPLE_RATE,
@@ -646,7 +646,7 @@ class TestWaveformLoaderFakeAv:
 class TestHeaderFormat:
     def test_header_layout(self):
         # Locks the on-disk header: magic + pps_milli + count, little endian.
-        from subtitle_editor.audio_peaks import _HEADER, _CACHE_MAGIC
+        from gsub.audio_peaks import _HEADER, _CACHE_MAGIC
 
         assert _HEADER.format == "<8sII"
         assert _CACHE_MAGIC == b"GSUBWAV2"

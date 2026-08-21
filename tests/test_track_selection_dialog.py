@@ -7,7 +7,7 @@ skipped automatically when none is available.
 """
 
 import pytest
-from subtitle_editor.resources import register_resources
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -41,7 +41,7 @@ def _tracks(count, kind):
 
 
 def _make_dialog(n_audio=1, n_subs=1, current_subtitle=-1):
-    from subtitle_editor.widgets.dialogs import TrackSelectionDialog
+    from gsub.widgets.dialogs import TrackSelectionDialog
 
     window = Gtk.Window()
     dialog = TrackSelectionDialog(

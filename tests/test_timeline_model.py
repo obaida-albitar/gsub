@@ -10,10 +10,10 @@ import pytest
 pytest.importorskip("gi")
 
 try:
-    from subtitle_editor import resources
+    from gsub import resources
 
     resources.register_resources()
-    from subtitle_editor.widgets.timeline import (
+    from gsub.widgets.timeline import (
         MIN_WINDOW,
         REGION_EDGE_THRESHOLD_PX,
         REGION_HANDLE_WIDTH_PX,
@@ -25,7 +25,7 @@ try:
         resize_region_times,
         round_region_ms,
     )
-    from subtitle_editor.models import SubtitleEntry, TimeCode
+    from gsub.models import SubtitleEntry, TimeCode
 except Exception as exc:  # pragma: no cover - depends on GTK stack
     pytest.skip(f"timeline module not importable: {exc}", allow_module_level=True)
 

@@ -1,9 +1,9 @@
 """Integration tests for subtitle editor components."""
 
 import pytest
-from subtitle_editor.models import SubtitleDocument, SubtitleFormat, SubtitleEntry, TimeCode, ASSStyle
-from subtitle_editor.parsers import SRTParser, ASSParser
-from subtitle_editor.commands import (
+from gsub.models import SubtitleDocument, SubtitleFormat, SubtitleEntry, TimeCode, ASSStyle
+from gsub.parsers import SRTParser, ASSParser
+from gsub.commands import (
     CommandManager, AddEntryCommand, EditTextCommand, TimeShiftCommand,
     EditStyleCommand
 )
@@ -401,7 +401,7 @@ class TestConcurrentOperations:
 
 
 # Import statements for integration tests
-from subtitle_editor.commands import RemoveEntryCommand, DuplicateEntryCommand
+from gsub.commands import RemoveEntryCommand, DuplicateEntryCommand
 
 
 class TestFormatConversionIntegration:
@@ -409,7 +409,7 @@ class TestFormatConversionIntegration:
     
     def test_srt_to_ass_conversion_workflow(self):
         """Test complete workflow of converting SRT to ASS."""
-        from subtitle_editor.converters import FormatConverter
+        from gsub.converters import FormatConverter
         
         # Create SRT document
         srt_content = """1
@@ -444,7 +444,7 @@ Second subtitle
     
     def test_ass_to_srt_conversion_workflow(self):
         """Test complete workflow of converting ASS to SRT."""
-        from subtitle_editor.converters import FormatConverter
+        from gsub.converters import FormatConverter
         
         # Create ASS document with styling
         ass_content = """[Script Info]
@@ -477,7 +477,7 @@ Dialogue: 0,0:00:01.00,0:00:03.00,Default,,0,0,0,,{\\i1}Styled text{\\i0}
     
     def test_roundtrip_conversion_preserves_content(self):
         """Test that content is preserved through format conversions."""
-        from subtitle_editor.converters import FormatConverter
+        from gsub.converters import FormatConverter
         
         # Start with SRT
         original_srt = """1

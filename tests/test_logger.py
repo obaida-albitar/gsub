@@ -4,7 +4,7 @@ import pytest
 import os
 import tempfile
 from pathlib import Path
-from subtitle_editor.logger import setup_logger, get_logger, _cleanup_old_logs
+from gsub.logger import setup_logger, get_logger, _cleanup_old_logs
 
 
 class TestLogger:
@@ -27,7 +27,7 @@ class TestLogger:
         logger.info("Test message")
         
         # Should have created at least one log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         assert len(log_files) >= 1
     
     def test_logger_writes_to_file(self, tmp_path):
@@ -39,7 +39,7 @@ class TestLogger:
         logger.info(test_message)
         
         # Read the log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         with open(log_files[0], 'r') as f:
             content = f.read()
         
@@ -56,7 +56,7 @@ class TestLogger:
         logger.error("Error message")
         
         # Read the log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         with open(log_files[0], 'r') as f:
             content = f.read()
         
@@ -88,14 +88,14 @@ class TestLogger:
         
         # Create 15 fake log files
         for i in range(15):
-            log_file = log_dir / f"subtitle_editor_{i:06d}_000000.log"
+            log_file = log_dir / f"gsub_{i:06d}_000000.log"
             log_file.write_text(f"Log {i}")
         
         # Cleanup, keeping only 10
         _cleanup_old_logs(log_dir, keep=10)
         
         # Should have only 10 files left
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         assert len(log_files) == 10
     
     def test_cleanup_old_logs_keeps_newest(self, tmp_path):
@@ -107,7 +107,7 @@ class TestLogger:
         # Create files with different timestamps
         files = []
         for i in range(5):
-            log_file = log_dir / f"subtitle_editor_{i:06d}_000000.log"
+            log_file = log_dir / f"gsub_{i:06d}_000000.log"
             log_file.write_text(f"Log {i}")
             files.append(log_file)
             time.sleep(0.01)  # Small delay to ensure different mtimes
@@ -116,15 +116,15 @@ class TestLogger:
         _cleanup_old_logs(log_dir, keep=3)
         
         # Should have only 3 files left
-        remaining = list(log_dir.glob("subtitle_editor_*.log"))
+        remaining = list(log_dir.glob("gsub_*.log"))
         assert len(remaining) == 3
         
         # The newest files should remain
         remaining_names = {f.name for f in remaining}
         # Files 2, 3, 4 should remain (newest)
-        assert "subtitle_editor_000002_000000.log" in remaining_names or \
-               "subtitle_editor_000003_000000.log" in remaining_names or \
-               "subtitle_editor_000004_000000.log" in remaining_names
+        assert "gsub_000002_000000.log" in remaining_names or \
+               "gsub_000003_000000.log" in remaining_names or \
+               "gsub_000004_000000.log" in remaining_names
     
     def test_cleanup_handles_errors_gracefully(self, tmp_path):
         """Test that cleanup doesn't crash on errors."""
@@ -144,7 +144,7 @@ class TestLogger:
         logger.info("Emojis: 😀 🎉 🚀")
         
         # Read the log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         with open(log_files[0], 'r', encoding='utf-8') as f:
             content = f.read()
         
@@ -159,7 +159,7 @@ class TestLogger:
         logger.info("Timestamped message")
         
         # Read the log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         with open(log_files[0], 'r') as f:
             content = f.read()
         
@@ -175,7 +175,7 @@ class TestLogger:
         logger.warning("Warning level test")
         
         # Read the log file
-        log_files = list(log_dir.glob("subtitle_editor_*.log"))
+        log_files = list(log_dir.glob("gsub_*.log"))
         with open(log_files[0], 'r') as f:
             content = f.read()
         

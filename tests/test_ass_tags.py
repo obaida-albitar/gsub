@@ -6,7 +6,7 @@ helpers used by the list and the visual tag editor.
 """
 
 import pytest
-from subtitle_editor.parsers.ass_tags import (
+from gsub.parsers.ass_tags import (
     extract_override_tags,
     parse_override_block,
     parse_tag_segment,

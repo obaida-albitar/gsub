@@ -1,8 +1,8 @@
 """Tests for uncovered code paths in ASS and SRT parsers."""
 
 import pytest
-from subtitle_editor.parsers import SRTParser, ASSParser
-from subtitle_editor.models import SubtitleFormat, TimeCode
+from gsub.parsers import SRTParser, ASSParser
+from gsub.models import SubtitleFormat, TimeCode
 
 
 class TestASSParserEdgeCases:

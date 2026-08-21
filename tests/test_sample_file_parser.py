@@ -1,8 +1,8 @@
 """Integration tests for parsing the large sample ASS subtitle file."""
 
 import pytest
-from subtitle_editor.parsers import ASSParser
-from subtitle_editor.models import SubtitleFormat, SubtitleEntry, TimeCode
+from gsub.parsers import ASSParser
+from gsub.models import SubtitleFormat, SubtitleEntry, TimeCode
 
 
 class TestSampleFileParse:
