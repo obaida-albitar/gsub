@@ -351,6 +351,105 @@ class TestSelectedEdgeResize:
         assert cursor is None or cursor.get_name() == "pointer"
 
 
+class TestOverlappingRegions:
+    """Overlapping regions: the selected region wins, hit-test and z-order.
+
+    Setup: region 0 (100-200 s, selected) is drawn beneath region 1
+    (150-250 s) in document order. Everything inside the overlap (150-200 s)
+    must still grab the selected region's body/edges without Ctrl.
+    """
+
+    def _overlapping_timeline(self):
+        timeline = _make_timeline()
+        timeline.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])
+        timeline.set_selected_position(0)
+        return timeline
+
+    def test_plain_press_on_selected_edge_under_overlap_begins_resize(self):
+        timeline = self._overlapping_timeline()
+        recorder = _Recorder(timeline)
+
+        timeline._on_drag_begin(_FakeGesture(timeline, start_x=196.0), 196.0, 5.0)
+
+        assert timeline._region_drag is not None
+        assert timeline._region_drag["position"] == 0
+        assert timeline._region_drag["mode"] == "resize-end"
+        assert recorder.events == []  # no scrub started
+        assert timeline._scrubbing is False
+
+    def test_ctrl_press_on_selected_edge_under_overlap_grabs_it_too(self):
+        timeline = self._overlapping_timeline()
+        gesture = _FakeGesture(timeline, start_x=196.0, state=CTRL)
+
+        timeline._on_drag_begin(gesture, 196.0, 5.0)
+        assert timeline._region_drag["position"] == 0
+        assert timeline._region_drag["mode"] == "resize-end"
+
+        timeline._on_drag_update(gesture, -46.0, 0.0)  # pointer at 150 s
+        timeline._on_drag_end(gesture, -46.0, 0.0)
+        assert timeline._region_drag is None
+
+    def test_selected_region_resize_commits_from_under_overlap(self):
+        timeline = self._overlapping_timeline()
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=196.0)
+
+        timeline._on_drag_begin(gesture, 196.0, 5.0)
+        timeline._on_drag_update(gesture, -46.0, 0.0)
+        timeline._on_drag_end(gesture, -46.0, 0.0)
+
+        assert recorder.events == [("region-adjusted", 0, 100000, 150000)]
+
+    def test_ctrl_click_inside_overlap_stays_on_selected_region(self):
+        # Tradeoff: within the overlap the selected region wins hit-testing,
+        # so Ctrl+click re-selects it; the overlapping entry is reachable via
+        # the part of its region outside the overlap (next test).
+        timeline = self._overlapping_timeline()
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=175.0, state=CTRL)
+
+        timeline._on_drag_begin(gesture, 175.0, 5.0)
+        timeline._on_drag_end(gesture, 0.0, 0.0)
+
+        assert recorder.events == [("region-selected", 0)]
+
+    def test_ctrl_click_on_unoverlapped_part_selects_other_region(self):
+        timeline = self._overlapping_timeline()
+        recorder = _Recorder(timeline)
+        gesture = _FakeGesture(timeline, start_x=220.0, state=CTRL)
+
+        timeline._on_drag_begin(gesture, 220.0, 5.0)
+        timeline._on_drag_end(gesture, 0.0, 0.0)
+
+        assert recorder.events == [("region-selected", 1)]
+
+    def test_hover_cursor_over_selected_edge_under_overlap(self):
+        timeline = self._overlapping_timeline()
+        timeline._hover_x = 196.0
+
+        timeline._update_hover_cursor(_FakeGesture(timeline, start_x=196.0))
+
+        cursor = timeline.get_cursor()
+        assert cursor is not None
+        assert cursor.get_name() == "ew-resize"
+
+    def test_selected_region_painted_last_with_handles_on_top(self):
+        # Z-order: capture the paint calls and assert the selected region is
+        # painted after the unselected ones, its edge handles after that.
+        timeline = self._overlapping_timeline()
+        order = []
+        timeline._paint_regions = lambda cr, regions, *args: order.append(
+            ("paint", [r[2] for r in regions])
+        )
+        timeline._draw_edge_handles = lambda cr, content_h, x_at, regions: order.append(
+            ("handles", [r[2] for r in regions])
+        )
+
+        timeline._draw_regions(object(), 36.0, lambda t: t)
+
+        assert order == [("paint", [1]), ("paint", [0]), ("handles", [0])]
+
+
 class TestPanDrag:
     """Middle/right-button drag pans the view 1:1 with the pointer."""
 

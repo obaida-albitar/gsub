@@ -291,6 +291,38 @@ class TestRegionHit:
         model.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])
         assert model.region_hit(175.0, self.WIDTH) == (1, "move")
 
+    def test_selected_region_wins_inside_overlap(self, model):
+        # The earlier region is selected: inside the overlap (150-200) it
+        # must still win over the later region, body and edges alike.
+        model.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])
+        assert model.region_hit(175.0, self.WIDTH, selected_position=0) == (0, "move")
+        assert model.region_hit(155.0, self.WIDTH, selected_position=0) == (0, "move")
+        assert model.region_hit(197.0, self.WIDTH, selected_position=0) == (0, "resize-end")
+        # And symmetrically when the later region is the selected one.
+        assert model.region_hit(175.0, self.WIDTH, selected_position=1) == (1, "move")
+
+    def test_selected_edge_under_overlap_is_grabbable(self, model):
+        # The selected region's end edge (at 200) sits inside region 1's
+        # span: without the priority rule document order hands the hit to
+        # region 1's body instead of the selected region's resize handle.
+        model.set_subtitle_regions([(100.0, 200.0, 0), (190.0, 250.0, 1)])
+        assert model.region_hit(103.0, self.WIDTH, selected_position=0) == (0, "resize-start")
+        assert model.region_hit(196.0, self.WIDTH, selected_position=0) == (0, "resize-end")
+        assert model.region_hit(196.0, self.WIDTH) == (1, "resize-start")  # no selection: doc order
+
+    def test_document_order_fallback_outside_selected_region(self, model):
+        model.set_subtitle_regions([(100.0, 200.0, 0), (150.0, 250.0, 1)])
+        # Only region 1 lies there: the fallback still finds it.
+        assert model.region_hit(220.0, self.WIDTH, selected_position=0) == (1, "move")
+        assert model.region_hit(248.0, self.WIDTH, selected_position=0) == (1, "resize-end")
+        # Outside every region nothing hits, selected or not.
+        assert model.region_hit(300.0, self.WIDTH, selected_position=1) is None
+
+    def test_selected_position_without_matching_region_ignored(self, model):
+        model.set_subtitle_regions([(100.0, 200.0, 0)])
+        assert model.region_hit(150.0, self.WIDTH, selected_position=7) == (0, "move")
+        assert model.region_hit(150.0, self.WIDTH, selected_position=-1) == (0, "move")
+
     def test_no_regions(self, model):
         assert model.region_hit(10.0, self.WIDTH) is None
 

@@ -18,6 +18,11 @@ translates pointer gestures into seeks:
 * Ctrl+drag on region   -> move it, or resize when grabbed by an edge
   (works on any region, selected or not)
 
+Where regions overlap in time, the selected region wins: it is drawn on
+top and hit-testing prefers it, so its edge handles stay grabbable inside
+another region's span. An overlapping unselected entry can still be
+Ctrl+clicked via the part of its region that does not overlap.
+
 The widget never talks to the player directly: it emits ``seek-requested``
 (live/intermediate) and ``position-picked`` (click / final release) and the
 player decides what to do with them. Region interactions emit
@@ -243,29 +248,40 @@ class TimelineModel:
                 out.append((s, e, position))
         return out
 
-    def region_hit(self, seconds: float, width_px: float):
+    def region_hit(self, seconds: float, width_px: float, selected_position: int = -1):
         """Find the region under *seconds*: ``(position, mode)`` or ``None``.
 
         ``mode`` is ``"resize-start"``/``"resize-end"`` when the time is
         within region_edge_grab_px() screen pixels (converted to seconds at
         the current zoom, so the zone covers the same on-screen width at
-        every zoom level) of an edge, ``"move"`` for the region body. With
-        overlapping regions the later region wins: it is drawn on top.
+        every zoom level) of an edge, ``"move"`` for the region body.
+
+        The region matching *selected_position* is checked first and wins
+        anywhere inside it (edge zone or body): it is drawn on top of
+        overlapping regions with its edge handles, so a pointer position it
+        covers must hit it, never the region drawn beneath. Everywhere else
+        document order decides: the later region wins (it is drawn on top
+        among the unselected ones).
         """
         t = float(seconds)
         pps = self.px_per_second(width_px)
         threshold = region_edge_grab_px() / pps if pps > 0 else 0.0
+
+        def classify(start, end):
+            if t - start <= threshold:
+                return "resize-start"
+            if end - t <= threshold:
+                return "resize-end"
+            return "move"
+
+        if selected_position >= 0:
+            for start, end, position in self.subtitle_regions:
+                if position == selected_position and start <= t <= end:
+                    return (position, classify(start, end))
         hit = None
         for start, end, position in self.subtitle_regions:
-            if not (start <= t <= end):
-                continue
-            if t - start <= threshold:
-                mode = "resize-start"
-            elif end - t <= threshold:
-                mode = "resize-end"
-            else:
-                mode = "move"
-            hit = (position, mode)
+            if start <= t <= end:
+                hit = (position, classify(start, end))
         return hit
 
 
@@ -600,8 +616,12 @@ class TimelineWidget(Gtk.DrawingArea):
         grab without movement selects the entry. Without Ctrl only the
         selected region's edge grab zone grabs (a resize of that edge): the
         body stays scrub territory and unselected regions do not react.
+        The selected region wins hit-testing anywhere inside it, so its
+        edges stay grabbable even where another region overlaps it.
         """
-        hit = self.model.region_hit(self._time_at_x(start_x), self.get_width())
+        hit = self.model.region_hit(
+            self._time_at_x(start_x), self.get_width(), self._selected_position
+        )
         if hit is None:
             return False
         position, mode = hit
@@ -698,7 +718,8 @@ class TimelineWidget(Gtk.DrawingArea):
         if self._hover_x is None:
             return None
         hit = self.model.region_hit(
-            self._time_at_x(self._hover_x), self.get_width()
+            self._time_at_x(self._hover_x), self.get_width(),
+            self._selected_position,
         )
         if hit is None or hit[0] != self._selected_position or hit[1] == "move":
             return None
@@ -714,7 +735,8 @@ class TimelineWidget(Gtk.DrawingArea):
         if self._hover_x is not None:
             if state & Gdk.ModifierType.CONTROL_MASK:
                 hit = self.model.region_hit(
-                    self._time_at_x(self._hover_x), self.get_width()
+                    self._time_at_x(self._hover_x), self.get_width(),
+                    self._selected_position,
                 )
                 if hit is not None:
                     name = "move" if hit[1] == "move" else "ew-resize"
@@ -852,6 +874,9 @@ class TimelineWidget(Gtk.DrawingArea):
         self._paint_regions(cr, normal, COLOR_REGION, COLOR_REGION_EDGE, 1.0,
                             content_h, x_at, radius)
         # The selected entry's region reads brighter, with a crisper border.
+        # It is painted after every other region (and its edge handles after
+        # that) so it stays on top wherever regions overlap — matching the
+        # hit-testing priority, which also favours the selected region.
         self._paint_regions(cr, selected, COLOR_REGION_SELECTED,
                             COLOR_REGION_EDGE_SELECTED, 2.0, content_h, x_at,
                             radius)

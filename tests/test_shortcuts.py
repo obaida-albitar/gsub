@@ -14,6 +14,8 @@ import pytest
 
 from subtitle_editor.shortcuts import (
     SECTION_ORDER,
+    SECTION_TIMELINE,
+    SECTION_VIDEO,
     SHORTCUTS,
     accels_for_action,
     entries_for_section,
@@ -97,6 +99,59 @@ class TestShortcutsTable:
         # ...but looking them up for registration yields nothing.
         assert accels_for_action(None) == []
 
+    @pytest.mark.unit
+    def test_gesture_entries_are_display_only(self):
+        """Gesture rows document mouse interactions: no action, never registered."""
+        gestures = [s for s in SHORTCUTS if s.gesture]
+        assert gestures
+        for shortcut in gestures:
+            assert shortcut.action is None, shortcut.title
+        assert accels_for_action(None) == []
+
+
+class TestTimelineSection:
+    """The Timeline section: keyboard entries moved from Video + gestures."""
+
+    @pytest.mark.unit
+    def test_timeline_sits_after_video_in_section_order(self):
+        assert SECTION_ORDER.index(SECTION_TIMELINE) == SECTION_ORDER.index(SECTION_VIDEO) + 1
+
+    @pytest.mark.unit
+    def test_keyboard_entries_moved_from_video(self):
+        timeline_actions = {s.action for s in entries_for_section(SECTION_TIMELINE)} - {None}
+        assert {
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.frame-step", "win.frame-back-step",
+            "win.seek-to-selection",
+        } <= timeline_actions
+        video_actions = {s.action for s in entries_for_section(SECTION_VIDEO)} - {None}
+        assert not timeline_actions & video_actions
+
+    @pytest.mark.unit
+    def test_video_keeps_the_player_entries(self):
+        video_actions = {s.action for s in entries_for_section(SECTION_VIDEO)}
+        assert {"win.open-video", "win.play-pause", "win.toggle-video",
+                "win.select-tracks"} <= video_actions
+
+    @pytest.mark.unit
+    def test_gesture_entries_present(self):
+        gestures = {s.title: s for s in entries_for_section(SECTION_TIMELINE) if s.gesture}
+        expected = {
+            "Seek 1 s": "Scroll Wheel",
+            "Zoom Timeline": "Ctrl + Scroll",
+            "Pan Timeline": "Shift + Scroll; Middle or Right Drag",
+            "Scrub (Drag)": "Left Drag",
+            "Move Subtitle": "Ctrl + Drag on a subtitle region",
+            "Resize Subtitle (Start/End)": "Drag the selected subtitle's edge handles",
+            "Select Subtitle on Timeline": "Ctrl + Click",
+        }
+        assert gestures.keys() == expected.keys()
+        for title, gesture in expected.items():
+            assert gestures[title].gesture == gesture
+            assert gestures[title].accels, f"{title} needs a display accel"
+
+
 
 # --- GTK-gated dialog tests --------------------------------------------- #
 
@@ -120,11 +175,45 @@ pytestmark_gtk = pytest.mark.skipif(
 
 @pytestmark_gtk
 def test_all_accels_parse_as_gtk_accelerators():
-    """Every accel in the table must parse (catches e.g. 'Space' vs 'space')."""
+    """Every accel in the table must parse (catches e.g. 'Space' vs 'space').
+
+    Gesture-only entries (no accels) are skipped: their gesture text is
+    free-form display copy, not accelerator syntax.
+    """
     for shortcut in SHORTCUTS:
+        if not shortcut.accels:
+            continue
         for accel in shortcut.accels:
             ok, _keyval, _mods = Gtk.accelerator_parse(accel)
             assert ok, f"{accel!r} ({shortcut.title}) is not a valid GTK accelerator"
+
+
+@pytestmark_gtk
+def test_every_entry_constructs_as_a_shortcuts_item():
+    """Both kinds of rows build into AdwShortcutsItem on an unmapped dialog.
+
+    AdwShortcutsSection only accepts AdwShortcutsItem children, so gesture
+    entries ride along as a subtitle next to their parseable accel.
+    """
+    from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
+
+    dialog = build_shortcuts_dialog()
+    assert isinstance(dialog, Adw.ShortcutsDialog)
+
+    for shortcut in SHORTCUTS:
+        item = Adw.ShortcutsItem(title=shortcut.title)
+        if shortcut.accels:
+            item.set_accelerator(" ".join(shortcut.accels))
+        if shortcut.gesture:
+            item.set_subtitle(shortcut.gesture)
+        assert item.get_title() == shortcut.title
+        if shortcut.gesture:
+            assert item.get_subtitle() == shortcut.gesture
+        else:
+            assert item.get_subtitle() == ""
+    # A gesture-only entry (no accels) stays constructible without a keycap.
+    item = Adw.ShortcutsItem(title="Pan", subtitle="Middle Drag")
+    assert item.get_accelerator() == ""
 
 
 @pytestmark_gtk
@@ -133,7 +222,8 @@ def test_shortcuts_dialog_covers_the_table():
 
     AdwShortcutsDialog constructs its child rows lazily on first map, so
     coverage is asserted through the same data path the dialog builder
-    consumes (SECTION_ORDER + entries_for_section).
+    consumes (SECTION_ORDER + entries_for_section). Entries with and
+    without a gesture are both covered by that path.
     """
     from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
 
@@ -144,4 +234,10 @@ def test_shortcuts_dialog_covers_the_table():
     covered = [s.title for section in SECTION_ORDER for s in entries_for_section(section)]
     assert sorted(covered) == sorted(s.title for s in SHORTCUTS)
     for section in SECTION_ORDER:
-        assert entries_for_section(section)
+        assert entries_for_section(section), f"section {section} is empty"
+    # Accel-only rows have no gesture text; gesture rows carry one and are
+    # exactly the Timeline mouse-gesture entries.
+    accel_only = [s for s in SHORTCUTS if s.gesture is None]
+    gesture_rows = [s for s in SHORTCUTS if s.gesture is not None]
+    assert accel_only and gesture_rows
+    assert all(s.section == SECTION_TIMELINE for s in gesture_rows)

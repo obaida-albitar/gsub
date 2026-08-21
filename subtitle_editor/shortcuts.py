@@ -12,6 +12,13 @@ rather than "Space" and "+". Entries with action=None describe keys
 handled by widget key controllers (video player zoom, search matches);
 they are shown in the dialog but never registered as action accels.
 
+Mouse gestures (timeline scrolling/dragging) have no GTK accelerator
+syntax. Their entries carry the closest parseable approximation in
+``accels`` — wheel events parse natively ("ScrollUp", "<Ctrl>ScrollUp"),
+pointer-button ones via the "Pointer_Button1" keysym — plus a free-form
+``gesture`` text ("Ctrl + Drag") the dialog shows as the row subtitle.
+An entry may have accels only, a gesture only, or both.
+
 The module deliberately imports no GTK so tests can use it headlessly.
 """
 
@@ -21,9 +28,11 @@ from dataclasses import dataclass
 SECTION_FILE = "File"
 SECTION_EDITING = "Editing"
 SECTION_VIDEO = "Video"
+SECTION_TIMELINE = "Timeline"
 SECTION_NAVIGATION = "Navigation"
 
-SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_VIDEO, SECTION_NAVIGATION)
+SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_VIDEO,
+                 SECTION_TIMELINE, SECTION_NAVIGATION)
 
 
 @dataclass(frozen=True)
@@ -36,12 +45,15 @@ class Shortcut:
         accels: Accel strings in GTK syntax; the first one is the primary.
         title: Human-readable label shown in the shortcuts dialog.
         section: Dialog section (one of the SECTION_* constants).
+        gesture: Free display text for mouse gestures ("Ctrl + Drag"),
+            rendered as the row subtitle; None for pure key shortcuts.
     """
 
     action: str | None
     accels: tuple
     title: str
     section: str
+    gesture: str | None = None
 
 
 SHORTCUTS = (
@@ -63,19 +75,36 @@ SHORTCUTS = (
     Shortcut("win.play-pause", ("space",), "Play/Pause", SECTION_VIDEO),
     Shortcut("win.toggle-video", ("<Ctrl><Shift>V",), "Toggle Video Player", SECTION_VIDEO),
     Shortcut("win.select-tracks", ("<Ctrl><Shift>T",), "Select Audio/Subtitle Tracks…", SECTION_VIDEO),
-    # Precise navigation on the custom timeline. The nudge/frame actions are
-    # window accels: they only fire when no focused widget consumed the key,
-    # so the caret still moves inside text fields (same mechanism as space).
-    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_VIDEO),
-    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_VIDEO),
-    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_VIDEO),
-    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_VIDEO),
-    Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_VIDEO),
-    Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_VIDEO),
-    Shortcut("win.seek-to-selection", ("<Ctrl>J",), "Play from Selected Subtitle", SECTION_VIDEO),
     # Handled by the video player's key controller, not an action accel.
     Shortcut(None, ("plus", "equal", "minus", "0"),
              "Subtitle Size: Increase / Decrease / Reset", SECTION_VIDEO),
+    # Timeline: precise navigation on the custom timeline. The nudge/frame
+    # actions are window accels: they only fire when no focused widget
+    # consumed the key, so the caret still moves inside text fields (same
+    # mechanism as space).
+    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE),
+    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE),
+    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE),
+    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE),
+    Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_TIMELINE),
+    Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE),
+    Shortcut("win.seek-to-selection", ("<Ctrl>J",), "Play from Selected Subtitle", SECTION_TIMELINE),
+    # Mouse gestures on the timeline widget, documented in the dialog only
+    # (see the module docstring about their accel approximations).
+    Shortcut(None, ("ScrollUp", "ScrollDown"), "Seek 1 s", SECTION_TIMELINE,
+             "Scroll Wheel"),
+    Shortcut(None, ("<Ctrl>ScrollUp", "<Ctrl>ScrollDown"), "Zoom Timeline",
+             SECTION_TIMELINE, "Ctrl + Scroll"),
+    Shortcut(None, ("<Shift>ScrollUp", "<Shift>ScrollDown"), "Pan Timeline",
+             SECTION_TIMELINE, "Shift + Scroll; Middle or Right Drag"),
+    Shortcut(None, ("Pointer_Button1",), "Scrub (Drag)", SECTION_TIMELINE,
+             "Left Drag"),
+    Shortcut(None, ("<Ctrl>Pointer_Button1",), "Move Subtitle", SECTION_TIMELINE,
+             "Ctrl + Drag on a subtitle region"),
+    Shortcut(None, ("Pointer_Button1",), "Resize Subtitle (Start/End)",
+             SECTION_TIMELINE, "Drag the selected subtitle's edge handles"),
+    Shortcut(None, ("<Ctrl>Pointer_Button1",), "Select Subtitle on Timeline",
+             SECTION_TIMELINE, "Ctrl + Click"),
     # Navigation
     Shortcut("win.home", ("<Alt>Home",), "Home", SECTION_NAVIGATION),
     Shortcut("win.find", ("<Ctrl>F",), "Find in Subtitles", SECTION_NAVIGATION),

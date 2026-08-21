@@ -1047,11 +1047,19 @@ def build_shortcuts_dialog() -> Adw.ShortcutsDialog:
             continue
         section = Adw.ShortcutsSection(title=_(section_title))
         for shortcut in shortcuts:
-            # AdwShortcutsItem renders multiple accels separated by spaces.
-            section.add(Adw.ShortcutsItem(
-                title=_(shortcut.title),
-                accelerator=" ".join(shortcut.accels),
-            ))
+            # AdwShortcutsItem renders multiple accels separated by spaces
+            # (alternatives). Mouse gestures carry the pointer interaction
+            # in a subtitle row instead: AdwShortcutsSection only accepts
+            # AdwShortcutsItem children (no custom rows), and an empty
+            # accelerator would render a disabled "No Shortcut" placeholder,
+            # so gesture entries keep their parseable wheel/button accel as
+            # the keycap and describe the gesture in the subtitle.
+            kwargs = {"title": _(shortcut.title)}
+            if shortcut.accels:
+                kwargs["accelerator"] = " ".join(shortcut.accels)
+            if shortcut.gesture:
+                kwargs["subtitle"] = _(shortcut.gesture)
+            section.add(Adw.ShortcutsItem(**kwargs))
         dialog.add(section)
 
     return dialog
