@@ -2,33 +2,81 @@
 
 A modern subtitle editor for the GNOME desktop, built with GTK 4 and
 libadwaita. Gsub makes it easy to edit, transform, and proofread SRT and
-ASS/SSA subtitle files — with an optional video preview so you can see your
-timing and styling in context.
+ASS/SSA subtitle files — with a libmpv video preview, a precise timeline
+with an optional audio waveform, and a visual editor for ASS override
+tags.
 
 > **Note:** This project was mainly vibe-coded. Contributions, bug reports, and
 > feedback are very welcome as the code matures.
 
+## Screenshots
+
+**The editor with live video preview** — subtitle list on the left, your
+subtitles rendered over the video by libmpv, and the editing panel below:
+![Editing with video preview](screenshots/2.png)
+
+**Visual override-tag editing** — the list shows clean, readable text while
+the leading `{…}` tag block is exposed in the Formatting expander as proper
+controls (font, size, colours, position, …):
+![Visual tag editing](screenshots/3.png)
+
+**The timeline** — precise seeking with an optional audio waveform (off by
+default); subtitle regions are drawn on the timeline and can be dragged to
+retime a line or stretched by their handles to change its duration:
+![Waveform timeline](screenshots/4.png)
+
+**The home screen**:
+![Home screen](screenshots/1.png)
+
 ## Features
 
+### Editing
 - **SRT & ASS/SSA support** — full parsing and serialization for both formats,
-  including round-trip fidelity for ASS override tags and section metadata.
-- **Undo/redo** — every edit goes through a command stack, so you can always
-  step backward and forward safely.
-- **ASS style editing** — create, rename, update, and remove styles, and
-  assign them to entries.
+  including byte-exact round-trip fidelity for ASS override tags and section
+  metadata.
+- **Undo/redo with feedback** — every edit goes through a command stack; a
+  toast names what was undone or redone.
+- **Visual ASS override-tag editor** — the subtitle list and text editor show
+  clean text while `{…}` blocks are edited through proper widgets: font, size,
+  bold/italic/underline/strikeout, all five colour tags, `\pos`, blur, border
+  and shadow. Complex tags (`\t`, `\clip`, …) stay editable as raw text.
+- **Semantic style inputs** — Alignment as a 3×3 position grid, BorderStyle
+  and Encoding as named dropdowns (with a custom-value fallback), in both the
+  styles dialog and the batch editor.
 - **Batch operations** — shift timings, resize fonts per style, and bulk-apply
   styles across one or many files at once.
-- **Video preview** — a libmpv-powered player renders your subtitles over the
-  video so you can check timing and appearance live.
 - **Subtitle extraction & conversion** — pull subtitle tracks out of video
-  files (via PyAV) and convert between formats.
+  files (via PyAV, with an ffprobe/ffmpeg fallback) and convert between
+  formats.
 - **Encoding detection** — best-effort auto-detection of non-UTF-8 subtitle
   encodings (cp1252, Shift-JIS, …) with a stdlib fallback.
+- **Compatibility checks** — a panel flags common ASS problems (invisible
+  text, renderer-dependent tags, `\pos` out of bounds, …) with one-click
+  fixes.
 
-## Screenshot
+### Video & timing
+- **Video preview** — a libmpv-powered player renders your subtitles over the
+  video so you can check timing and appearance live.
+- **Precise timeline** — click or drag to seek exactly; arrow keys nudge by
+  0.1 s / 5 s; `,` and `.` step one frame; Ctrl+J plays from the selected
+  line; Ctrl+scroll zooms down to milliseconds.
+- **Optional waveform** — toggle an audio wave under the timeline (off by
+  default); peaks are decoded from the selected audio track in the background
+  and cached for instant reopening.
+- **Retiming on the timeline** — drag a subtitle's region to move it, or grab
+  its edge handles to change its start/end; every drag is one undoable
+  command.
+- **Playback sync** — while the video plays, the subtitle list highlights and
+  scrolls to the current line without stealing your selection.
 
-<!-- Add a screenshot at docs/screenshot.png and uncomment the line below. -->
-<!-- ![Gsub screenshot](docs/screenshot.png) -->
+### Integration
+- **Open videos from the file manager** — Gsub registers as a handler for
+  common video types; opening one launches straight into the editor and
+  offers to extract embedded subtitle tracks.
+- **Unified track selection** — one dialog picks audio and subtitle tracks
+  and can extract a subtitle track for editing.
+- **Keyboard-first** — a complete shortcuts dialog (Ctrl+?) driven by a
+  single shortcut table shared with the actual key bindings.
 
 ## Dependencies
 
@@ -80,16 +128,18 @@ install). After installation, launch **Gsub** from the GNOME app grid or run:
 gsub
 ```
 
-You can also open subtitle files directly: `gsub path/to/file.srt`.
+You can also open files directly: `gsub path/to/subtitle.srt` or
+`gsub path/to/video.mkv` (or via **Open With** in your file manager).
 
 ## Usage
 
-1. Launch Gsub and open an SRT or ASS/SSA file from the home screen (or pass a
-   file path as an argument).
+1. Launch Gsub, press **Start**, and create a new file or open an existing one
+   from the editor (or pass a file path as an argument).
 2. Edit entries, adjust timings, and tweak ASS styles in the editor panel.
-3. Use the batch operations panel for bulk changes across styles or files.
-4. Optionally load a video to preview your subtitles with the built-in player.
-5. Save your work — all edits are undoable/redoable.
+3. Load a video to preview subtitles live, time lines precisely on the
+   timeline, and optionally extract embedded subtitle tracks for editing.
+4. Use the batch operations panel for bulk changes across styles or files.
+5. Save your work — every change is undoable/redoable.
 
 ## Development
 
@@ -113,8 +163,8 @@ python -m subtitle_editor.main
 
 ### Running the tests
 
-The test suite uses `pytest` and aims for broad coverage of the parsers,
-models, command stack, and converters.
+The test suite uses `pytest` and covers the parsers, models, command stack,
+converters, widgets, and the main window (over 1000 tests).
 
 ```bash
 pip install -r requirements-dev.txt
@@ -137,6 +187,7 @@ markers, and fixtures.
 gsub/
 ├── data/                 # desktop file, icon, gresource manifest, blueprints
 │   └── blueprints/       # GTK Blueprint UI templates (.blp)
+├── screenshots/          # screenshots used in this README
 ├── subtitle_editor/      # application source
 │   ├── commands/         # undo/redo command pattern
 │   ├── converters/       # format conversion
