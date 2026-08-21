@@ -17,9 +17,11 @@ from typing import List, Optional
 
 __all__ = [
     "SubtitleTrack",
+    "AudioTrack",
     "ExtractionError",
     "UnsupportedSubtitleCodec",
     "list_subtitle_tracks",
+    "list_audio_streams",
     "detect_format",
     "extract_track",
     "EXTENSION_FOR_FORMAT",
@@ -41,6 +43,16 @@ class SubtitleTrack:
     index: int
     codec: str
     codec_family: str  # 'ass', 'ssa' or 'srt'
+    language: Optional[str] = None
+    title: Optional[str] = None
+
+
+@dataclass
+class AudioTrack:
+    """Metadata describing a single audio stream in a container."""
+
+    index: int  # container stream index (what decoding addresses)
+    codec: str
     language: Optional[str] = None
     title: Optional[str] = None
 
@@ -102,6 +114,20 @@ def list_subtitle_tracks(path: str) -> List[SubtitleTrack]:
         return backend.list_subtitle_tracks(path)
     except Exception as exc:  # pragma: no cover - depends on environment
         raise ExtractionError(f"Failed to list subtitle tracks: {exc}") from exc
+
+
+def list_audio_streams(path: str) -> List[AudioTrack]:
+    """List the audio streams found in *path* (container order).
+
+    Used to translate a player track selection into the container stream
+    index the waveform decoder must target. Raises :class:`ExtractionError`
+    when the file cannot be opened.
+    """
+    backend, _ = _resolve_backend()
+    try:
+        return backend.list_audio_streams(path)
+    except Exception as exc:  # pragma: no cover - depends on environment
+        raise ExtractionError(f"Failed to list audio streams: {exc}") from exc
 
 
 def detect_format(path: str, gst_track_info: dict) -> Optional[str]:

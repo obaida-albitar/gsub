@@ -11,10 +11,12 @@ import struct
 import sys
 import time
 import types
+from fractions import Fraction
 
 import pytest
 
 from subtitle_editor.audio_peaks import (
+    BUCKETS_PER_SECOND,
     MAX_BUCKETS,
     RESAMPLE_RATE,
     WaveformLoader,
@@ -89,6 +91,15 @@ class TestCacheKey:
     def test_different_path_differs(self):
         assert cache_key("/a.mkv", 10, 1.0) != cache_key("/b.mkv", 10, 1.0)
 
+    def test_stream_index_part_of_key(self):
+        base = cache_key("/a.mkv", 10, 1.0)
+        # The default (None = first audio stream) must not collide with any
+        # real stream index, and each dub gets its own key.
+        assert cache_key("/a.mkv", 10, 1.0) == base
+        assert cache_key("/a.mkv", 10, 1.0, 0) != base
+        assert cache_key("/a.mkv", 10, 1.0, 1) != base
+        assert cache_key("/a.mkv", 10, 1.0, 0) != cache_key("/a.mkv", 10, 1.0, 1)
+
     def test_relative_paths_normalised(self):
         assert cache_key("rel/x.mkv", 1, 1.0) == cache_key(
             os.path.abspath("rel/x.mkv"), 1, 1.0
@@ -132,6 +143,15 @@ class TestDiskCache:
         (tmp_path / "magic.gwf").write_bytes(b"XXXXXXXX" + b"\x00" * 16)
         assert disk_cache_load(str(tmp_path), "magic") is None
 
+    def test_old_format_cache_is_miss(self, tmp_path):
+        # Files written by the previous cache generation (GSUBWAV1, 100/s)
+        # must be ignored after the version bump: their buckets were placed
+        # by sample count, not presentation time.
+        old = struct.Struct("<8sII").pack(b"GSUBWAV1", 100_000, 1)
+        old += array.array("h", [0, 0]).tobytes()
+        (tmp_path / "old.gwf").write_bytes(old)
+        assert disk_cache_load(str(tmp_path), "old") is None
+
     def test_float_peaks_clamped_to_int16(self, tmp_path):
         assert disk_cache_save(str(tmp_path), "f", [(1e9, -1e9)], 100.0)
         peaks, _pps = disk_cache_load(str(tmp_path), "f")
@@ -158,9 +178,14 @@ class _FakePlane:
 
 
 class _FakeFrame:
-    def __init__(self, samples_data):
+    def __init__(self, samples_data, pts=None, time_base=None):
         self.planes = [_FakePlane(samples_data)]
         self.samples = len(samples_data) // 2
+        self.pts = pts
+        # Resampler output frames carry the output rate as their time base.
+        self.time_base = time_base if time_base is not None else Fraction(
+            1, RESAMPLE_RATE
+        )
 
 
 class _FakeResampler:
@@ -169,17 +194,21 @@ class _FakeResampler:
 
 
 class _FakeStream:
-    type = "audio"
+    def __init__(self, index=0, stream_type="audio"):
+        self.index = index
+        self.type = stream_type
 
 
 class _FakeContainer:
     def __init__(self, frames, duration_us=0, streams=None):
-        self.streams = streams if streams is not None else [_FakeStream()]
+        self.streams = streams if streams is not None else [_FakeStream(0)]
         self._frames = frames
         self.duration = duration_us
         self.closed = False
+        self.decoded_stream = None
 
-    def decode(self, _stream):
+    def decode(self, stream):
+        self.decoded_stream = stream
         yield from self._frames
 
     def close(self):
@@ -188,6 +217,22 @@ class _FakeContainer:
 
 def _sine_frame(values):
     return _FakeFrame(array.array("h", values).tobytes())
+
+
+def _tone_frame(amplitude, n_samples, start_s=None):
+    """A frame of ``n_samples`` alternating +/- amplitude samples.
+
+    With *start_s* the frame carries the matching ``pts`` on the resampler's
+    time base; without it the frame has no timestamp at all (exercising the
+    extrapolation fallback).
+    """
+    pts = None
+    if start_s is not None:
+        pts = int(round(start_s * RESAMPLE_RATE))
+    return _FakeFrame(
+        array.array("h", [amplitude, -amplitude] * (n_samples // 2)).tobytes(),
+        pts=pts,
+    )
 
 
 def _make_fake_av(container_factory):
@@ -237,8 +282,124 @@ class TestWaveformLoaderFakeAv:
         assert peaks
         assert min(p[0] for p in peaks) == -12000
         assert max(p[1] for p in peaks) == 12000
-        assert pps == pytest.approx(100.0, rel=0.01)
-        assert len(peaks) == pytest.approx(100, abs=15)
+        assert pps == pytest.approx(BUCKETS_PER_SECOND, rel=0.01)
+        assert len(peaks) == pytest.approx(BUCKETS_PER_SECOND, abs=10)
+
+    def test_bucket_count_scales_with_resolution(self, fake_av, tmp_path):
+        media = tmp_path / "rate.mkv"
+        media.write_bytes(b"x" * 10)
+        # Exactly one second of samples: one bucket per 1/pps slice.
+        frames = [_sine_frame([300, -300] * (RESAMPLE_RATE // 2))]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=1_000_000))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        peaks, pps = loader.get_result()
+        assert pps == pytest.approx(BUCKETS_PER_SECOND, rel=0.01)
+        assert len(peaks) == pytest.approx(BUCKETS_PER_SECOND, abs=2)
+
+    def test_pts_offset_stream_starts_with_silence(self, fake_av, tmp_path):
+        media = tmp_path / "offset.mkv"
+        media.write_bytes(b"x" * 10)
+        # One second of loud audio whose first frame starts at t=0.25 s
+        # (stream start offset): buckets before it are silence, the audio
+        # lands at its absolute time instead of shifting left to t=0.
+        frames = [_tone_frame(12000, RESAMPLE_RATE, start_s=0.25)]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=2_000_000))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        peaks, pps = loader.get_result()
+        first_loud = next(i for i, p in enumerate(peaks) if p != (0, 0))
+        assert first_loud == pytest.approx(0.25 * pps, abs=1)
+        assert peaks[:first_loud] == [(0, 0)] * first_loud
+        # 0.25 s of silence + 1 s of audio, nothing more.
+        assert len(peaks) == pytest.approx(1.25 * pps, abs=2)
+
+    def test_pts_gap_becomes_silence_not_shift(self, fake_av, tmp_path):
+        media = tmp_path / "gap.mkv"
+        media.write_bytes(b"x" * 10)
+        # Loud audio at 0-0.5 s and 1.0-1.5 s: the missing 0.5 s in between
+        # must show up as silence buckets, not compact the second burst left.
+        frames = [
+            _tone_frame(9000, RESAMPLE_RATE // 2, start_s=0.0),
+            _tone_frame(4000, RESAMPLE_RATE // 2, start_s=1.0),
+        ]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=2_000_000))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        peaks, pps = loader.get_result()
+        half = int(0.5 * pps)
+        assert peaks[half - 1] == (-9000, 9000)
+        assert peaks[half] == (0, 0)
+        assert peaks[2 * half - 1] == (0, 0)
+        assert peaks[2 * half] == (-4000, 4000)
+        assert len(peaks) == 3 * half
+
+    def test_pts_priming_does_not_shift_wave(self, fake_av, tmp_path):
+        media = tmp_path / "priming.mkv"
+        media.write_bytes(b"x" * 10)
+        # The first packet carries encoder priming: a negative pts whose
+        # samples overlap the real first frame (which starts at t=0).
+        frames = [
+            _tone_frame(1000, 2048, start_s=-1024 / RESAMPLE_RATE),
+            _tone_frame(12000, RESAMPLE_RATE // 2, start_s=0.0),
+        ]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=1_000_000))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        peaks, pps = loader.get_result()
+        # The real frame spans 0-0.5 s: with sample-count bucketing the
+        # priming samples would push its tail past 0.5 s instead.
+        assert len(peaks) == pytest.approx(0.5 * pps, abs=1)
+        assert peaks[0] == (-1000, 1000)  # clipped priming remainder
+        assert peaks[int(pps) // 4] == (-12000, 12000)  # real audio in place
+        assert peaks[-1] == (-12000, 12000)
+
+    def test_missing_pts_continues_at_previous_end(self, fake_av, tmp_path):
+        media = tmp_path / "nopts.mkv"
+        media.write_bytes(b"x" * 10)
+        # The second frame carries no timestamp: it must continue at the end
+        # of the first (0.5 s), never before it.
+        frames = [
+            _tone_frame(12000, RESAMPLE_RATE // 2, start_s=0.0),
+            _sine_frame([-6000, 6000] * (RESAMPLE_RATE // 4)),
+        ]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=1_000_000))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        peaks, pps = loader.get_result()
+        half = int(0.5 * pps)
+        assert peaks[half - 1] == (-12000, 12000)
+        assert peaks[half] == (-6000, 6000)
+        assert len(peaks) == 2 * half
+
+    def test_pathological_timestamp_gap_stops_early(self, fake_av, tmp_path):
+        media = tmp_path / "jump.mkv"
+        media.write_bytes(b"x" * 10)
+        # A second frame claiming to start hours later must not allocate the
+        # bucket cap's worth of silence; the decode just stops.
+        frames = [
+            _tone_frame(12000, RESAMPLE_RATE // 10, start_s=0.0),
+            _tone_frame(12000, RESAMPLE_RATE // 10, start_s=10_000_000.0),
+        ]
+        fake_av(lambda path: _FakeContainer(frames, duration_us=0))
+
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        assert not loader.has_failed()
+        peaks, pps = loader.get_result()
+        assert len(peaks) == int(0.1 * pps)
+        assert len(peaks) < MAX_BUCKETS
 
     def test_duration_bucket_cap(self, fake_av, tmp_path):
         media = tmp_path / "long.mkv"
@@ -271,6 +432,57 @@ class TestWaveformLoaderFakeAv:
         fake_av(lambda path: _FakeContainer([], streams=[]))
         loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
         loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        assert loader.has_failed()
+        assert loader.get_result() is None
+
+    def test_decodes_requested_stream_index(self, fake_av, tmp_path):
+        media = tmp_path / "multi.mkv"
+        media.write_bytes(b"x" * 10)
+        streams = [_FakeStream(0, "video"), _FakeStream(1), _FakeStream(3)]
+        holder = {}
+
+        def factory(path):
+            holder["container"] = _FakeContainer(
+                [_tone_frame(9000, RESAMPLE_RATE // 2, start_s=0.0)],
+                duration_us=1_000_000,
+                streams=streams,
+            )
+            return holder["container"]
+
+        fake_av(factory)
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media), stream_index=3)
+        assert _wait_until(loader.is_done)
+        assert not loader.has_failed()
+        assert holder["container"].decoded_stream is streams[2]
+        assert holder["container"].decoded_stream.index == 3
+
+    def test_default_decodes_first_audio_stream(self, fake_av, tmp_path):
+        media = tmp_path / "multi2.mkv"
+        media.write_bytes(b"x" * 10)
+        streams = [_FakeStream(0, "video"), _FakeStream(1), _FakeStream(3)]
+        holder = {}
+
+        def factory(path):
+            holder["container"] = _FakeContainer(
+                [], duration_us=0, streams=streams
+            )
+            return holder["container"]
+
+        fake_av(factory)
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        assert holder["container"].decoded_stream is streams[1]
+
+    def test_missing_stream_index_marks_failed(self, fake_av, tmp_path):
+        media = tmp_path / "missing.mkv"
+        media.write_bytes(b"x" * 10)
+        streams = [_FakeStream(0, "video"), _FakeStream(1)]
+        fake_av(lambda path: _FakeContainer([], streams=streams))
+        loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
+        loader.start(str(media), stream_index=9)
         assert _wait_until(loader.is_done)
         assert loader.has_failed()
         assert loader.get_result() is None
@@ -347,6 +559,70 @@ class TestWaveformLoaderFakeAv:
         assert loader2.is_done()
         assert calls["n"] == 1
 
+    def test_cache_separated_per_stream(self, fake_av, tmp_path):
+        media = tmp_path / "dubs.mkv"
+        media.write_bytes(b"x" * 10)
+        calls = {"n": 0}
+
+        def factory(_path):
+            calls["n"] += 1
+            return _FakeContainer(
+                [_sine_frame([500, -500] * (RESAMPLE_RATE // 4))] * 4,
+                duration_us=1_000_000,
+                streams=[_FakeStream(0, "video"), _FakeStream(1), _FakeStream(2)],
+            )
+
+        fake_av(factory)
+        cache_dir = str(tmp_path / "cache")
+        first = WaveformLoader(cache_dir=cache_dir)
+        first.start(str(media), stream_index=1)
+        assert _wait_until(first.is_done)
+        assert calls["n"] == 1
+
+        # Same file, other dub: the stream-1 cache must not be reused.
+        second = WaveformLoader(cache_dir=cache_dir)
+        second.start(str(media), stream_index=2)
+        assert _wait_until(second.is_done)
+        assert calls["n"] == 2
+
+        # ...but the same stream hits the memory cache.
+        third = WaveformLoader(cache_dir=cache_dir)
+        third.start(str(media), stream_index=1)
+        assert third.is_done()
+        assert calls["n"] == 2
+
+    def test_old_cache_file_is_not_reused(self, fake_av, tmp_path):
+        media = tmp_path / "stale.mkv"
+        media.write_bytes(b"x" * 10)
+        calls = {"n": 0}
+
+        def factory(_path):
+            calls["n"] += 1
+            return _FakeContainer(
+                [_sine_frame([700, -700] * (RESAMPLE_RATE // 4))] * 4,
+                duration_us=1_000_000,
+            )
+
+        fake_av(factory)
+        cache_dir = tmp_path / "cache"
+        cache_dir.mkdir()
+        # A cache file exactly as the previous format wrote it (GSUBWAV1
+        # magic, 100 buckets/s) sitting at the current key's path.
+        stat = os.stat(str(media))
+        key = cache_key(str(media), stat.st_size, stat.st_mtime)
+        old = struct.Struct("<8sII").pack(b"GSUBWAV1", 100_000, 1)
+        old += array.array("h", [0, 0]).tobytes()
+        (cache_dir / f"{key}.gwf").write_bytes(old)
+
+        loader = WaveformLoader(cache_dir=str(cache_dir))
+        loader.start(str(media))
+        assert _wait_until(loader.is_done)
+        assert not loader.has_failed()
+        assert calls["n"] == 1  # stale file ignored, decoded fresh
+        peaks, pps = loader.get_result()
+        assert pps == pytest.approx(BUCKETS_PER_SECOND, rel=0.01)
+        assert peaks and peaks != [(0, 0)]
+
     def test_missing_file_marks_failed(self, tmp_path):
         loader = WaveformLoader(cache_dir=str(tmp_path / "cache"))
         loader.start(str(tmp_path / "does-not-exist.mkv"))
@@ -373,6 +649,6 @@ class TestHeaderFormat:
         from subtitle_editor.audio_peaks import _HEADER, _CACHE_MAGIC
 
         assert _HEADER.format == "<8sII"
-        assert _CACHE_MAGIC == b"GSUBWAV1"
+        assert _CACHE_MAGIC == b"GSUBWAV2"
         assert _HEADER.size == 16
         assert struct.calcsize("<8sII") == 16

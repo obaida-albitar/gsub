@@ -40,6 +40,15 @@ class _FakeTrack:
         self.language = language
 
 
+class _FakeAudioStream:
+    """Minimal stand-in for ``extractors.AudioTrack``."""
+
+    def __init__(self, index, codec=None, language=None):
+        self.index = index
+        self.codec = codec
+        self.language = language
+
+
 @pytest.mark.unit
 class TestCodecFamilyHelpers:
     def test_mpv_codec_family_known(self):
@@ -209,6 +218,78 @@ class TestBuildPyavMapping:
 
 
 @pytest.mark.unit
+class TestBuildPyavAudioMap:
+    """Mirrors TestBuildPyavMapping for the audio stream mapping."""
+
+    @staticmethod
+    def _mpv_audio(tid, codec=None, lang=None):
+        return {"id": tid, "type": "audio", "codec": codec, "lang": lang}
+
+    def test_positional_match(self, monkeypatch):
+        mpv_audio = [
+            self._mpv_audio(1, "aac", "eng"),
+            self._mpv_audio(2, "ac3", "jpn"),
+        ]
+        pyav = [_FakeAudioStream(1, "aac", "eng"), _FakeAudioStream(3, "ac3", "jpn")]
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.list_audio_streams",
+            lambda path: pyav,
+        )
+        mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
+        # mpv track ids map to container stream indices, not positions.
+        assert mapping == {1: 1, 2: 3}
+
+    def test_language_fallback_when_positions_disagree(self, monkeypatch):
+        # mpv reports the dubs in a different order than the container.
+        mpv_audio = [
+            self._mpv_audio(1, "aac", "jpn"),
+            self._mpv_audio(2, "ac3", "eng"),
+        ]
+        pyav = [_FakeAudioStream(1, "ac3", "eng"), _FakeAudioStream(3, "aac", "jpn")]
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.list_audio_streams",
+            lambda path: pyav,
+        )
+        mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
+        assert mapping == {1: 3, 2: 1}
+
+    def test_unmatched_track_left_out(self, monkeypatch):
+        # Two mpv tracks, one container stream: only the match is mapped.
+        mpv_audio = [self._mpv_audio(1, "aac"), self._mpv_audio(2, "ac3")]
+        pyav = [_FakeAudioStream(1, "aac")]
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.list_audio_streams",
+            lambda path: pyav,
+        )
+        mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
+        assert mapping == {1: 1}
+        assert 2 not in mapping
+
+    def test_empty_audio_tracks(self, monkeypatch):
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.list_audio_streams",
+            lambda path: [_FakeAudioStream(0, "aac")],
+        )
+        assert VideoPlayerWidget._build_pyav_audio_map([], "/x.mkv") == {}
+
+    def test_no_path_returns_empty(self):
+        assert VideoPlayerWidget._build_pyav_audio_map(
+            [self._mpv_audio(1, "aac")], ""
+        ) == {}
+
+    def test_listing_error_returns_empty(self, monkeypatch):
+        def boom(path):
+            raise RuntimeError("ffmpeg missing")
+
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.list_audio_streams", boom
+        )
+        assert VideoPlayerWidget._build_pyav_audio_map(
+            [self._mpv_audio(1, "aac")], "/x.mkv"
+        ) == {}
+
+
+@pytest.mark.unit
 class TestSubtitleScalePreference:
     """The preference loader appends ``preferences.conf`` to the expanduser
     result, so the monkeypatch must return the *directory*."""
@@ -372,6 +453,213 @@ class TestApplyWaveformResult:
         VideoPlayerWidget._apply_waveform_result(timeline, None)
         assert timeline.set_peaks_calls == []
         assert timeline.draws == 0
+
+
+class _FakeWaveformToggle:
+    def __init__(self, active):
+        self._active = active
+
+    def get_active(self):
+        return self._active
+
+
+class _FakeWaveformTimeline:
+    def __init__(self):
+        self.clear_peaks_calls = 0
+
+    def clear_peaks(self):
+        self.clear_peaks_calls += 1
+
+
+class _RecordingLoader:
+    """Stands in for WaveformLoader; records starts and cancels."""
+
+    instances = []
+
+    def __init__(self, cache_dir=None):
+        self.starts = []
+        self.cancelled = False
+        _RecordingLoader.instances.append(self)
+
+    def start(self, path, duration_hint=None, stream_index=None):
+        self.starts.append((path, duration_hint, stream_index))
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class _WaveformPlayerSelf:
+    """Minimal stand-in ``self`` for the player's waveform helpers.
+
+    The real methods are attached as plain functions so they bind to this
+    object, letting the selection/restart logic run without a GTK widget.
+    """
+
+    _live_track_list = VideoPlayerWidget._live_track_list
+    _selected_audio_track_id = VideoPlayerWidget._selected_audio_track_id
+    _resolve_waveform_stream_index = VideoPlayerWidget._resolve_waveform_stream_index
+    _audio_mapping_ready = VideoPlayerWidget._audio_mapping_ready
+    _cancel_waveform_loader = VideoPlayerWidget._cancel_waveform_loader
+    _poll_waveform_loader = VideoPlayerWidget._poll_waveform_loader
+    _restart_waveform_load = VideoPlayerWidget._restart_waveform_load
+    _start_waveform_load = VideoPlayerWidget._start_waveform_load
+    _on_audio_track_changed = VideoPlayerWidget._on_audio_track_changed
+
+    def __init__(self, mpv=None, toggle_active=True, current_audio=-1,
+                 track_list=None, audio_map=None, pyav_video_path="/x.mkv",
+                 probe_done=True, audio_tracks=None):
+        self._mpv = mpv
+        self._mpv_track_list = track_list or []
+        self._video_path = "/x.mkv"
+        self._duration = 10.0
+        self._disposed = False
+        self._pending_load_path = None
+        self._current_audio_track = current_audio
+        self._audio_tracks = (
+            audio_tracks
+            if audio_tracks is not None
+            else [{"id": 1, "codec": "aac"}, {"id": 2, "codec": "ac3"}]
+        )
+        self._pyav_audio_map = {1: 1, 2: 3} if audio_map is None else audio_map
+        self._pyav_video_path = pyav_video_path
+        self._pyav_probe_done = probe_done
+        self.waveform_toggle = _FakeWaveformToggle(toggle_active)
+        self._timeline = _FakeWaveformTimeline()
+        self._waveform_loader = None
+        self._waveform_poll_id = None
+        self.video_area = types.SimpleNamespace(queue_render=lambda: None)
+
+
+@pytest.mark.unit
+class TestWaveformStreamResolution:
+    def test_explicit_selection_wins(self):
+        player = _WaveformPlayerSelf(
+            current_audio=2,
+            track_list=[{"type": "audio", "id": 1, "selected": True}],
+        )
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) == 3
+
+    def test_mpv_default_selection_from_track_list(self):
+        # No explicit pick: mpv's own selection (language heuristics) is
+        # read from the live track list.
+        player = _WaveformPlayerSelf(
+            track_list=[{"type": "audio", "id": 2, "selected": True}],
+        )
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) == 3
+
+    def test_no_selection_falls_back_to_default_stream(self):
+        player = _WaveformPlayerSelf(track_list=[])
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) is None
+
+    def test_unmapped_track_falls_back_to_default_stream(self):
+        player = _WaveformPlayerSelf(current_audio=7)
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) is None
+
+    def test_stale_mapping_ignored(self):
+        player = _WaveformPlayerSelf(current_audio=2, pyav_video_path="/old.mkv")
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) is None
+
+    def test_no_audio_tracks(self):
+        player = _WaveformPlayerSelf(audio_tracks=[])
+        assert VideoPlayerWidget._resolve_waveform_stream_index(player) is None
+
+
+@pytest.mark.unit
+class TestWaveformStartGating:
+    """The decode starts only once the mpv<->PyAV audio mapping is ready."""
+
+    @pytest.fixture
+    def fake_loader(self, monkeypatch):
+        _RecordingLoader.instances = []
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.WaveformLoader",
+            _RecordingLoader,
+        )
+        return _RecordingLoader
+
+    def test_starts_with_resolved_stream_when_ready(self, fake_loader):
+        player = _WaveformPlayerSelf(current_audio=2)
+        VideoPlayerWidget._start_waveform_load(player)
+        assert len(fake_loader.instances) == 1
+        assert fake_loader.instances[0].starts == [("/x.mkv", 10.0, 3)]
+        assert player._timeline.clear_peaks_calls == 1
+
+    def test_waits_while_probe_pending(self, fake_loader):
+        player = _WaveformPlayerSelf(probe_done=False)
+        VideoPlayerWidget._start_waveform_load(player)
+        assert fake_loader.instances == []
+
+    def test_no_start_without_audio_tracks(self, fake_loader):
+        player = _WaveformPlayerSelf(audio_tracks=[])
+        VideoPlayerWidget._start_waveform_load(player)
+        assert fake_loader.instances == []
+
+    def test_no_start_while_load_pending(self, fake_loader):
+        player = _WaveformPlayerSelf()
+        player._pending_load_path = "/x.mkv"
+        VideoPlayerWidget._start_waveform_load(player)
+        assert fake_loader.instances == []
+
+    def test_no_start_when_toggle_off(self, fake_loader):
+        player = _WaveformPlayerSelf(toggle_active=False)
+        VideoPlayerWidget._start_waveform_load(player)
+        assert fake_loader.instances == []
+
+
+@pytest.mark.unit
+class TestWaveformRegeneration:
+    """Changing the audio track regenerates the peaks for the new stream."""
+
+    @pytest.fixture
+    def fake_loader(self, monkeypatch):
+        _RecordingLoader.instances = []
+        monkeypatch.setattr(
+            "subtitle_editor.widgets.video_player.WaveformLoader",
+            _RecordingLoader,
+        )
+        return _RecordingLoader
+
+    def test_track_change_starts_loader_for_new_stream(self, fake_loader):
+        mpv = types.SimpleNamespace()
+        player = _WaveformPlayerSelf(mpv=mpv)
+        VideoPlayerWidget.set_audio_track(player, 2)
+        assert player._current_audio_track == 2
+        assert mpv.aid == 2
+        assert len(fake_loader.instances) == 1
+        assert fake_loader.instances[0].starts == [("/x.mkv", 10.0, 3)]
+        assert player._timeline.clear_peaks_calls == 1
+        assert player._waveform_loader is fake_loader.instances[0]
+
+    def test_second_change_cancels_previous_loader(self, fake_loader):
+        player = _WaveformPlayerSelf()
+        VideoPlayerWidget.set_audio_track(player, 1)
+        first = fake_loader.instances[0]
+        VideoPlayerWidget.set_audio_track(player, 2)
+        assert first.cancelled is True
+        assert len(fake_loader.instances) == 2
+        assert fake_loader.instances[1].starts == [("/x.mkv", 10.0, 3)]
+
+    def test_no_restart_when_waveform_disabled(self, fake_loader):
+        player = _WaveformPlayerSelf(toggle_active=False)
+        VideoPlayerWidget.set_audio_track(player, 2)
+        assert fake_loader.instances == []
+        assert player._waveform_loader is None
+
+    def test_no_restart_while_load_pending(self, fake_loader):
+        player = _WaveformPlayerSelf()
+        player._pending_load_path = "/x.mkv"
+        VideoPlayerWidget.set_audio_track(player, 2)
+        assert fake_loader.instances == []
+
+    def test_disable_audio_track_still_records_selection(self, fake_loader):
+        mpv = types.SimpleNamespace()
+        player = _WaveformPlayerSelf(mpv=mpv)
+        VideoPlayerWidget.set_audio_track(player, -1)
+        assert player._current_audio_track == -1
+        assert mpv.aid == -1
+        # Restarted with the default stream (mpv selection is gone).
+        assert len(fake_loader.instances) == 1
+        assert fake_loader.instances[0].starts == [("/x.mkv", 10.0, None)]
 
 
 @pytest.mark.unit
