@@ -5,6 +5,8 @@ Provides text and timing editing for the selected subtitle entry.
 """
 
 import gettext
+from dataclasses import dataclass
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -14,13 +16,29 @@ gi.require_version("Pango", "1.0")
 from gi.repository import Adw, GLib, GObject, Gtk, Pango
 
 from subtitle_editor.models import SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.parsers.ass_tags import BLOCK_PATTERN, split_leading_block  # noqa: E402
+from subtitle_editor.parsers.ass_tags import (  # noqa: E402
+    BLOCK_PATTERN,
+    split_line_start_blocks,
+)
 from subtitle_editor.resources import template_resource_path
 from subtitle_editor.widgets.tag_editor import TagEditorRows  # noqa: E402
 
 # Same translation domain as the package-level gettext.install(); bound
 # explicitly so the `_` alias is visible to static analysis.
 _ = gettext.translation("gsub", fallback=True).gettext
+
+
+@dataclass
+class _TagGroup:
+    """A non-leading line-start block anchored to its offset in the buffer.
+
+    The offset is shifted by buffer edits (see the insert-text/delete-range
+    handlers) so recomposition keeps splicing the block back in at its
+    position within the (possibly edited) clean text.
+    """
+    offset: int
+    header: Adw.ActionRow
+    editor: TagEditorRows
 
 
 @Gtk.Template(resource_path=template_resource_path('editor-panel'))
@@ -81,17 +99,24 @@ class EditorPanel(Gtk.Box):
         # Text buffer is created in code and bound to the templated text view.
         self.text_buffer = Gtk.TextBuffer()
         self.text_buffer.connect("changed", self._on_text_buffer_changed)
+        # Shift the tracked line-start block offsets as the user edits the
+        # text; they never emit text-changed themselves (the debounced
+        # changed path recomposes after edits, as for any buffer change).
+        self.text_buffer.connect("insert-text", self._on_buffer_insert_text)
+        self.text_buffer.connect("delete-range", self._on_buffer_delete_range)
         self.text_view.set_buffer(self.text_buffer)
 
         # Text tag used to visually dim mid-line {...} override blocks that
-        # stay inline in the text view (only the LEADING block gets widgets).
+        # stay inline in the text view (only line-start blocks get widgets).
         self._inline_tag = self.text_buffer.create_tag(
             None, foreground="#888a85", style=Pango.Style.ITALIC)
 
-        # Visual editor for the leading override block (ASS/SSA only).
+        # Visual editor for the leading override block (ASS/SSA only), plus
+        # one _TagGroup per additional line-start block.
         self.tag_editor = TagEditorRows(self.formatting_expander)
         self.tag_editor.connect("changed", self._on_tag_editor_changed)
         self.tag_editor.setup_add_button(self.add_tag_button)
+        self._tag_groups: list[_TagGroup] = []
 
         # Configure the time spin buttons (adjustments + scroll-wheel disabling).
         self._setup_spin_button(self.start_hour, 0, 23)
@@ -202,15 +227,15 @@ class EditorPanel(Gtk.Box):
             self.margin_r_spin.set_value(getattr(entry, 'margin_r', 0))
             self.margin_v_spin.set_value(getattr(entry, 'margin_v', 0))
 
-        # Update text. For ASS/SSA the LEADING {...} override block is edited
-        # through the Formatting rows, so only the remainder goes into the
-        # text buffer; mid-line blocks stay inline (highlighted, raw-editable).
+        # Update text. For ASS/SSA every {...} block at a LINE START (offset 0
+        # or right after a newline) is edited through the Formatting rows, so
+        # the buffer holds clean text on every line; blocks NOT at a line
+        # start (mid-word/mid-sentence) stay inline (highlighted, raw-editable).
         is_ass = self._format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
         if is_ass:
-            block, rest = split_leading_block(entry.text)
-            self.text_buffer.set_text(rest)
-            self.tag_editor.load_body(block[1:-1] if block else None)
+            self._load_tagged_text(entry.text)
         else:
+            self._clear_tag_groups()
             self.text_buffer.set_text(entry.text)
             self.tag_editor.load_body(None)
         self.formatting_expander.set_visible(is_ass)
@@ -249,6 +274,7 @@ class EditorPanel(Gtk.Box):
 
         self.text_buffer.set_text("")
         self.tag_editor.load_body(None)
+        self._clear_tag_groups()
         self._apply_inline_tag_highlight()
 
         for spin in [
@@ -321,17 +347,99 @@ class EditorPanel(Gtk.Box):
         self._apply_inline_tag_highlight()
         self._queue_text_change()
 
-    def _compose_text(self) -> str:
-        """Full dialogue text: the serialized leading block plus the buffer.
+    def _load_tagged_text(self, text: str):
+        """Split every line-start {...} block out of ``text`` into rows.
 
-        The buffer holds the text without the leading override block; the
-        block (if any) is managed by the Formatting rows.
+        The buffer receives the clean text; the first block at offset 0 (if
+        any) keeps its current presentation through ``self.tag_editor``,
+        while every other extracted block gets its own group in the
+        Formatting expander: a small header naming its line plus a
+        TagEditorRows instance. Mid-word blocks stay inline in the buffer
+        with the dim/italic highlight.
+        """
+        clean, anchors = split_line_start_blocks(text)
+        leading_body = None
+        group_anchors = anchors
+        if anchors and anchors[0][0] == 0:
+            leading_body = anchors[0][1]
+            group_anchors = anchors[1:]
+
+        self._clear_tag_groups()
+        self.text_buffer.set_text(clean)
+        self.tag_editor.load_body(leading_body)
+
+        for offset, body in group_anchors:
+            line = clean.count('\n', 0, offset) + 1
+            header = Adw.ActionRow(title=f"Line {line} tags")
+            header.set_sensitive(False)
+            self.formatting_expander.add_row(header)
+            editor = TagEditorRows(self.formatting_expander)
+            editor.load_body(body)
+            editor.connect("changed", self._on_tag_group_changed)
+            self._tag_groups.append(
+                _TagGroup(offset=offset, header=header, editor=editor))
+
+    def _clear_tag_groups(self):
+        """Drop every per-line tag group's header and rows from the panel."""
+        for group in self._tag_groups:
+            group.editor.load_body(None)
+            if group.header.get_parent() is not None:
+                self.formatting_expander.remove(group.header)
+        self._tag_groups = []
+
+    def _on_buffer_insert_text(self, buffer, location, text, length):
+        """Shift tracked block offsets past an insertion.
+
+        Never emits text-changed; the debounced changed path recomposes.
+        """
+        if self._updating or not self._tag_groups:
+            return
+        position = location.get_offset()
+        count = len(text)
+        for group in self._tag_groups:
+            if group.offset >= position:
+                group.offset += count
+
+    def _on_buffer_delete_range(self, buffer, start, end):
+        """Shift tracked block offsets across a deletion.
+
+        Offsets inside the deleted range clamp to the deletion start, so
+        text edits never silently drop a block (tags are removed through
+        their rows instead). Never emits text-changed.
+        """
+        if self._updating or not self._tag_groups:
+            return
+        position = start.get_offset()
+        count = end.get_offset() - position
+        for group in self._tag_groups:
+            if group.offset > position:
+                group.offset = max(position, group.offset - count)
+
+    def _compose_text(self) -> str:
+        """Full dialogue text: blocks spliced back into the buffer text.
+
+        The leading block (managed by self.tag_editor) is prepended; each
+        remaining group's serialized block is inserted at its tracked
+        offset, in order, so the recomposed text matches the entry byte for
+        byte as long as nothing was edited.
         """
         start = self.text_buffer.get_start_iter()
         end = self.text_buffer.get_end_iter()
-        rest = self.text_buffer.get_text(start, end, False)
-        block = self.tag_editor.get_block()
-        return (block or "") + rest
+        text = self.text_buffer.get_text(start, end, False)
+
+        parts = []
+        prev = 0
+        for group in self._tag_groups:
+            block = group.editor.get_block()
+            if block is None:
+                continue
+            parts.append(text[prev:group.offset])
+            parts.append(block)
+            prev = group.offset
+        parts.append(text[prev:])
+
+        leading = self.tag_editor.get_block()
+        return (leading or "") + ''.join(parts)
 
     def _queue_text_change(self):
         """Debounce a text-changed emission for the recomposed full text.
@@ -364,9 +472,21 @@ class EditorPanel(Gtk.Box):
         self._update_formatting_subtitle()
         self._queue_text_change()
 
+    def _on_tag_group_changed(self, *args):
+        """A per-line group's row changed: recompose and debounce."""
+        # A group whose last tag was removed drops its {} from recomposition;
+        # drop its header too so the expander stays readable.
+        for group in self._tag_groups:
+            if (group.editor.get_block() is None
+                    and group.header.get_parent() is not None):
+                self.formatting_expander.remove(group.header)
+        self._update_formatting_subtitle()
+        self._queue_text_change()
+
     def _update_formatting_subtitle(self):
-        """Show the tag count on the Formatting expander."""
-        count = self.tag_editor.get_tag_count()
+        """Show the total tag count on the Formatting expander."""
+        count = self.tag_editor.get_tag_count() + sum(
+            group.editor.get_tag_count() for group in self._tag_groups)
         if count == 0:
             self.formatting_expander.set_subtitle(_("No tags"))
         elif count == 1:

@@ -12,6 +12,7 @@ from subtitle_editor.parsers.ass_tags import (
     parse_tag_segment,
     serialize_override_tags,
     split_leading_block,
+    split_line_start_blocks,
     strip_override_blocks,
 )
 
@@ -20,6 +21,17 @@ EXAMPLE_LINE = (
     '{\\fnGeorgia\\fs12\\shad1\\blur1\\bord.1\\3c&HC85695&\\c&H25292D&'
     '\\4c&H5AF786&\\pos(338,103)}الحلقة 13'
 )
+
+# Another real line from the same user: a leading block plus a {\fs22}
+# block starting the SECOND line (the \N is stored as a real newline in
+# the entry model; the RTL text is intentional).
+USER_LINE = (
+    '{\\fad(860,920)\\pos(450,265)\\fnTimes New Roman\\b1\\fs14\\shad0\\blur4'
+    '\\bord1\\3c&H383E3F&}أستاذة في أكاديميّة ريغاردين السّحريّة'
+    '\n{\\fs22}إيليزا نوسفيرات'
+)
+USER_FIRST_LINE = 'أستاذة في أكاديميّة ريغاردين السّحريّة'
+USER_SECOND_LINE = 'إيليزا نوسفيرات'
 
 
 def _assert_block_roundtrip(text: str) -> None:
@@ -196,3 +208,100 @@ class TestSplitLeadingBlock:
 
     def test_empty_block_is_leading(self):
         assert split_leading_block('{}rest') == ('{}', 'rest')
+
+
+def _recompose(clean: str, anchors) -> str:
+    """Splice blocks back in at their offsets (how the editor recomposes)."""
+    parts, prev = [], 0
+    for offset, body in anchors:
+        parts.append(clean[prev:offset])
+        parts.append('{' + body + '}')
+        prev = offset
+    parts.append(clean[prev:])
+    return ''.join(parts)
+
+
+@pytest.mark.unit
+@pytest.mark.parser
+class TestSplitLineStartBlocks:
+    def test_user_line(self):
+        clean, anchors = split_line_start_blocks(USER_LINE)
+        assert clean == USER_FIRST_LINE + '\n' + USER_SECOND_LINE
+        assert len(anchors) == 2
+        # The leading block sits at offset 0...
+        assert anchors[0][0] == 0
+        assert anchors[0][1] == (
+            '\\fad(860,920)\\pos(450,265)\\fnTimes New Roman\\b1\\fs14'
+            '\\shad0\\blur4\\bord1\\3c&H383E3F&'
+        )
+        # ...and {\fs22} right after the newline (start of line 2).
+        assert anchors[1] == (len(USER_FIRST_LINE) + 1, '\\fs22')
+        assert _recompose(clean, anchors) == USER_LINE
+
+    def test_midword_block_stays_inline(self):
+        clean, anchors = split_line_start_blocks('hello{\\i1}world')
+        assert clean == 'hello{\\i1}world'
+        assert anchors == []
+
+    def test_line_start_after_midword_block(self):
+        # {\b1} is mid-word and stays inline; the newline before {\u1} makes
+        # IT a line start, anchored after the leftover inline block.
+        text = '{\\b1}before{\\i1}mid\n{\\u1}after'
+        clean, anchors = split_line_start_blocks(text)
+        assert clean == 'before{\\i1}mid\nafter'
+        assert anchors == [(0, '\\b1'), (len('before{\\i1}mid') + 1, '\\u1')]
+        assert _recompose(clean, anchors) == text
+
+    def test_adjacent_line_start_blocks_share_offset_in_order(self):
+        text = 'a\n{\\b1}{\\i1}c'
+        clean, anchors = split_line_start_blocks(text)
+        assert clean == 'a\nc'
+        assert anchors == [(2, '\\b1'), (2, '\\i1')]
+        assert _recompose(clean, anchors) == text
+
+    def test_adjacent_leading_blocks_share_offset_zero(self):
+        clean, anchors = split_line_start_blocks('{\\b1}{\\i1}x')
+        assert clean == 'x'
+        assert anchors == [(0, '\\b1'), (0, '\\i1')]
+        assert _recompose(clean, anchors) == '{\\b1}{\\i1}x'
+
+    def test_block_at_end_after_newline(self):
+        clean, anchors = split_line_start_blocks('hello\n{\\b1}')
+        assert clean == 'hello\n'
+        assert anchors == [(6, '\\b1')]
+        assert _recompose(clean, anchors) == 'hello\n{\\b1}'
+
+    def test_block_after_block_on_same_line_stays_inline(self):
+        # The second block follows a '}' (not a newline), so it stays too.
+        clean, anchors = split_line_start_blocks('x{\\a}{\\b}y')
+        assert clean == 'x{\\a}{\\b}y'
+        assert anchors == []
+
+    def test_leading_block_only(self):
+        clean, anchors = split_line_start_blocks(EXAMPLE_LINE)
+        assert clean == 'الحلقة 13'
+        assert anchors == [(0, EXAMPLE_LINE[1:EXAMPLE_LINE.index('}')])]
+        assert _recompose(clean, anchors) == EXAMPLE_LINE
+
+    def test_empty_block_at_line_start(self):
+        clean, anchors = split_line_start_blocks('x\n{}y')
+        assert clean == 'x\ny'
+        assert anchors == [(2, '')]
+        assert _recompose(clean, anchors) == 'x\n{}y'
+
+    def test_no_blocks_and_empty(self):
+        assert split_line_start_blocks('plain text') == ('plain text', [])
+        assert split_line_start_blocks('') == ('', [])
+
+    def test_unbalanced_braces_stay_in_clean(self):
+        assert split_line_start_blocks('{oops') == ('{oops', [])
+        assert split_line_start_blocks('stray } here') == ('stray } here', [])
+
+    def test_multi_line_all_variants(self):
+        text = '{\\a}one{\\b}two\n{\\c}three\nfour{\\d}five'
+        clean, anchors = split_line_start_blocks(text)
+        # {\b} is mid-word and stays inline; {\a} (leading) and {\c} (after
+        # the newline) are extracted; {\d} is mid-word on line 3.
+        assert clean == 'one{\\b}two\nthree\nfour{\\d}five'
+        assert anchors == [(0, '\\a'), (len('one{\\b}two') + 1, '\\c')]
+        assert _recompose(clean, anchors) == text

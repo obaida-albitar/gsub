@@ -31,6 +31,21 @@ EXAMPLE_TEXT = (
     '\\4c&H5AF786&\\pos(338,103)}الحلقة 13'
 )
 
+# A real dialogue line from a user's file: a leading block plus a {\fs22}
+# block starting the SECOND line (the \N is already a real newline in the
+# entry model). The RTL text is intentional — mind the byte order.
+USER_LINE = (
+    '{\\fad(860,920)\\pos(450,265)\\fnTimes New Roman\\b1\\fs14\\shad0\\blur4'
+    '\\bord1\\3c&H383E3F&}أستاذة في أكاديميّة ريغاردين السّحريّة'
+    '\n{\\fs22}إيليزا نوسفيرات'
+)
+USER_LEAD = (
+    '{\\fad(860,920)\\pos(450,265)\\fnTimes New Roman\\b1\\fs14\\shad0\\blur4'
+    '\\bord1\\3c&H383E3F&}'
+)
+USER_LINE_1 = 'أستاذة في أكاديميّة ريغاردين السّحريّة'
+USER_LINE_2 = 'إيليزا نوسفيرات'
+
 
 def _make_entry(text, index=1):
     return SubtitleEntry(
@@ -251,6 +266,151 @@ class TestEditorPanelTagEditing:
         assert match is not None
         tag_start = panel.text_buffer.get_iter_at_offset(match.start())
         assert tag_start.has_tag(panel._inline_tag)
+
+    def test_user_line_two_clean_lines_two_groups(self):
+        """The reported line: {\fs22} starts line 2, so it gets its own group."""
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        # The buffer shows clean text on every line — no braces at all.
+        assert _buffer_text(panel) == USER_LINE_1 + '\n' + USER_LINE_2
+        assert '{' not in _buffer_text(panel)
+
+        # Group 1: the leading block's 9 rows (fad, pos, fn, b, fs, shad,
+        # blur, bord, 3c). Group 2: one row for {\fs22}, labeled "Line 2".
+        assert len(panel.tag_editor.get_rows()) == 9
+        assert len(panel._tag_groups) == 1
+        group = panel._tag_groups[0]
+        assert group.header.get_title() == 'Line 2 tags'
+        assert group.offset == len(USER_LINE_1) + 1
+        rows = group.editor.get_rows()
+        assert len(rows) == 1
+        assert isinstance(rows[0], Adw.SpinRow)
+        assert rows[0].get_title() == 'Size'
+        assert panel.formatting_expander.get_subtitle() == '10 tags'
+
+        # No-op load: byte-identical recomposition, nothing emitted.
+        assert panel._compose_text() == USER_LINE
+        ctx = GLib.MainContext.default()
+        for _ in range(10):
+            ctx.iteration(False)
+        assert emitted == []
+
+    def test_second_group_edit_keeps_block_on_its_line(self):
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        row = panel._tag_groups[0].editor.get_rows()[0]
+        row.set_value(48)
+        _wait_debounce(panel)
+
+        assert len(emitted) == 1
+        # Full expected string: the leading block is untouched and the
+        # edited {\fs48} stays at the start of the second line.
+        assert emitted[0] == USER_LINE.replace('\\fs22}', '\\fs48}')
+        assert panel._compose_text() == USER_LINE.replace('\\fs22}', '\\fs48}')
+
+    def test_insert_before_block_offset_shifts_anchor(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(0), 'X')
+        # The anchor moved past the insertion: the block still starts the
+        # (now longer) second line, right after the newline.
+        assert panel._tag_groups[0].offset == len(USER_LINE_1) + 2
+        expected = USER_LEAD + 'X' + USER_LINE_1 + '\n{\\fs22}' + USER_LINE_2
+        assert panel._compose_text() == expected
+        _wait_debounce(panel)
+
+    def test_deleting_newline_clamps_block_anchor(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        buffer = panel.text_buffer
+        newline = len(USER_LINE_1)
+        buffer.delete(buffer.get_iter_at_offset(newline),
+                      buffer.get_iter_at_offset(newline + 1))
+        # The block survives (clamped to the deletion start) and the
+        # recomposition stays well-formed with the lines merged.
+        assert panel._tag_groups[0].offset == newline
+        assert panel._compose_text() == USER_LINE.replace('\n', '')
+        _wait_debounce(panel)
+
+    def test_deleting_range_spanning_anchor_clamps_block(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        buffer = panel.text_buffer
+        start = len(USER_LINE_1) - 2
+        buffer.delete(buffer.get_iter_at_offset(start),
+                      buffer.get_iter_at_offset(start + 5))
+        # The anchor clamps to the deletion start and the block survives.
+        assert panel._tag_groups[0].offset == start
+        expected = (USER_LEAD + USER_LINE_1[:-2]
+                    + '{\\fs22}' + USER_LINE_2[2:])
+        assert panel._compose_text() == expected
+        _wait_debounce(panel)
+
+    def test_mixed_extracted_and_inline_blocks_roundtrip(self):
+        """Line-start blocks are extracted while mid-word blocks stay inline."""
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        text = '{\\b1}before{\\i1}mid\n{\\u1}after'
+        panel.set_entry(_make_entry(text), 0)
+
+        assert _buffer_text(panel) == 'before{\\i1}mid\nafter'
+        assert len(panel._tag_groups) == 1
+        assert panel._tag_groups[0].header.get_title() == 'Line 2 tags'
+        # The leftover mid-word block keeps its inline highlight.
+        from subtitle_editor.parsers.ass_tags import BLOCK_PATTERN
+
+        match = BLOCK_PATTERN.search(_buffer_text(panel))
+        tag_start = panel.text_buffer.get_iter_at_offset(match.start())
+        assert tag_start.has_tag(panel._inline_tag)
+
+        assert panel._compose_text() == text
+        ctx = GLib.MainContext.default()
+        for _ in range(10):
+            ctx.iteration(False)
+        assert emitted == []
+
+    def test_adjacent_line_start_blocks_get_separate_groups(self):
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('a\n{\\b1}{\\i1}c'), 0)
+
+        assert _buffer_text(panel) == 'a\nc'
+        assert len(panel._tag_groups) == 2
+        assert [g.header.get_title() for g in panel._tag_groups] == [
+            'Line 2 tags', 'Line 2 tags']
+        assert [g.editor.get_tag_count() for g in panel._tag_groups] == [1, 1]
+        assert panel._compose_text() == 'a\n{\\b1}{\\i1}c'
+        ctx = GLib.MainContext.default()
+        for _ in range(10):
+            ctx.iteration(False)
+        assert emitted == []
+
+    def test_removing_last_tag_of_second_group_drops_block(self):
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        row = panel._tag_groups[0].editor.get_rows()[0]
+        _find_trash_button(row).emit('clicked')
+        _wait_debounce(panel)
+
+        # The {} is gone entirely: the second line is clean.
+        assert emitted and emitted[-1] == USER_LEAD + USER_LINE_1 + '\n' + USER_LINE_2
+        assert panel._tag_groups[0].header.get_parent() is None
+        assert panel.formatting_expander.get_subtitle() == '9 tags'
 
     def test_switching_entries_does_not_emit(self):
         panel = _make_panel()
