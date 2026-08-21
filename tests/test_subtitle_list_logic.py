@@ -6,8 +6,8 @@ highlighting used by the list search. No GTK display is required.
 
 import pytest
 
-from subtitle_editor.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.commands.subtitle_commands import (
+from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
+from gsub.commands.subtitle_commands import (
     NEW_ENTRY_DURATION_MS,
     NEW_ENTRY_END_OFFSET_MS,
     NEW_ENTRY_GAP_MS,
@@ -87,7 +87,7 @@ class TestHighlightMarkup:
     def _import_highlight(self):
         pytest.importorskip("gi")
         from gi.repository import GLib  # noqa: F401  (markup escaping backend)
-        from subtitle_editor.widgets.subtitle_list import highlight_markup
+        from gsub.widgets.subtitle_list import highlight_markup
         self.highlight = highlight_markup
 
     def test_no_term_escapes_only(self):

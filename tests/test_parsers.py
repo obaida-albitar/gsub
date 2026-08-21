@@ -1,8 +1,8 @@
 """Unit tests for subtitle parsers."""
 
 import pytest
-from subtitle_editor.parsers import SRTParser, ASSParser
-from subtitle_editor.models import SubtitleFormat, TimeCode
+from gsub.parsers import SRTParser, ASSParser
+from gsub.models import SubtitleFormat, TimeCode
 
 
 class TestSRTParser:
@@ -389,7 +389,7 @@ Dialogue: 0,0:00:00.50,0:00:02.00,Default,,,0,0,0,,Test
     @pytest.mark.parser
     def test_serialize_ass_newline_conversion(self):
         """Test that newlines are converted to \\N."""
-        from subtitle_editor.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode, ASSStyle
+        from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode, ASSStyle
         
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.styles = [ASSStyle(name="Default")]
@@ -405,7 +405,7 @@ Dialogue: 0,0:00:00.50,0:00:02.00,Default,,,0,0,0,,Test
     @pytest.mark.parser
     def test_serialize_ass_aegisub_garbage(self):
         """Test serializing Aegisub Project Garbage."""
-        from subtitle_editor.models import SubtitleDocument, SubtitleFormat, ASSStyle
+        from gsub.models import SubtitleDocument, SubtitleFormat, ASSStyle
         
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.styles = [ASSStyle(name="Default")]
@@ -485,7 +485,7 @@ Dialogue: Marked=0,0:00:00.50,0:00:02.00,Default,,0,0,0,,Test
     @pytest.mark.parser
     def test_serialize_ass_default_metadata(self):
         """Test that default metadata is added if missing."""
-        from subtitle_editor.models import SubtitleDocument, SubtitleFormat, ASSStyle
+        from gsub.models import SubtitleDocument, SubtitleFormat, ASSStyle
         
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.styles = [ASSStyle(name="Default")]

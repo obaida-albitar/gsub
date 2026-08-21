@@ -1,8 +1,8 @@
 """Tests for defensive ASS style sanitization and robust parsing."""
 
 import pytest
-from subtitle_editor.models import ASSStyle
-from subtitle_editor.parsers import ASSParser
+from gsub.models import ASSStyle
+from gsub.parsers import ASSParser
 
 
 class TestAssStyleSanitization:

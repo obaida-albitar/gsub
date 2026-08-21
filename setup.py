@@ -24,7 +24,7 @@ from setuptools import setup, find_packages
 from setuptools.command.build_py import build_py
 
 HERE = os.path.abspath(os.path.dirname(__file__))
-PACKAGE_DIR = os.path.join(HERE, "subtitle_editor")
+PACKAGE_DIR = os.path.join(HERE, "gsub")
 GRESOURCE_FILENAME = "app.gsub.gresource"
 GRESOURCE_TARGET = os.path.join(PACKAGE_DIR, GRESOURCE_FILENAME)
 
@@ -36,7 +36,7 @@ def _have(cmd):
 def build_gresource():
     """Compile Blueprint templates and bundle them into the gresource.
 
-    The resulting ``app.gsub.gresource`` is written into the subtitle_editor
+    The resulting ``app.gsub.gresource`` is written into the gsub
     package directory so ``resources.register_resources()`` can locate it at
     runtime (it is the first candidate path searched).
     """
@@ -133,11 +133,11 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "gsub=subtitle_editor.main:main",
+            "gsub=gsub.main:main",
         ],
     },
     include_package_data=True,
-    package_data={"subtitle_editor": [GRESOURCE_FILENAME]},
+    package_data={"gsub": [GRESOURCE_FILENAME]},
     data_files=[
         ("share/applications", ["data/app.gsub.desktop"]),
         ("share/icons/hicolor/scalable/apps", ["data/app.gsub.svg"]),

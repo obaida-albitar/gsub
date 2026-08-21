@@ -17,11 +17,11 @@ build-resources:
 	@for f in data/blueprints/*.blp; do \
 		blueprint-compiler compile --output "$${f%.blp}.ui" "$$f"; \
 	done
-	glib-compile-resources --target subtitle_editor/app.gsub.gresource \
+	glib-compile-resources --target gsub/app.gsub.gresource \
 		--sourcedir data/blueprints --sourcedir data data/app.gsub.gresource.xml
-	@echo "Built subtitle_editor/app.gsub.gresource"
+	@echo "Built gsub/app.gsub.gresource"
 	@mkdir -p builddir
-	cp subtitle_editor/app.gsub.gresource builddir/app.gsub.gresource
+	cp gsub/app.gsub.gresource builddir/app.gsub.gresource
 	@echo "Synced builddir/app.gsub.gresource"
 
 install-desktop:

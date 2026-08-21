@@ -4,8 +4,8 @@ import os
 
 import pytest
 
-from subtitle_editor.parsers.encoding import decode_subtitle_text
-from subtitle_editor.parsers import ASSParser
+from gsub.parsers.encoding import decode_subtitle_text
+from gsub.parsers import ASSParser
 
 
 def test_decode_utf8_bom():

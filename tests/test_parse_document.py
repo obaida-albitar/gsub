@@ -6,8 +6,8 @@ was referenced before being assigned on the non-ASS path.
 """
 
 import pytest
-from subtitle_editor.parsers import parse_subtitle_document
-from subtitle_editor.models import SubtitleFormat
+from gsub.parsers import parse_subtitle_document
+from gsub.models import SubtitleFormat
 
 
 @pytest.mark.unit

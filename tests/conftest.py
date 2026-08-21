@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from subtitle_editor.models import (
+from gsub.models import (
     TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat, ASSStyle
 )
 

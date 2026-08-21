@@ -1,12 +1,12 @@
 """Tests for untested commands and additional coverage."""
 
 import pytest
-from subtitle_editor.commands import (
+from gsub.commands import (
     CommandManager, AddEntryCommand, DuplicateEntryCommand,
     EditMarginsCommand, SortByTimeCommand,
     BulkEditStyleCommand,
 )
-from subtitle_editor.models import TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat
+from gsub.models import TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat
 
 
 class TestEditMarginsCommand:

@@ -7,8 +7,8 @@ available.
 """
 
 import pytest
-from subtitle_editor.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.resources import register_resources
+from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, GLib, Gtk
@@ -58,7 +58,7 @@ def _make_entry(text, index=1):
 
 
 def _make_panel(fmt=SubtitleFormat.ASS):
-    from subtitle_editor.widgets.editor_panel import EditorPanel
+    from gsub.widgets.editor_panel import EditorPanel
 
     window = Gtk.Window()
     panel = EditorPanel()
@@ -171,7 +171,7 @@ class TestEditorPanelTagEditing:
 
         # Full round-trip: the recomposed text parses to the same tags with
         # the edit applied.
-        from subtitle_editor.parsers.ass_tags import extract_override_tags
+        from gsub.parsers.ass_tags import extract_override_tags
 
         tags = {t.name: t for t in extract_override_tags(text)}
         assert tags['fs'].args == ['48']
@@ -259,7 +259,7 @@ class TestEditorPanelTagEditing:
         assert _buffer_text(panel) == 'before{\\i1}after'
         assert panel._compose_text() == '{\\b1}before{\\i1}after'
         # The mid-line block is highlighted with the inline tag.
-        from subtitle_editor.parsers.ass_tags import BLOCK_PATTERN
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
 
         text = _buffer_text(panel)
         match = BLOCK_PATTERN.search(text)
@@ -368,7 +368,7 @@ class TestEditorPanelTagEditing:
         assert len(panel._tag_groups) == 1
         assert panel._tag_groups[0].header.get_title() == 'Line 2 tags'
         # The leftover mid-word block keeps its inline highlight.
-        from subtitle_editor.parsers.ass_tags import BLOCK_PATTERN
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
 
         match = BLOCK_PATTERN.search(_buffer_text(panel))
         tag_start = panel.text_buffer.get_iter_at_offset(match.start())
@@ -429,7 +429,7 @@ class TestEditorPanelTagEditing:
 
 class TestSubtitleListCleanDisplay:
     def _make_view(self, texts):
-        from subtitle_editor.widgets.subtitle_list import SubtitleListView
+        from gsub.widgets.subtitle_list import SubtitleListView
 
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.entries = [_make_entry(t, i + 1) for i, t in enumerate(texts)]

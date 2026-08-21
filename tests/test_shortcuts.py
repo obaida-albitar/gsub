@@ -1,5 +1,5 @@
 """
-Tests for the shortcuts table in subtitle_editor.shortcuts (the single
+Tests for the shortcuts table in gsub.shortcuts (the single
 source of truth shared by accel registration and the shortcuts dialog)
 and for the dialog built from it.
 
@@ -12,7 +12,7 @@ import gettext
 
 import pytest
 
-from subtitle_editor.shortcuts import (
+from gsub.shortcuts import (
     SECTION_ORDER,
     SECTION_TIMELINE,
     SECTION_VIDEO,
@@ -22,7 +22,7 @@ from subtitle_editor.shortcuts import (
     window_key_entries,
 )
 
-# Same translation setup as subtitle_editor/__init__.py installs app-wide.
+# Same translation setup as gsub/__init__.py installs app-wide.
 _translation = gettext.translation("gsub", fallback=True)
 
 
@@ -183,7 +183,7 @@ class TestTimelineSection:
 
 try:
     from gi.repository import Adw, Gdk, Gtk
-    from subtitle_editor.resources import register_resources
+    from gsub.resources import register_resources
     register_resources()
     try:
         Gtk.init()
@@ -221,7 +221,7 @@ def test_every_entry_constructs_as_a_shortcuts_item():
     AdwShortcutsSection only accepts AdwShortcutsItem children, so gesture
     entries ride along as a subtitle next to their parseable accel.
     """
-    from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
+    from gsub.widgets.dialogs import build_shortcuts_dialog
 
     dialog = build_shortcuts_dialog()
     assert isinstance(dialog, Adw.ShortcutsDialog)
@@ -251,7 +251,7 @@ def test_shortcuts_dialog_covers_the_table():
     consumes (SECTION_ORDER + entries_for_section). Entries with and
     without a gesture are both covered by that path.
     """
-    from subtitle_editor.widgets.dialogs import build_shortcuts_dialog
+    from gsub.widgets.dialogs import build_shortcuts_dialog
 
     dialog = build_shortcuts_dialog()
     assert isinstance(dialog, Adw.ShortcutsDialog)

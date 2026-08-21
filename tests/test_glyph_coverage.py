@@ -8,11 +8,11 @@ a file whose styles use an installed font crashed with:
 
 import pytest
 
-from subtitle_editor.font_coverage import (
+from gsub.font_coverage import (
     COVERAGE_NONE,
     collect_glyph_coverage_issues,
 )
-from subtitle_editor.models import (
+from gsub.models import (
     ASSStyle,
     SubtitleDocument,
     SubtitleEntry,

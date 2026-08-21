@@ -16,10 +16,10 @@ pytest.importorskip("gi")
 pytest.importorskip("mpv")
 
 try:
-    from subtitle_editor import resources
+    from gsub import resources
 
     resources.register_resources()
-    from subtitle_editor.widgets.video_player import (
+    from gsub.widgets.video_player import (
         VideoPlayerWidget,
         _family_matches,
         _mpv_codec_family,
@@ -153,7 +153,7 @@ class TestBuildPyavMapping:
         mpv_subs = [self._mpv_sub(1, "ass"), self._mpv_sub(2, "subrip")]
         pyav = [_FakeTrack(0, "ass", "eng"), _FakeTrack(1, "srt", "eng")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks",
+            "gsub.widgets.video_player.list_subtitle_tracks",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_mapping(mpv_subs, "/x.mkv")
@@ -167,7 +167,7 @@ class TestBuildPyavMapping:
         ]
         pyav = [_FakeTrack(0, "srt", "eng"), _FakeTrack(1, "ass", "jpn")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks",
+            "gsub.widgets.video_player.list_subtitle_tracks",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_mapping(mpv_subs, "/x.mkv")
@@ -179,7 +179,7 @@ class TestBuildPyavMapping:
         mpv_subs = [self._mpv_sub(1, "ass")]
         pyav = [_FakeTrack(0, "ass")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks",
+            "gsub.widgets.video_player.list_subtitle_tracks",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_mapping(mpv_subs, "/x.mkv")
@@ -187,7 +187,7 @@ class TestBuildPyavMapping:
 
     def test_empty_mpv_tracks(self, monkeypatch):
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks",
+            "gsub.widgets.video_player.list_subtitle_tracks",
             lambda path: [_FakeTrack(0, "ass")],
         )
         assert VideoPlayerWidget._build_pyav_mapping([], "/x.mkv") == {}
@@ -197,7 +197,7 @@ class TestBuildPyavMapping:
         mpv_subs = [self._mpv_sub(1, "ass"), self._mpv_sub(2, "subrip")]
         pyav = [_FakeTrack(0, "ass", "eng")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks",
+            "gsub.widgets.video_player.list_subtitle_tracks",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_mapping(mpv_subs, "/x.mkv")
@@ -210,7 +210,7 @@ class TestBuildPyavMapping:
             raise RuntimeError("ffmpeg missing")
 
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_subtitle_tracks", boom
+            "gsub.widgets.video_player.list_subtitle_tracks", boom
         )
         assert VideoPlayerWidget._build_pyav_mapping(
             [self._mpv_sub(1, "ass")], "/x.mkv"
@@ -232,7 +232,7 @@ class TestBuildPyavAudioMap:
         ]
         pyav = [_FakeAudioStream(1, "aac", "eng"), _FakeAudioStream(3, "ac3", "jpn")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_audio_streams",
+            "gsub.widgets.video_player.list_audio_streams",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
@@ -247,7 +247,7 @@ class TestBuildPyavAudioMap:
         ]
         pyav = [_FakeAudioStream(1, "ac3", "eng"), _FakeAudioStream(3, "aac", "jpn")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_audio_streams",
+            "gsub.widgets.video_player.list_audio_streams",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
@@ -258,7 +258,7 @@ class TestBuildPyavAudioMap:
         mpv_audio = [self._mpv_audio(1, "aac"), self._mpv_audio(2, "ac3")]
         pyav = [_FakeAudioStream(1, "aac")]
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_audio_streams",
+            "gsub.widgets.video_player.list_audio_streams",
             lambda path: pyav,
         )
         mapping = VideoPlayerWidget._build_pyav_audio_map(mpv_audio, "/x.mkv")
@@ -267,7 +267,7 @@ class TestBuildPyavAudioMap:
 
     def test_empty_audio_tracks(self, monkeypatch):
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_audio_streams",
+            "gsub.widgets.video_player.list_audio_streams",
             lambda path: [_FakeAudioStream(0, "aac")],
         )
         assert VideoPlayerWidget._build_pyav_audio_map([], "/x.mkv") == {}
@@ -282,7 +282,7 @@ class TestBuildPyavAudioMap:
             raise RuntimeError("ffmpeg missing")
 
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.list_audio_streams", boom
+            "gsub.widgets.video_player.list_audio_streams", boom
         )
         assert VideoPlayerWidget._build_pyav_audio_map(
             [self._mpv_audio(1, "aac")], "/x.mkv"
@@ -298,7 +298,7 @@ class TestSubtitleScalePreference:
     def fake_home(self, tmp_path, monkeypatch):
         cfg_dir = tmp_path / "prefs"
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            "gsub.widgets.video_player.os.path.expanduser",
             lambda p: str(cfg_dir),
         )
         return cfg_dir
@@ -317,7 +317,7 @@ class TestSubtitleScalePreference:
 
     def test_default_when_missing(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            "gsub.widgets.video_player.os.path.expanduser",
             lambda p: str(tmp_path / "nope"),
         )
         assert VideoPlayerWidget._load_subtitle_scale_preference() == 1.0
@@ -387,7 +387,7 @@ class TestRegionsFromDocument:
         assert VideoPlayerWidget._regions_from_document(None) == []
 
     def test_entries_converted_to_seconds_with_position(self):
-        from subtitle_editor.models import SubtitleEntry, TimeCode
+        from gsub.models import SubtitleEntry, TimeCode
 
         doc = type("D", (), {})()
         doc.entries = [
@@ -408,7 +408,7 @@ class TestRegionsFromDocument:
         assert regions == [(0.5, 2.0, 0), (2.5, 5.0, 1)]
 
     def test_inverted_entries_dropped(self):
-        from subtitle_editor.models import SubtitleEntry, TimeCode
+        from gsub.models import SubtitleEntry, TimeCode
 
         doc = type("D", (), {})()
         doc.entries = [
@@ -572,7 +572,7 @@ class TestWaveformStartGating:
     def fake_loader(self, monkeypatch):
         _RecordingLoader.instances = []
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.WaveformLoader",
+            "gsub.widgets.video_player.WaveformLoader",
             _RecordingLoader,
         )
         return _RecordingLoader
@@ -614,7 +614,7 @@ class TestWaveformRegeneration:
     def fake_loader(self, monkeypatch):
         _RecordingLoader.instances = []
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.WaveformLoader",
+            "gsub.widgets.video_player.WaveformLoader",
             _RecordingLoader,
         )
         return _RecordingLoader
@@ -670,14 +670,14 @@ class TestWaveformPreference:
     def fake_home(self, tmp_path, monkeypatch):
         cfg_dir = tmp_path / "prefs"
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            "gsub.widgets.video_player.os.path.expanduser",
             lambda p: str(cfg_dir),
         )
         return cfg_dir
 
     def test_default_off(self, tmp_path, monkeypatch):
         monkeypatch.setattr(
-            "subtitle_editor.widgets.video_player.os.path.expanduser",
+            "gsub.widgets.video_player.os.path.expanduser",
             lambda p: str(tmp_path / "nope"),
         )
         assert VideoPlayerWidget._load_waveform_preference() is False

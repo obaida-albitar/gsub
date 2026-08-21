@@ -6,14 +6,14 @@ import pytest
 
 av = pytest.importorskip("av")
 
-from subtitle_editor.extractors import (
+from gsub.extractors import (
     EXTENSION_FOR_FORMAT,
     SubtitleTrack,
     detect_format,
     extract_track_by_gst,
     list_subtitle_tracks,
 )
-from subtitle_editor.extractors.pyav_extractor import (
+from gsub.extractors.pyav_extractor import (
     _fmt_ass_time,
     _fmt_srt_time,
     _reconstruct_ass_line,

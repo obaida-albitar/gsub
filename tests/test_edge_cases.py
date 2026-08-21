@@ -1,11 +1,11 @@
 """Comprehensive edge case tests for subtitle editor."""
 
 import pytest
-from subtitle_editor.models import (
+from gsub.models import (
     TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat, ASSStyle
 )
-from subtitle_editor.parsers import SRTParser, ASSParser
-from subtitle_editor.commands import (
+from gsub.parsers import SRTParser, ASSParser
+from gsub.commands import (
     CommandManager, AddEntryCommand, EditTextCommand, TimeShiftCommand,
     RemoveEntryCommand, EditTimingCommand
 )

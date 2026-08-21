@@ -15,7 +15,7 @@ import tempfile
 
 import pytest
 
-from subtitle_editor.resources import register_resources
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gio, GLib, Gtk
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 try:
-    from subtitle_editor.window import (
+    from gsub.window import (
         GsubWindow, _window_key_lookup, _window_key_table,
     )
 except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
@@ -43,10 +43,10 @@ except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
         allow_module_level=True,
     )
 
-from subtitle_editor import window as window_module  # noqa: E402
-from subtitle_editor.models import SubtitleFormat, TimeCode  # noqa: E402
-from subtitle_editor.commands.subtitle_commands import EditTextCommand  # noqa: E402
-from subtitle_editor.shortcuts import window_key_entries  # noqa: E402
+from gsub import window as window_module  # noqa: E402
+from gsub.models import SubtitleFormat, TimeCode  # noqa: E402
+from gsub.commands.subtitle_commands import EditTextCommand  # noqa: E402
+from gsub.shortcuts import window_key_entries  # noqa: E402
 
 SRT_CONTENT = """1
 00:00:00,500 --> 00:00:02,000
@@ -166,7 +166,7 @@ class RecordingTrackDialog:
     """Stands in for TrackSelectionDialog, recording construction.
 
     The window builds the real dialog via the module-level name, so tests
-    monkeypatch subtitle_editor.window.TrackSelectionDialog with this class
+    monkeypatch gsub.window.TrackSelectionDialog with this class
     to observe that the dialog was created, presented, and with which
     track lists — without driving a real Adw.Dialog.
     """
@@ -1137,7 +1137,7 @@ class TestBatchConfirmDialog:
     @staticmethod
     def _make(window, summary=("Shift times by 500 ms",), file_count=4,
               selected=2, fmt="ASS"):
-        from subtitle_editor.widgets.batch_confirm_dialog import (
+        from gsub.widgets.batch_confirm_dialog import (
             BatchConfirmDialog,
         )
 

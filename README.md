@@ -158,7 +158,7 @@ make build-resources
 Run the application from the source tree:
 
 ```bash
-python -m subtitle_editor.main
+python -m gsub.main
 ```
 
 ### Running the tests
@@ -174,7 +174,7 @@ pytest
 Generate an HTML coverage report with:
 
 ```bash
-pytest --cov=subtitle_editor --cov-report=html
+pytest --cov=gsub --cov-report=html
 xdg-open htmlcov/index.html
 ```
 
@@ -188,7 +188,7 @@ gsub/
 ├── data/                 # desktop file, icon, gresource manifest, blueprints
 │   └── blueprints/       # GTK Blueprint UI templates (.blp)
 ├── screenshots/          # screenshots used in this README
-├── subtitle_editor/      # application source
+├── gsub/      # application source
 │   ├── commands/         # undo/redo command pattern
 │   ├── converters/       # format conversion
 │   ├── extractors/       # subtitle extraction from video

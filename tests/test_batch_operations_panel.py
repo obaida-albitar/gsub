@@ -8,8 +8,8 @@ break headless CI. The gresource bundle must be built (``meson compile``).
 
 import pytest
 
-from subtitle_editor.models import ASSStyle, SubtitleDocument, SubtitleFormat
-from subtitle_editor.resources import register_resources
+from gsub.models import ASSStyle, SubtitleDocument, SubtitleFormat
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -35,7 +35,7 @@ def _ass_doc(name="Default", fontsize=20):
 
 
 def _make_panel():
-    from subtitle_editor.widgets.batch_operations_panel import BatchOperationsPanel
+    from gsub.widgets.batch_operations_panel import BatchOperationsPanel
 
     return BatchOperationsPanel()
 
@@ -142,7 +142,7 @@ def test_operations_changed_emitted_on_toggle():
 # --- BatchFileList.update_ui (regression for the original `fmt` NameError) --
 
 def test_batch_file_list_update_ui_no_name_error():
-    from subtitle_editor.widgets.batch_file_list import BatchFileList
+    from gsub.widgets.batch_file_list import BatchFileList
 
     file_list = BatchFileList()
     docs = [

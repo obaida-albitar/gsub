@@ -7,8 +7,8 @@ Requires a display; skipped automatically when none is available.
 """
 
 import pytest
-from subtitle_editor.models import ASSStyle, SubtitleDocument, SubtitleFormat
-from subtitle_editor.resources import register_resources
+from gsub.models import ASSStyle, SubtitleDocument, SubtitleFormat
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -32,7 +32,7 @@ def _make_dialog(fontname):
 
 
 def _make_dialog_for_style(style):
-    from subtitle_editor.widgets.dialogs import ASSStylesDialog
+    from gsub.widgets.dialogs import ASSStylesDialog
 
     doc = SubtitleDocument(format=SubtitleFormat.ASS)
     doc.styles = [style]

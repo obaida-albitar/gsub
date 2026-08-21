@@ -1,10 +1,10 @@
 """
-Unit tests for the pure batch-operation logic in ``subtitle_editor.batch_logic``.
+Unit tests for the pure batch-operation logic in ``gsub.batch_logic``.
 
 These do not require GTK/a display, so they run anywhere (including headless CI).
 """
 
-from subtitle_editor.batch_logic import (
+from gsub.batch_logic import (
     apply_font_size,
     apply_resolution,
     apply_style_properties,
@@ -12,7 +12,7 @@ from subtitle_editor.batch_logic import (
     common_resolution,
     compute_shared_styles,
 )
-from subtitle_editor.models import ASSStyle, SubtitleDocument, SubtitleFormat
+from gsub.models import ASSStyle, SubtitleDocument, SubtitleFormat
 
 
 def _ass_doc(styles, playres=None):
@@ -200,7 +200,7 @@ def test_apply_resolution_skips_srt():
 # --- end-to-end via parsed file (regression for intersection bug) -----------
 
 def test_shared_styles_from_parsed_ass(sample_ass_content):
-    from subtitle_editor.parsers import ASSParser
+    from gsub.parsers import ASSParser
 
     doc = ASSParser.parse(sample_ass_content)
     # The sample has a single Default style -> intersection yields it.

@@ -9,8 +9,8 @@ Requires a display; skipped automatically when none is available.
 """
 
 import pytest
-from subtitle_editor.models import SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.resources import register_resources
+from gsub.models import SubtitleEntry, SubtitleFormat, TimeCode
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, GLib, Gtk
@@ -40,7 +40,7 @@ def _entry(text="Hello", start_ms=61_500, end_ms=63_000, **kwargs):
 
 
 def _panel(fmt=SubtitleFormat.SRT, styles=None):
-    from subtitle_editor.widgets.editor_panel import EditorPanel
+    from gsub.widgets.editor_panel import EditorPanel
 
     window = Gtk.Window()
     panel = EditorPanel()

@@ -7,15 +7,15 @@ window methods driven through fakes (no mpv or real widget needed).
 
 import pytest
 
-from subtitle_editor.utils import is_video_content_type
+from gsub.utils import is_video_content_type
 
 try:
-    from subtitle_editor.resources import register_resources
+    from gsub.resources import register_resources
 
     register_resources()
-    from subtitle_editor.window import GsubWindow, should_show_track_dialog
-    from subtitle_editor.widgets import video_player as video_player_module
-    from subtitle_editor.widgets.video_player import VideoPlayerWidget
+    from gsub.window import GsubWindow, should_show_track_dialog
+    from gsub.widgets import video_player as video_player_module
+    from gsub.widgets.video_player import VideoPlayerWidget
 except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
     pytest.skip(
         f"window module not importable in this environment: {exc}",
@@ -459,7 +459,7 @@ class _RegionWindow:
 
 
 def _region_document():
-    from subtitle_editor.models import (
+    from gsub.models import (
         SubtitleDocument,
         SubtitleEntry,
         SubtitleFormat,
@@ -487,7 +487,7 @@ def _region_document():
 @pytest.mark.unit
 class TestRegionAdjusted:
     def test_executes_edit_timing_command_with_new_times(self):
-        from subtitle_editor.commands import EditTimingCommand
+        from gsub.commands import EditTimingCommand
 
         win = _RegionWindow(_region_document())
         GsubWindow._on_region_adjusted(win, None, 0, 101_500, 105_000)

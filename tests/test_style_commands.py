@@ -1,7 +1,7 @@
 """Unit tests for style command operations."""
 
 import pytest
-from subtitle_editor.commands import EditStyleCommand, BulkEditStyleCommand
+from gsub.commands import EditStyleCommand, BulkEditStyleCommand
 
 
 class TestEditStyleCommand:

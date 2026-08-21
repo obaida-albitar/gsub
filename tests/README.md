@@ -68,7 +68,7 @@ pytest -m command
 
 ```bash
 # Generate coverage report
-pytest --cov=subtitle_editor --cov-report=html
+pytest --cov=gsub --cov-report=html
 
 # View coverage report
 open htmlcov/index.html  # On macOS

@@ -1,8 +1,8 @@
 """Tests for format converter."""
 
 import pytest
-from subtitle_editor.models import SubtitleDocument, SubtitleFormat, SubtitleEntry, TimeCode, ASSStyle
-from subtitle_editor.converters import FormatConverter
+from gsub.models import SubtitleDocument, SubtitleFormat, SubtitleEntry, TimeCode, ASSStyle
+from gsub.converters import FormatConverter
 
 
 class TestFormatConverter:

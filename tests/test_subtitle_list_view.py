@@ -8,8 +8,8 @@ machinery. Requires a display; skipped automatically when none is available.
 import types
 
 import pytest
-from subtitle_editor.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
-from subtitle_editor.resources import register_resources
+from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode
+from gsub.resources import register_resources
 
 try:
     from gi.repository import Adw, Gdk, Gtk
@@ -38,7 +38,7 @@ def _entry(start_ms, text):
 
 
 def _make_view(texts):
-    from subtitle_editor.widgets.subtitle_list import SubtitleListView
+    from gsub.widgets.subtitle_list import SubtitleListView
 
     doc = SubtitleDocument(format=SubtitleFormat.SRT)
     doc.entries = [_entry(i * 2000, text) for i, text in enumerate(texts)]
@@ -57,7 +57,7 @@ def _store_texts(view):
 
 class TestIncrementalUpdates:
     def test_entries_inserted_splices_and_renumbers(self):
-        from subtitle_editor.commands.subtitle_commands import AddEntryCommand, build_new_entry
+        from gsub.commands.subtitle_commands import AddEntryCommand, build_new_entry
 
         view, doc = _make_view(["one", "two", "three"])
         entry = build_new_entry(doc, 1)
@@ -70,7 +70,7 @@ class TestIncrementalUpdates:
             assert view.list_store.get_item(i).entry_index == i + 1
 
     def test_entries_removed_splices_and_renumbers(self):
-        from subtitle_editor.commands.subtitle_commands import RemoveEntryCommand
+        from gsub.commands.subtitle_commands import RemoveEntryCommand
 
         view, doc = _make_view(["one", "two", "three", "four"])
         RemoveEntryCommand(doc, 1).execute()
@@ -81,7 +81,7 @@ class TestIncrementalUpdates:
         assert view.list_store.get_item(1).entry_index == 2
 
     def test_entry_moved_splices_and_renumbers(self):
-        from subtitle_editor.commands.subtitle_commands import MoveEntryCommand
+        from gsub.commands.subtitle_commands import MoveEntryCommand
 
         view, doc = _make_view(["one", "two", "three"])
         MoveEntryCommand(doc, 2, 0).execute()
@@ -184,7 +184,7 @@ class TestSearch:
         assert view.match_label.get_text() == ""
 
     def test_matches_recompute_after_removal(self):
-        from subtitle_editor.commands.subtitle_commands import RemoveEntryCommand
+        from gsub.commands.subtitle_commands import RemoveEntryCommand
 
         view, doc = _make_view(["a hello", "b hello", "c hello"])
         view.search_entry.set_text("hello")
@@ -195,7 +195,7 @@ class TestSearch:
         assert view._search_matches == [0, 1]
 
     def test_new_rows_carry_search_term(self):
-        from subtitle_editor.commands.subtitle_commands import AddEntryCommand, build_new_entry
+        from gsub.commands.subtitle_commands import AddEntryCommand, build_new_entry
 
         view, doc = _make_view(["a hello"])
         view.search_entry.set_text("hello")
@@ -237,7 +237,7 @@ class TestContextMenu:
         assert "Bulk Apply Style…" not in labels
 
     def test_ass_document_adds_bulk_style(self):
-        from subtitle_editor.widgets.subtitle_list import SubtitleListView
+        from gsub.widgets.subtitle_list import SubtitleListView
 
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.entries = [_entry(0, "one")]
@@ -328,7 +328,7 @@ class TestHighlightActive:
         )
 
     def test_bound_row_gets_css_class(self):
-        from subtitle_editor.widgets.subtitle_list import SubtitleListRow
+        from gsub.widgets.subtitle_list import SubtitleListRow
 
         view, _doc = self._make_many(3)
         item = view.list_store.get_item(1)

@@ -8,11 +8,11 @@ file-open routing can be asserted without instantiating the full window
 import pytest
 
 try:
-    from subtitle_editor.resources import register_resources
+    from gsub.resources import register_resources
 
     register_resources()
-    from subtitle_editor import main as main_module
-    from subtitle_editor.main import GsubApplication
+    from gsub import main as main_module
+    from gsub.main import GsubApplication
 except Exception as exc:  # pragma: no cover - depends on GTK/libmpv stack
     pytest.skip(
         f"main module not importable in this environment: {exc}",

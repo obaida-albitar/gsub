@@ -2,7 +2,7 @@
 
 import pytest
 import copy
-from subtitle_editor.models import (
+from gsub.models import (
     TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat, ASSStyle
 )
 
