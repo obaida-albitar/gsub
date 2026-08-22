@@ -32,7 +32,8 @@ jobs:
             libegl1 \
             libgl1-mesa-dri \
             libmpv2 \
-            xvfb
+            xvfb \
+            xauth
 
       - uses: actions/checkout@v4
 
@@ -78,8 +79,6 @@ jobs:
         with:
           bundle: gsub-${{ github.ref_name }}.x86_64.flatpak
           manifest-path: io.github.obaidaalbitar.gsub.yml
-          # v6 renamed the artifact-name input to upload-artifact.
-          upload-artifact: gsub-flatpak-bundle
           cache-key: flatpak-builder-v1
 
   release:
@@ -90,9 +89,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      # flatpak-builder@v6 derives the artifact name from the bundle input by
+      # appending the arch again (e.g. gsub-v0.7.x86_64-x86_64.flatpak), so
+      # match by pattern instead of a fixed name.
       - uses: actions/download-artifact@v4
         with:
-          name: gsub-flatpak-bundle
+          pattern: gsub-*
 
       - name: Upload bundle to the release
         env:
