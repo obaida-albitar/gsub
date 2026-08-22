@@ -46,6 +46,17 @@ jobs:
 
       # pip's editable install does not run setup.py's build_py hook, so the
       # gresource is compiled explicitly (same as `make install` does locally).
+      - name: Debug gir paths
+        run: |
+          ls /usr/lib/x86_64-linux-gnu/girepository-1.0/ | head -5
+          ls /usr/lib/x86_64-linux-gnu/girepository-2.0/ | head -5
+          echo "GI_TYPELIB_PATH=$GI_TYPELIB_PATH"
+          python3 -c "import gi; print('gi at', gi.__file__)" || true
+          python3 -c "import gi; gi.require_version('GIRepository','3.0'); from gi.repository import GIRepository; print('search:', GIRepository.Repository.get_search_path())" || true
+          blueprint-compiler --version || true
+        env:
+          GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-2.0
+
       - name: Build UI resources
         run: make build-resources
         env:
