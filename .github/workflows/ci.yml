@@ -42,6 +42,11 @@ jobs:
       - name: Lint
         run: ruff check .
 
+      # pip's editable install does not run setup.py's build_py hook, so the
+      # gresource is compiled explicitly (same as `make install` does locally).
+      - name: Build UI resources
+        run: make build-resources
+
       - name: Run tests (virtual display)
         run: xvfb-run -a pytest
         env:
