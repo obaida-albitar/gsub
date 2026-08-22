@@ -1,0 +1,137 @@
+app-id: io.github.obaida-albitar.gsub
+runtime: org.gnome.Platform
+runtime-version: '48'
+sdk: org.gnome.Sdk
+command: gsub
+
+# Portals (GtkFileChooser / drag-and-drop) provide file access, so no
+# --filesystem permissions are needed.
+finish-args:
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --socket=pulseaudio
+
+modules:
+  # --- libmpv toolchain --------------------------------------------------
+  # mpv brings its own FFmpeg (decoders/demuxers only), libass for subtitle
+  # rendering, libplacebo (mpv hard dependency), and uchardet so embedded
+  # subtitle tracks get charset-detected by libmpv itself.
+  - name: ffmpeg
+    config-opts:
+      - --enable-shared
+      - --disable-static
+      - --disable-debug
+      - --disable-doc
+      - --disable-programs
+      - --disable-encoders
+      - --disable-muxers
+      - --disable-devices
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+      - /share/ffmpeg
+    sources:
+      - type: archive
+        url: https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz
+        sha256: 464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+
+  - name: uchardet
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=Release
+      - -DBUILD_STATIC=0
+    cleanup:
+      - /bin
+      - /include
+      - /lib/pkgconfig
+      - /share/man
+    sources:
+      - type: archive
+        url: https://gitlab.freedesktop.org/uchardet/uchardet/-/archive/v0.0.8/uchardet-v0.0.8.tar.gz
+        sha256: 5aa402a1b5b1dbb8d81096f141ff1224e079f4d3a1db0f79ecca782756d3a416
+
+  - name: libass
+    config-opts:
+      - --disable-static
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: archive
+        url: https://github.com/libass/libass/releases/download/0.17.5/libass-0.17.5.tar.xz
+        sha256: 2dca25c0e0c837ddf00b52011b3f82cac1e4ddd3ad018227806b0c2288864acc
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      # GL/EGL only — gsub renders through GTK's GLArea via mpv's render API.
+      - -Dvulkan=disabled
+      - -Dshaderc=disabled
+      - -Dglslang=disabled
+      - -Dd3d11=disabled
+      - -Dlibdovi=disabled
+      - -Ddemos=false
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: archive
+        url: https://github.com/haasn/libplacebo/archive/refs/tags/v7.360.1.tar.gz
+        sha256: d05fdf90bea2f629eaa2d115e909fd356388ac639e54f77b87a018a6d76224bd
+
+  - name: libmpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dbuild-date=false
+      - -Dmanpage-build=disabled
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Ddvdnav=disabled
+      - -Dcdda=disabled
+      - -Ddvbin=disabled
+      - -Dlibarchive=disabled
+      - -Dsdl2=disabled
+      - -Dvulkan=disabled
+    cleanup:
+      - /include
+      - /lib/pkgconfig
+    sources:
+      - type: archive
+        url: https://github.com/mpv-player/mpv/archive/refs/tags/v0.41.0.tar.gz
+        sha256: ee21092a5ee427353392360929dc64645c54479aefdb5babc5cfbb5fad626209
+
+  # --- build tools ---------------------------------------------------------
+  - name: blueprint-compiler
+    buildsystem: meson
+    sources:
+      - type: archive
+        url: https://gitlab.gnome.org/GNOME/blueprint-compiler/-/archive/v0.22.2/blueprint-compiler-v0.22.2.tar.gz
+        sha256: ba4dddeb22a1929ed5987e74cb69c592e22bc74f0c04cfdb9028b907cf688af6
+
+  # --- Python dependencies -------------------------------------------------
+  - name: python-deps
+    buildsystem: simple
+    build-commands:
+      # PyGObject/pycairo build against the SDK's gobject-introspection.
+      - pip3 install --no-deps --prefix=/app
+        PyGObject==3.56.3
+        pycairo==1.29.1
+        python-mpv==1.0.8
+        PyOpenGL==3.1.10
+        charset-normalizer==3.5.1
+      # PyAV is built from source against the bundled FFmpeg so the whole app
+      # shares one copy of libav* (its wheel would bundle a second, conflicting
+      # set of FFmpeg libraries in the same process).
+      - PKG_CONFIG_PATH=/app/lib/pkgconfig pip3 install --no-deps --prefix=/app
+        --no-binary=av av==18.1.0
+
+  # --- the app ---------------------------------------------------------------
+  - name: gsub
+    buildsystem: meson
+    sources:
+      - type: dir
+        path: .

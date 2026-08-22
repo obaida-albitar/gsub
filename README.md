@@ -102,7 +102,21 @@ Installed automatically from `setup.py`/`requirements-dev.txt`:
 
 ## Installation
 
-### Option A — From source with meson (system install)
+### Option A — Flatpak bundle (no build needed)
+
+Download the latest `gsub-v*.x86_64.flatpak` bundle from the
+[releases page](https://github.com/obaida-albitar/gsub/releases) and install
+it with:
+
+```bash
+flatpak install --user gsub-v0.7.x86_64.flatpak
+```
+
+Launch **Gsub** from the app grid, or run `flatpak run io.github.obaida-albitar.gsub`.
+The bundle bundles everything (GTK, libadwaita, libmpv, FFmpeg), so no system
+dependencies are required.
+
+### Option B — From source with meson (system install)
 
 ```bash
 meson setup build
@@ -113,7 +127,7 @@ meson install -C build
 This installs the app, its icon, the desktop file, and refreshes the icon and
 desktop caches.
 
-### Option B — Editable install with pip / Makefile
+### Option C — Editable install with pip / Makefile
 
 ```bash
 pip install -e .

@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.obaida-albitar.gsub</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0+</project_license>
+  <name>Gsub</name>
+  <summary>Edit, transform, and proofread SRT and ASS/SSA subtitles</summary>
+  <description>
+    <p>
+      Gsub is a modern subtitle editor for the GNOME desktop, built with GTK 4
+      and libadwaita. It edits, transforms, and proofreads SRT and ASS/SSA
+      subtitle files, with a libmpv video preview, a precise timeline with an
+      optional audio waveform, and a visual editor for ASS override tags.
+    </p>
+    <p>
+      Highlights: byte-exact SRT/ASS round-trip fidelity, undo/redo for every
+      edit, a visual override-tag editor (font, colours, position), semantic
+      style inputs, batch operations across many files, subtitle-track
+      extraction from video files, encoding auto-detection, and a
+      compatibility checker that flags and fixes common ASS problems.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.obaida-albitar.gsub.desktop</launchable>
+  <url type="homepage">https://github.com/obaida-albitar/gsub</url>
+  <url type="bugtracker">https://github.com/obaida-albitar/gsub/issues</url>
+  <developer id="io.github.obaida-albitar">
+    <name>Gsub Contributors</name>
+  </developer>
+  <content_rating type="oars-1.1"/>
+  <screenshots>
+    <screenshot type="default">
+      <caption>The home screen</caption>
+      <image>https://raw.githubusercontent.com/obaida-albitar/gsub/main/screenshots/1.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The timeline with an audio waveform and draggable subtitle regions</caption>
+      <image>https://raw.githubusercontent.com/obaida-albitar/gsub/main/screenshots/4.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Visual editing of ASS override tags</caption>
+      <image>https://raw.githubusercontent.com/obaida-albitar/gsub/main/screenshots/3.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>The editor with a live video preview</caption>
+      <image>https://raw.githubusercontent.com/obaida-albitar/gsub/main/screenshots/2.png</image>
+    </screenshot>
+  </screenshots>
+  <releases>
+    <release version="0.7" date="2026-08-22">
+      <description>
+        <p>Distributed as a Flatpak bundle from GitHub Releases.</p>
+        <ul>
+          <li>Single-file Flatpak bundles attached to each release</li>
+          <li>Continuous integration running the full test suite and lint</li>
+        </ul>
+      </description>
+    </release>
+    <release version="0.6" date="2026-08-22">
+      <description>
+        <p>Application ID changed to io.github.obaida-albitar.gsub; packaging
+        overhauled (pyproject.toml, working sdists, meson launcher); About
+        dialog version fixed; ruff configured and the codebase lint-clean.</p>
+        <p>Earlier in the cycle: waveform timeline with background peak
+        decoding, visual ASS override-tag editor, semantic style inputs,
+        batch operations, subtitle-track extraction from video files, and a
+        compatibility panel with one-click fixes.</p>
+      </description>
+    </release>
+  </releases>
+</component>

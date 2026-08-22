@@ -35,7 +35,7 @@ def _candidate_paths() -> list[str]:
     """Locations to search for the compiled gresource bundle."""
     here = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.dirname(here)
-    candidates = [
+    dev_and_local = [
         # 1. meson build directories at the project root (preferred for dev,
         #    always reflects the latest compiled .ui templates).
         os.path.join(project_root, "builddir", _GRESOURCE_FILENAME),
@@ -44,16 +44,31 @@ def _candidate_paths() -> list[str]:
         # 2. Next to the running package (installed alongside).
         os.path.join(here, _GRESOURCE_FILENAME),
         os.path.join(project_root, _GRESOURCE_FILENAME),
-        # 3. Installed datadir (PREFIX/share/gsub) — the meson install location.
-        os.path.join(project_root, "data", _GRESOURCE_FILENAME),
+    ]
+    # 3. Installed datadir via XDG_DATA_DIRS (covers Flatpak's /app/share and
+    #    any custom install prefix).
+    xdg_data_dirs = os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share")
+    installed = [
+        os.path.join(data_dir, "gsub", _GRESOURCE_FILENAME)
+        for data_dir in xdg_data_dirs.split(":")
+        if data_dir
+    ]
+    # 4. Well-known absolute locations (fallback when XDG_DATA_DIRS is unset
+    #    or unusual).
+    fallbacks = [
         os.path.join("/usr/share/gsub", _GRESOURCE_FILENAME),
         os.path.join("/usr/local/share/gsub", _GRESOURCE_FILENAME),
         os.path.join(os.path.expanduser("~/.local/share/gsub"), _GRESOURCE_FILENAME),
-        # 4. Legacy libdir fallbacks.
         os.path.join("/usr/lib", _GRESOURCE_FILENAME),
         os.path.join("/usr/local/lib", _GRESOURCE_FILENAME),
         os.path.join(os.path.expanduser("~/.local/lib"), _GRESOURCE_FILENAME),
     ]
+    # De-duplicate while keeping search order.
+    candidates, seen = [], set()
+    for path in dev_and_local + installed + fallbacks:
+        if path not in seen:
+            seen.add(path)
+            candidates.append(path)
     return candidates
 
 

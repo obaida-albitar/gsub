@@ -1,6 +1,6 @@
 project(
   'gsub',
-  version: '0.6',
+  version: '0.7',
   license: 'GPL-3.0-or-later',
   meson_version: '>= 0.63.0',
   default_options: [
@@ -95,6 +95,9 @@ install_data('data' / app_id + '.svg', install_dir: icon_dir, rename: app_id + '
 
 desktop_dir = get_option('datadir') / 'applications'
 install_data('data' / app_id + '.desktop', install_dir: desktop_dir)
+
+metainfo_dir = get_option('datadir') / 'metainfo'
+install_data('data' / app_id + '.metainfo.xml', install_dir: metainfo_dir)
 
 # --- Launcher script --------------------------------------------------------
 # The desktop file runs `gsub`. A pip install provides that command via
