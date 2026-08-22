@@ -1,17 +1,13 @@
-# Test dependencies
+# Test, lint, and build tooling for developing gsub.
+# Runtime dependencies come from the package itself: `pip install -e .`
+# System build tools (not pip-installable): blueprint-compiler and
+# glib-compile-resources (from the gtk4 / libadwaita dev packages).
+# Runtime system libraries (not pip-installable): libadwaita-1, gtk4, libmpv.
+
 pytest>=7.4.0
 pytest-cov>=4.1.0
-pytest-mock>=3.11.0
+pytest-xdist>=3.3.0
+ruff>=0.5.0
 
-# Build tooling (Python-side). The remaining tools are provided by the system:
-#   * blueprint-compiler      (compile data/blueprints/*.blp -> .ui)
-#   * glib-compile-resources  (bundle the gresource)
-#   * meson                   (alternative, canonical system build)
-# Runtime system libraries (not pip-installable): libadwaita-1, gtk4, gstreamer-1.0
+# Canonical system build (alternative to pip)
 meson>=1.0.0
-
-# Subtitle extraction backend (bundles FFmpeg, no system FFmpeg needed)
-av>=11.0
-
-# Best-effort detection of non-UTF-8 subtitle encodings
-charset-normalizer>=3.0

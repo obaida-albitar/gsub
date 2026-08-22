@@ -1,6 +1,5 @@
 """Tests for format converter."""
 
-import pytest
 from gsub.models import SubtitleDocument, SubtitleFormat, SubtitleEntry, TimeCode, ASSStyle
 from gsub.converters import FormatConverter
 

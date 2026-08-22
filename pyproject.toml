@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gsub"
+description = "A modern subtitle editor for GNOME desktop"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [{ name = "Gsub Contributors" }]
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: X11 Applications :: GTK",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Multimedia :: Video",
+]
+dependencies = [
+    "PyGObject>=3.42",
+    "pycairo>=1.20",
+    # mpv (libmpv) powers video playback and subtitle rendering. The Python
+    # bindings are pure ctypes; the actual libmpv shared library must be
+    # installed on the system (e.g. the `mpv` / `libmpv` distribution package).
+    "python-mpv>=1.0",
+    # PyOpenGL bridges mpv's render context with the Gtk.GLArea's GL context.
+    "PyOpenGL>=3.1",
+    # PyAV bundles FFmpeg's shared libraries in its wheel, so subtitle
+    # extraction works with no system FFmpeg installation required.
+    "av>=11.0",
+    # Best-effort detection of non-UTF-8 subtitle encodings (cp1252,
+    # Shift-JIS, ...). Pure-Python; stdlib fallback if unavailable.
+    "charset-normalizer>=3.0",
+]
+dynamic = ["version"]
+
+[project.scripts]
+gsub = "gsub.main:main"
+
+[project.urls]
+Homepage = "https://github.com/obaida-albitar/gsub"
+Issues = "https://github.com/obaida-albitar/gsub/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "gsub.__version__" }
+
+[tool.setuptools.packages.find]
+include = ["gsub*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers --tb=short --cov=gsub --cov-report=term-missing"
+markers = [
+    "unit: Unit tests for individual components",
+    "integration: Integration tests for multiple components",
+    "parser: Parser tests for subtitle formats",
+    "command: Command pattern tests",
+    "models: Data model tests",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.ruff.lint]
+# E402 (import not at top) is unavoidable in PyGObject code: gi.require_version()
+# must run before the corresponding `from gi.repository import ...`.
+ignore = ["E402"]

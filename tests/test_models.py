@@ -1,7 +1,6 @@
 """Unit tests for subtitle data models."""
 
 import pytest
-import copy
 from gsub.models import (
     TimeCode, SubtitleEntry, SubtitleDocument, SubtitleFormat, ASSStyle
 )

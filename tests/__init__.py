@@ -1,1 +1,1 @@
-"""Test suite for GNOME Subtitle Editor."""
+"""Test suite for Gsub."""

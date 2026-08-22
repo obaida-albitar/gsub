@@ -15,7 +15,6 @@ from . import (
     AudioTrack,
     ExtractionError,
     SubtitleTrack,
-    UnsupportedSubtitleCodec,
 )
 
 

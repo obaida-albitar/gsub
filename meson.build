@@ -68,14 +68,14 @@ endforeach
 # --- gresource --------------------------------------------------------------
 # For a Python project we cannot use gnome.compile_resources (it emits C source
 # requiring a C compiler). Instead we invoke glib-compile-resources directly to
-# produce a binary app.gsub.gresource blob from the manifest + compiled .ui files.
+# produce a binary gsub.gresource blob from the manifest + compiled .ui files.
 glib_compile_resources = find_program('glib-compile-resources')
-gresource_xml = meson.current_source_dir() / 'data' / 'app.gsub.gresource.xml'
+gresource_xml = meson.current_source_dir() / 'data' / 'gsub.gresource.xml'
 
 gresource = custom_target(
-  'app.gsub.gresource',
+  'gsub.gresource',
   input: gresource_xml,
-  output: 'app.gsub.gresource',
+  output: 'gsub.gresource',
   command: [
     glib_compile_resources,
     '--target', '@OUTPUT@',
@@ -89,11 +89,27 @@ gresource = custom_target(
 )
 
 # --- Application icon & desktop file ----------------------------------------
+app_id = 'io.github.obaida-albitar.gsub'
 icon_dir = get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'
-install_data('data' / 'app.gsub.svg', install_dir: icon_dir, rename: 'app.gsub.svg')
+install_data('data' / app_id + '.svg', install_dir: icon_dir, rename: app_id + '.svg')
 
 desktop_dir = get_option('datadir') / 'applications'
-install_data('data' / 'app.gsub.desktop', install_dir: desktop_dir)
+install_data('data' / app_id + '.desktop', install_dir: desktop_dir)
+
+# --- Launcher script --------------------------------------------------------
+# The desktop file runs `gsub`. A pip install provides that command via
+# console_scripts; a pure meson install provides it via this wrapper, which
+# runs the entry point with the same interpreter the package was installed for.
+launcher_conf = configuration_data()
+launcher_conf.set('PYTHON', python.full_path())
+configure_file(
+  input: 'bin' / 'gsub.in',
+  output: 'gsub',
+  configuration: launcher_conf,
+  install: true,
+  install_dir: get_option('bindir'),
+  install_mode: 'rwxr-xr-x',
+)
 
 # --- Python package ---------------------------------------------------------
 # Install the whole gsub package into the system/venv site-packages.

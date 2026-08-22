@@ -5,6 +5,7 @@ Following GNOME HIG, uses libadwaita widgets for a modern, native look.
 """
 
 import gi
+from gsub import __version__
 from gsub.logger import get_logger
 
 logger = get_logger(__name__)
@@ -1066,7 +1067,7 @@ class GsubWindow(Adw.ApplicationWindow):
             if file:
                 self.open_file(file)
                 self._hide_banner()
-        except Exception as e:
+        except Exception:
             pass  # User cancelled
     
     def _on_save(self, action, param):
@@ -1156,7 +1157,7 @@ class GsubWindow(Adw.ApplicationWindow):
                     self._show_toast(f"Converted to {target_format.value.upper()}")
                 
                 self._save_document(file_path)
-        except Exception as e:
+        except Exception:
             pass  # User cancelled
     
     def _on_undo(self, action, param):
@@ -1452,7 +1453,6 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _update_batch_action_buttons(self):
         """Enable/disable batch action buttons based on state."""
-        has_files = self.batch_file_list.file_count > 0
         has_selected = len(self.batch_file_list.get_selected_files()) > 0
         has_ops = self.batch_operations.has_any_operation()
 
@@ -1552,7 +1552,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_batch_status()
             self._update_batch_action_buttons()
 
-        except Exception as e:
+        except Exception:
             pass  # User cancelled
 
     def _on_batch_apply(self):
@@ -1694,7 +1694,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''} to {output_dir}")
             self._update_batch_status()
 
-        except Exception as e:
+        except Exception:
             pass  # User cancelled
 
     def _on_about(self, action, param):
@@ -1702,9 +1702,9 @@ class GsubWindow(Adw.ApplicationWindow):
         about = Adw.AboutWindow(
             transient_for=self,
             application_name="Gsub",
-            application_icon="app.gsub",
+            application_icon="io.github.obaida-albitar.gsub",
             developer_name="Gsub Contributors",
-            version="0.5",
+            version=__version__,
             license_type=Gtk.License.GPL_3_0,
             developers=["Gsub Contributors"],
             comments="A modern subtitle editor"
@@ -2091,7 +2091,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 if file_path:
                     self.load_video_path(file_path)
                     self._save_last_directory(os.path.dirname(file_path))
-        except Exception as e:
+        except Exception:
             pass  # User cancelled
 
     def open_video(self, gfile: Gio.File):
@@ -2413,7 +2413,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 self._show_toast(f"Extraction failed: {error_msg}")
                 try:
                     os.remove(temp_path)
-                except:
+                except OSError:
                     pass
 
         # Start extraction

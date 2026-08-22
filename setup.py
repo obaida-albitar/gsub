@@ -2,17 +2,18 @@
 """
 Setup script for Gsub.
 
-This builds the GTK/Blueprint gresource bundle so the application is runnable
-after ``pip install`` (the meson build does the same for system installs). It
-requires the following tools on the build machine:
+All package metadata lives in pyproject.toml; this file only adds the custom
+build step that compiles the GTK/Blueprint gresource bundle so the application
+is runnable after ``pip install`` (the meson build does the same for system
+installs). It requires the following tools on the build machine:
 
   * blueprint-compiler  (compiles data/blueprints/*.blp -> .ui)
   * glib-compile-resources (bundles the .ui files + style.css + icon)
 
-    These are typically provided by your distribution's GTK4 / libadwaita dev
-    packages. At runtime the app also needs PyGObject plus the system libraries
-    libadwaita-1, gtk4 and libmpv (the ``[video]`` extra documents the libmpv
-    requirement).
+These are typically provided by your distribution's GTK4 / libadwaita dev
+packages. At runtime the app also needs PyGObject plus the system libraries
+libadwaita-1, gtk4 and libmpv (python-mpv bundles only the ctypes bindings;
+libmpv itself is not pip-installable).
 """
 
 import os
@@ -20,12 +21,12 @@ import shutil
 import subprocess
 import sys
 
-from setuptools import setup, find_packages
+from setuptools import setup
 from setuptools.command.build_py import build_py
 
 HERE = os.path.abspath(os.path.dirname(__file__))
 PACKAGE_DIR = os.path.join(HERE, "gsub")
-GRESOURCE_FILENAME = "app.gsub.gresource"
+GRESOURCE_FILENAME = "gsub.gresource"
 GRESOURCE_TARGET = os.path.join(PACKAGE_DIR, GRESOURCE_FILENAME)
 
 
@@ -36,9 +37,9 @@ def _have(cmd):
 def build_gresource():
     """Compile Blueprint templates and bundle them into the gresource.
 
-    The resulting ``app.gsub.gresource`` is written into the gsub
-    package directory so ``resources.register_resources()`` can locate it at
-    runtime (it is the first candidate path searched).
+    The resulting ``gsub.gresource`` is written into the gsub package
+    directory so ``resources.register_resources()`` can locate it at runtime
+    (it is the first candidate path searched).
     """
     if not (_have("blueprint-compiler") and _have("glib-compile-resources")):
         print(
@@ -52,10 +53,10 @@ def build_gresource():
 
     blueprints_dir = os.path.join(HERE, "data", "blueprints")
     data_dir = os.path.join(HERE, "data")
-    xml = os.path.join(data_dir, "app.gsub.gresource.xml")
+    xml = os.path.join(data_dir, "gsub.gresource.xml")
 
     # Compile each .blp -> .ui alongside it.
-    for name in os.listdir(blueprints_dir):
+    for name in sorted(os.listdir(blueprints_dir)):
         if not name.endswith(".blp"):
             continue
         ui_path = os.path.join(blueprints_dir, name[:-4] + ".ui")
@@ -82,65 +83,11 @@ class BuildPyCommand(build_py):
         super().run()
 
 
-try:
-    with open("README.md", "r", encoding="utf-8") as fh:
-        long_description = fh.read()
-except FileNotFoundError:
-    long_description = ""
-
 setup(
-    name="gsub",
-    version="0.6",
-    author="Gsub Contributors",
-    description="A modern subtitle editor for GNOME desktop",
-    long_description=long_description,
-    long_description_content_type="text/markdown",
-    url="https://github.com/obaida-albitar/gsub",
-    packages=find_packages(),
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-        "Operating System :: POSIX :: Linux",
-        "Environment :: X11 Applications :: GTK",
-        "Intended Audience :: End Users/Desktop",
-        "Topic :: Multimedia :: Video",
-    ],
-    python_requires=">=3.10",
-    install_requires=[
-        "PyGObject>=3.42",
-        "pycairo>=1.20",
-        # mpv (libmpv) powers video playback and subtitle rendering. The Python
-        # bindings are pure ctypes; the actual libmpv shared library must be
-        # installed on the system (e.g. the `mpv` / `libmpv` distribution package).
-        "python-mpv>=1.0",
-        # PyOpenGL bridges mpv's render context with the Gtk.GLArea's GL context.
-        "PyOpenGL>=3.1",
-        # PyAV bundles FFmpeg's shared libraries in its wheel, so subtitle
-        # extraction works with no system FFmpeg installation required.
-        "av>=11.0",
-        # Best-effort detection of non-UTF-8 subtitle encodings (cp1252,
-        # Shift-JIS, ...). Pure-Python; stdlib fallback if unavailable.
-        "charset-normalizer>=3.0",
-    ],
-    extras_require={
-        "video": [
-            # python-mpv is the runtime binding; libmpv itself is a system
-            # dependency (not pip-installable). Install e.g. `libmpv` via your
-            # distribution's package manager.
-            "python-mpv>=1.0",
-            "PyOpenGL>=3.1",
-        ],
-    },
-    entry_points={
-        "console_scripts": [
-            "gsub=gsub.main:main",
-        ],
-    },
-    include_package_data=True,
     package_data={"gsub": [GRESOURCE_FILENAME]},
     data_files=[
-        ("share/applications", ["data/app.gsub.desktop"]),
-        ("share/icons/hicolor/scalable/apps", ["data/app.gsub.svg"]),
+        ("share/applications", ["data/io.github.obaida-albitar.gsub.desktop"]),
+        ("share/icons/hicolor/scalable/apps", ["data/io.github.obaida-albitar.gsub.svg"]),
     ],
     cmdclass={"build_py": BuildPyCommand},
 )

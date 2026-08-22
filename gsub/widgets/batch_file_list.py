@@ -6,8 +6,8 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, Gio, GObject, GLib
-from gsub.models import SubtitleDocument, SubtitleFormat
+from gi.repository import Gtk, Adw, Gio, GObject
+from gsub.models import SubtitleDocument
 from gsub.logger import get_logger
 from gsub.resources import template_resource_path
 import os

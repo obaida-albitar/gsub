@@ -32,6 +32,11 @@ from gsub.widgets.style_widgets import (  # noqa: E402
     ChoiceRow,
 )
 import copy
+import gettext
+
+# Same translation domain as the package-level gettext.install(); bound
+# explicitly so this module does not depend on the builtin injection.
+_ = gettext.translation("gsub", fallback=True).gettext
 
 
 @Gtk.Template(resource_path=template_resource_path('time-shift'))

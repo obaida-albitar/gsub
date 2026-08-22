@@ -593,7 +593,6 @@ class TestCommandEdgeCases:
         doc.add_entry(entry)
         
         original_start = doc.entries[0].start_time.total_milliseconds
-        original_end = doc.entries[0].end_time.total_milliseconds
         
         cm = CommandManager()
         # Only change end time

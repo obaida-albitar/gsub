@@ -13,7 +13,6 @@ This is the second subtitle
 
 import logging
 import re
-from typing import List
 from gsub.models import SubtitleEntry, SubtitleDocument, SubtitleFormat, TimeCode
 
 logger = logging.getLogger(__name__)

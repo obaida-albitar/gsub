@@ -171,7 +171,6 @@ Valid subtitle
     def test_serialize_srt_all_entries(self, sample_srt_document):
         """Test that all entries are serialized."""
         output = SRTParser.serialize(sample_srt_document)
-        lines = output.strip().split('\n')
         
         # Count subtitle blocks
         assert "First subtitle" in output
@@ -389,7 +388,7 @@ Dialogue: 0,0:00:00.50,0:00:02.00,Default,,,0,0,0,,Test
     @pytest.mark.parser
     def test_serialize_ass_newline_conversion(self):
         """Test that newlines are converted to \\N."""
-        from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, TimeCode, ASSStyle
+        from gsub.models import SubtitleDocument, SubtitleEntry, SubtitleFormat, ASSStyle
         
         doc = SubtitleDocument(format=SubtitleFormat.ASS)
         doc.styles = [ASSStyle(name="Default")]

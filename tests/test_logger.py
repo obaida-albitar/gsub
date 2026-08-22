@@ -1,9 +1,5 @@
 """Tests for logging system."""
 
-import pytest
-import os
-import tempfile
-from pathlib import Path
 from gsub.logger import setup_logger, get_logger, _cleanup_old_logs
 
 

@@ -4,8 +4,8 @@ Subtitle data models.
 This module defines the core data structures for representing subtitles.
 """
 
-from dataclasses import dataclass, field, replace as dc_replace
-from typing import Optional, List, Dict, Any
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict
 from enum import Enum
 import copy
 import math

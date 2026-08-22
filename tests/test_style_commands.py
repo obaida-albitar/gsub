@@ -124,7 +124,6 @@ class TestBulkEditStyleCommand:
     @pytest.mark.command
     def test_bulk_edit_style_invalid_positions(self, sample_ass_document):
         """Test bulk edit with some invalid positions."""
-        original_style = sample_ass_document.entries[0].style
         cmd = BulkEditStyleCommand(sample_ass_document, [0, 999], "Title")
         
         cmd.execute()

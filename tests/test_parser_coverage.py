@@ -2,7 +2,6 @@
 
 import pytest
 from gsub.parsers import SRTParser, ASSParser
-from gsub.models import SubtitleFormat, TimeCode
 
 
 class TestASSParserEdgeCases:

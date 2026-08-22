@@ -1,7 +1,6 @@
-"""Logging configuration for subtitle editor application."""
+"""Logging configuration for the Gsub application."""
 
 import logging
-import os
 from pathlib import Path
 from datetime import datetime
 
@@ -66,7 +65,7 @@ def _cleanup_old_logs(log_dir, keep=10):
         log_files = sorted(log_dir.glob('gsub_*.log'), key=lambda p: p.stat().st_mtime, reverse=True)
         for old_log in log_files[keep:]:
             old_log.unlink()
-    except Exception as e:
+    except Exception:
         # Silently fail if cleanup doesn't work
         pass
 

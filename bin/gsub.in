@@ -1,0 +1,9 @@
+#!@PYTHON@
+# gsub launcher, installed by meson. The gsub Python package is installed into
+# this interpreter's site-packages by meson.build, so importing works directly.
+import sys
+
+from gsub.main import main
+
+if __name__ == "__main__":
+    sys.exit(main())

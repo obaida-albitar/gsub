@@ -8,7 +8,7 @@ keeping the subtitle mime types, and accepts multiple file arguments.
 import configparser
 from pathlib import Path
 
-DESKTOP_FILE = Path(__file__).parent.parent / "data" / "app.gsub.desktop"
+DESKTOP_FILE = Path(__file__).parent.parent / "data" / "io.github.obaida-albitar.gsub.desktop"
 
 VIDEO_MIMES = [
     "video/mp4",

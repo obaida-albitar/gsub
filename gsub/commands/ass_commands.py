@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 import copy
-from dataclasses import replace as dc_replace
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 
 from gsub.commands.command import Command
 from gsub.models import SubtitleDocument, ASSStyle

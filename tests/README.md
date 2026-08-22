@@ -1,158 +1,86 @@
 # Test Suite for Gsub
 
-This directory contains comprehensive tests for the Gsub application.
+This directory contains comprehensive tests for the Gsub application:
+43 test files with roughly 990 test functions, covering pure logic (models,
+parsers, commands, batch operations) as well as real GTK/libadwaita widget
+tests where a display is available.
 
 ## Test Structure
 
-```
-tests/
-├── __init__.py              # Test package initialization
-├── conftest.py              # Pytest fixtures and configuration
-├── test_ass_commands.py     # Tests for ASS-specific commands
-├── test_command_gaps.py     # Tests for untested command implementations
-├── test_commands.py         # Tests for command pattern and subtitle commands
-├── test_edge_cases.py       # Edge cases, stress tests, and boundary conditions
-├── test_integration.py      # Integration tests and workflows
-├── test_models.py           # Tests for data models (TimeCode, SubtitleEntry, etc.)
-├── test_parser_coverage.py  # Tests for uncovered parser code paths
-├── test_parsers.py          # Tests for SRT and ASS parsers
-├── test_sample_file_parser.py  # Tests using the sample ASS subtitle file
-├── test_style_commands.py   # Tests for style editing commands
-└── README.md                # This file
-```
+Tests are grouped by what they exercise — run `ls tests/test_*.py` for the
+authoritative list. The main groups:
+
+| Group | Files (examples) | What they cover |
+|---|---|---|
+| Models & core | `test_models.py`, `test_edge_cases.py` | `TimeCode`, `SubtitleEntry`, `SubtitleDocument`, boundary conditions |
+| Parsers | `test_parsers.py`, `test_parse_document.py`, `test_parser_coverage.py`, `test_sample_file_parser.py`, `test_encoding.py` | SRT/ASS parsing, serialization round-trips, encoding detection |
+| Commands | `test_commands.py`, `test_ass_commands.py`, `test_style_commands.py`, `test_bulk_style_commands.py`, `test_command_gaps.py` | Undo/redo command pattern |
+| ASS features | `test_ass_tags.py`, `test_ass_validator.py`, `test_style_sanitize.py`, `test_glyph_coverage.py`, `test_font_list.py` | Override tags, compatibility checks, styles |
+| Extraction & media | `test_extractors.py`, `test_ffmpeg_fallback.py`, `test_audio_peaks.py`, `test_video_player.py` | Track extraction, waveform peaks, mpv player |
+| UI (need a display) | `test_window.py`, `test_editor_panel.py`, `test_home_screen.py`, `test_subtitle_list_view.py`, `test_timeline_widget.py`, `test_tag_editor.py`, `test_track_selection_dialog.py`, `test_ass_styles_dialog.py`, `test_style_widgets.py`, `test_style_props_editor.py`, `test_compatibility_panel.py`, `test_batch_operations_panel.py`, `test_shortcuts.py`, `test_video_open_flow.py`, `test_timeline_model.py`, `test_subtitle_list_logic.py` | Real widgets from the gresource templates |
+| Integration & misc | `test_integration.py`, `test_batch_logic.py`, `test_format_converter.py`, `test_main.py`, `test_logger.py`, `test_desktop_file.py` | End-to-end workflows and packaging contracts |
+
+Support files: `conftest.py` (shared fixtures), `sample_subtitle_file.ass`
+(120-entry sample document), `__init__.py`.
 
 ## Running Tests
 
 ### Install Dependencies
 
 ```bash
-pip install -r requirements-dev.txt
+pip install -r requirements-dev.txt   # test + lint tooling
+pip install -e .                      # runtime dependencies
 ```
 
 ### Run All Tests
 
 ```bash
-pytest
-```
-
-### Run Specific Test Files
-
-```bash
-# Run only model tests
-pytest tests/test_models.py
-
-# Run only parser tests
-pytest tests/test_parsers.py
-
-# Run only integration tests
-pytest tests/test_integration.py
-```
-
-### Run Tests by Marker
-
-```bash
-# Run only unit tests
-pytest -m unit
-
-# Run only integration tests
-pytest -m integration
-
-# Run only parser tests
-pytest -m parser
-
-# Run only command tests
-pytest -m command
-```
-
-### Run with Coverage
-
-```bash
-# Generate coverage report
-pytest --cov=gsub --cov-report=html
-
-# View coverage report
-open htmlcov/index.html  # On macOS
-xdg-open htmlcov/index.html  # On Linux
+make test          # or: pytest
+make test-fast     # parallel run (pytest -n auto)
 ```
 
 ### Run Specific Tests
 
 ```bash
-# Run a specific test class
-pytest tests/test_models.py::TestTimeCode
+# Run only one file
+pytest tests/test_models.py
 
-# Run a specific test method
+# Run a specific test class / method
+pytest tests/test_models.py::TestTimeCode
 pytest tests/test_models.py::TestTimeCode::test_timecode_initialization
 
 # Run tests matching a pattern
 pytest -k "timecode"
 ```
 
-## Test Categories
+### Run Tests by Marker
 
-### Unit Tests (`test_models.py`, `test_parsers.py`, `test_commands.py`)
+```bash
+pytest -m unit
+pytest -m integration
+pytest -m parser
+pytest -m command
+pytest -m models
+```
 
-These tests focus on individual components in isolation:
+### Run with Coverage
 
-- **Models**: Test data structures like `TimeCode`, `SubtitleEntry`, `SubtitleDocument`, and `ASSStyle`
-- **Parsers**: Test SRT and ASS format parsing and serialization
-- **Commands**: Test command pattern implementation and individual command classes
+A line-coverage report is printed on every run. For the full HTML report:
 
-### Integration Tests (`test_integration.py`)
+```bash
+make coverage
+xdg-open htmlcov/index.html
+```
 
-These tests verify that components work correctly together:
+## Headless Environments
 
-- Complete workflows (parse → edit → serialize)
-- Complex operation sequences
-- Edge cases and error handling
-- Performance with large documents
-- Unicode and special character handling
+Widget tests import GTK and require a display; they are skipped
+automatically when none is available. To run them on a headless machine,
+use Xvfb:
 
-### Sample File Tests (`test_sample_file_parser.py`)
-
-These tests use the large sample ASS file (`sample_subtitle_file.ass`) to verify:
-
-- Parsing 120 dialogue entries with various ASS override tags
-- Style extraction (Default, Alternate, Top, Draw styles)
-- Aegisub Project Garbage and Extradata handling
-- Comment and Picture line behavior
-- Serialization roundtrips
-- Preservation of all ASS formatting tags
-
-## Test Coverage
-
-The test suite aims for comprehensive coverage of:
-
-1. **Core Functionality**
-   - TimeCode conversion and arithmetic
-   - Subtitle entry manipulation
-   - Document operations (add, remove, sort, reindex)
-   - Style management for ASS format
-
-2. **Parsers**
-   - SRT format parsing and serialization
-   - ASS format parsing and serialization
-   - Handling of malformed content
-   - Roundtrip testing (parse → serialize → parse)
-
-3. **Command Pattern**
-   - Command execution
-   - Undo/redo functionality
-   - Command history management
-   - Complex command sequences
-
-4. **ASS-Specific Features**
-   - Metadata management
-   - Style operations (create, update, rename, remove)
-   - Entry style assignments
-   - Aegisub project garbage handling
-
-5. **Edge Cases**
-   - Empty documents
-   - Invalid input data
-   - Boundary conditions (zero duration, negative shifts)
-   - Unicode and special characters
-   - Large documents (performance)
+```bash
+xvfb-run -a pytest
+```
 
 ## Fixtures
 
@@ -178,71 +106,22 @@ The test suite uses pytest fixtures defined in `conftest.py`:
 
 ### Using Markers
 
-Mark your tests appropriately:
+Mark your tests appropriately (`--strict-markers` is enabled, so only the
+registered markers below may be used):
 
-```python
-@pytest.mark.unit
-@pytest.mark.models
-def test_something(self):
-    # Test code
-```
-
-Available markers:
 - `unit`: Unit tests for individual components
 - `integration`: Integration tests for multiple components
 - `parser`: Parser tests for subtitle formats
 - `command`: Command pattern tests
 - `models`: Data model tests
 
-### Example Test Structure
-
 ```python
-class TestMyFeature:
-    """Tests for MyFeature class."""
-
-    @pytest.mark.unit
-    def test_basic_functionality(self, sample_fixture):
-        """Test basic functionality."""
-        # Arrange
-        obj = MyFeature()
-        
-        # Act
-        result = obj.do_something()
-        
-        # Assert
-        assert result == expected_value
-
-    @pytest.mark.unit
-    def test_edge_case(self):
-        """Test edge case handling."""
-        # Test code
-```
-
-## Continuous Integration
-
-These tests are designed to run in CI/CD pipelines. Ensure all tests pass before submitting pull requests.
-
-## Troubleshooting
-
-### GTK/GObject Import Errors
-
-Some modules import GTK components, which may not be available in test environments. The core logic tests avoid these dependencies, but integration with UI components may require a display server.
-
-### Coverage Not Generated
-
-Make sure `pytest-cov` is installed:
-
-```bash
-pip install pytest-cov
-```
-
-### Tests Run Slowly
-
-Use pytest-xdist for parallel execution:
-
-```bash
-pip install pytest-xdist
-pytest -n auto
+@pytest.mark.unit
+@pytest.mark.models
+def test_something(sample_fixture):
+    obj = MyFeature()
+    result = obj.do_something()
+    assert result == expected_value
 ```
 
 ## Contributing
@@ -250,18 +129,10 @@ pytest -n auto
 When adding new features:
 
 1. Write tests first (TDD approach recommended)
-2. Ensure all existing tests pass
+2. Ensure all existing tests pass (`make test`)
 3. Add tests for edge cases
-4. Update this README if adding new test categories
-5. Maintain test coverage above 80%
-
-## Test Metrics
-
-Current test statistics:
-- **Total test files**: 14
-- **Test categories**: Unit, Integration, Parser, Command, Models, Sample File
-- **Target coverage**: 80%+
-- **Fixtures**: 9 shared fixtures
+4. Update this README if adding a new test group
+5. Maintain test coverage above 80% (`make coverage`)
 
 ## Resources
 

@@ -1,5 +1,5 @@
 PREFIX ?= $(HOME)/.local
-APP_ID = app.gsub
+APP_ID = io.github.obaida-albitar.gsub
 PYTHON ?= python3
 
 all: install
@@ -17,12 +17,9 @@ build-resources:
 	@for f in data/blueprints/*.blp; do \
 		blueprint-compiler compile --output "$${f%.blp}.ui" "$$f"; \
 	done
-	glib-compile-resources --target gsub/app.gsub.gresource \
-		--sourcedir data/blueprints --sourcedir data data/app.gsub.gresource.xml
-	@echo "Built gsub/app.gsub.gresource"
-	@mkdir -p builddir
-	cp gsub/app.gsub.gresource builddir/app.gsub.gresource
-	@echo "Synced builddir/app.gsub.gresource"
+	glib-compile-resources --target gsub/gsub.gresource \
+		--sourcedir data/blueprints --sourcedir data data/gsub.gresource.xml
+	@echo "Built gsub/gsub.gresource"
 
 install-desktop:
 	install -d $(PREFIX)/share/applications
@@ -34,16 +31,43 @@ install-icon:
 
 update-cache:
 	-gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor/ 2>/dev/null || true
-	-update-desktop-database $(PREFIX)/share/applications/ 2>/dev/null || true
+	-update-desktop-database $(PREFIX)/share/applications 2>/dev/null || true
 
 uninstall:
 	$(PYTHON) -m pip uninstall -y gsub 2>/dev/null || true
 	rm -f $(PREFIX)/share/applications/$(APP_ID).desktop
 	rm -f $(PREFIX)/share/icons/hicolor/scalable/apps/$(APP_ID).svg
 	-gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor/ 2>/dev/null || true
-	-update-desktop-database $(PREFIX)/share/applications/ 2>/dev/null || true
+	-update-desktop-database $(PREFIX)/share/applications 2>/dev/null || true
 	@echo "gsub uninstalled."
+
+test:
+	$(PYTHON) -m pytest
+
+# Parallel test run (requires pytest-xdist from requirements-dev.txt).
+test-fast:
+	$(PYTHON) -m pytest -n auto
+
+coverage:
+	$(PYTHON) -m pytest --cov-report=html
+	@echo "HTML coverage report written to htmlcov/index.html"
+
+lint:
+	$(PYTHON) -m ruff check .
+
+fmt:
+	$(PYTHON) -m ruff format .
+
+run:
+	$(PYTHON) -m gsub.main
+
+clean:
+	rm -rf __pycache__ .pytest_cache .ruff_cache .coverage htmlcov \
+		gsub.egg-info builddir gsub/gsub.gresource \
+		gsub/__pycache__ gsub/*/__pycache__ tests/__pycache__ \
+		data/blueprints/*.ui
 
 reinstall: uninstall install
 
-.PHONY: all install install-pip build-resources install-desktop install-icon update-cache uninstall reinstall
+.PHONY: all install install-pip build-resources install-desktop install-icon \
+	update-cache uninstall reinstall test test-fast coverage lint fmt run clean

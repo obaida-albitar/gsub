@@ -1,4 +1,4 @@
-"""UI widgets for the subtitle editor."""
+"""UI widgets for Gsub."""
 
 from .subtitle_list import SubtitleListView
 from .editor_panel import EditorPanel

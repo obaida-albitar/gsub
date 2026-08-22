@@ -58,7 +58,6 @@ def test_uninstalled_font_is_preserved_and_warned():
 
 
 def test_installed_font_has_no_warning():
-    installed = dlg_installed = None
     dlg = _make_dialog("Temp")
     if not dlg._installed_fonts:
         pytest.skip("no installed fonts to assert against")

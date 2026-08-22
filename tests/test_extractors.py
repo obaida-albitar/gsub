@@ -8,7 +8,6 @@ av = pytest.importorskip("av")
 
 from gsub.extractors import (
     EXTENSION_FOR_FORMAT,
-    SubtitleTrack,
     detect_format,
     extract_track_by_gst,
     list_subtitle_tracks,

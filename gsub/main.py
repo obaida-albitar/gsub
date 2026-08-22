@@ -14,7 +14,7 @@ from gsub.utils import is_video_content_type
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, Gio
+from gi.repository import Adw, Gio
 
 # Initialize libadwaita before any widget module is imported. Adw.init()
 # registers the libadwaita GTypes with GObject's type system so that
@@ -35,7 +35,7 @@ class GsubApplication(Adw.Application):
 
     def __init__(self):
         super().__init__(
-            application_id='app.gsub',
+            application_id='io.github.obaida-albitar.gsub',
             flags=Gio.ApplicationFlags.HANDLES_OPEN
         )
         self.window = None

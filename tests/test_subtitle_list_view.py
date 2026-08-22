@@ -195,7 +195,7 @@ class TestSearch:
         assert view._search_matches == [0, 1]
 
     def test_new_rows_carry_search_term(self):
-        from gsub.commands.subtitle_commands import AddEntryCommand, build_new_entry
+        from gsub.commands.subtitle_commands import build_new_entry
 
         view, doc = _make_view(["a hello"])
         view.search_entry.set_text("hello")

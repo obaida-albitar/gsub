@@ -1,2 +1,5 @@
-include data/app.gsub.desktop
-include data/app.gsub.svg
+include data/io.github.obaida-albitar.gsub.desktop
+include data/io.github.obaida-albitar.gsub.svg
+include data/gsub.gresource.xml
+include data/style.css
+recursive-include data/blueprints *.blp
