@@ -426,6 +426,160 @@ class TestEditorPanelTagEditing:
         assert emitted == []
         assert panel._compose_text() == EXAMPLE_TEXT
 
+    # --- Per-line group expanders ---------------------------------------------
+
+    def test_group_header_is_expander_with_snippet_and_add_button(self):
+        """A line-start block gets a live, collapsible header of its own."""
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        group = panel._tag_groups[0]
+        assert isinstance(group.header, Adw.ExpanderRow)
+        assert group.header.get_expanded() is True
+        assert group.header.get_title() == 'Line 2 tags'
+        # The snippet is the clean text of the anchored line.
+        assert group.header.get_subtitle() == USER_LINE_2
+        # Its own add-tag button drives the group's editor.
+        assert isinstance(group.add_button, Gtk.MenuButton)
+        assert group.add_button.get_popover() is not None
+        group.editor.add_tag('\\b1')
+        assert panel._compose_text().endswith('\n{\\fs22\\b1}' + USER_LINE_2)
+
+    def test_group_snippet_strips_inline_blocks_and_truncates(self):
+        panel = _make_panel()
+        text = 'word\n{\\b1}second {\\i1}inline{\\i0} end'
+        panel.set_entry(_make_entry(text), 0)
+
+        group = panel._tag_groups[0]
+        assert group.header.get_subtitle() == 'second inline end'
+
+        long = 'a\n{\\b1}' + 'y' * 60
+        panel.set_entry(_make_entry(long), 1)
+        assert panel._tag_groups[0].header.get_subtitle() == 'y' * 40 + '…'
+
+    def test_group_line_number_refreshes_on_text_edits(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('one\ntwo\n{\\b1}three'), 0)
+
+        assert panel._tag_groups[0].header.get_title() == 'Line 3 tags'
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(3), '\n')
+        assert panel._tag_groups[0].header.get_title() == 'Line 4 tags'
+
+        buffer.delete(buffer.get_iter_at_offset(3),
+                      buffer.get_iter_at_offset(4))
+        assert panel._tag_groups[0].header.get_title() == 'Line 3 tags'
+        _wait_debounce(panel)
+
+    # --- Inline (mid-line) block editing --------------------------------------
+
+    def test_find_inline_block_at(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
+
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
+        match = BLOCK_PATTERN.search(_buffer_text(panel))
+
+        assert panel._find_inline_block_at(match.start() + 1).group(1) == '\\fs20'
+        assert panel._find_inline_block_at(match.end()).group(1) == '\\fs20'
+        assert panel._find_inline_block_at(0) is None
+        assert panel._find_inline_block_at(match.end() + 3) is None
+
+    def test_inline_remove_tags_deletes_block(self):
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
+
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
+        match = BLOCK_PATTERN.search(_buffer_text(panel))
+        panel._inline_click_offset = match.start() + 1
+        panel._on_inline_remove_tags(None, None)
+
+        assert _buffer_text(panel) == 'bold small tail'
+        assert panel._compose_text() == '{\\b1}bold small tail'
+        _wait_debounce(panel)
+        assert emitted and emitted[-1] == '{\\b1}bold small tail'
+
+    def test_inline_add_tags_inserts_placeholder(self, monkeypatch):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('plain text'), 0)
+        # The dialog is covered by the splice tests below; only the buffer
+        # insertion is exercised here.
+        opened = {}
+        monkeypatch.setattr(
+            panel, '_open_inline_tag_editor',
+            lambda start, end, body=None: opened.update(
+                {'start': start, 'end': end, 'body': body}))
+
+        panel._inline_click_offset = 6  # after "plain "
+        panel._on_inline_add_tags(None, None)
+
+        assert _buffer_text(panel) == 'plain {}text'
+        assert opened == {'start': 6, 'end': 8, 'body': ''}
+
+    def test_splice_inline_block_replaces_and_recomposes(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
+
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
+        match = BLOCK_PATTERN.search(_buffer_text(panel))
+        state = {'start': match.start(), 'end': match.end()}
+
+        # A dialog-style editor: TagEditorRows inside a PreferencesGroup.
+        editor = TagEditorRows(Adw.PreferencesGroup())
+        editor.load_body(match.group(1))
+        editor.get_rows()[0].set_value(48)
+
+        panel._splice_inline_block(state, editor)
+        assert '{\\fs48}' in _buffer_text(panel)
+        assert panel._compose_text() == '{\\b1}bold {\\fs48}small tail'
+        _wait_debounce(panel)
+        assert emitted and emitted[-1] == '{\\b1}bold {\\fs48}small tail'
+
+    def test_splice_inline_block_removes_block_when_emptied(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
+
+        from gsub.parsers.ass_tags import BLOCK_PATTERN
+        match = BLOCK_PATTERN.search(_buffer_text(panel))
+        state = {'start': match.start(), 'end': match.end()}
+
+        editor = TagEditorRows(Adw.PreferencesGroup())
+        editor.load_body(match.group(1))
+        _find_trash_button(editor.get_rows()[0]).emit('clicked')
+
+        panel._splice_inline_block(state, editor)
+        assert _buffer_text(panel) == 'bold small tail'
+        assert panel._compose_text() == '{\\b1}bold small tail'
+
+    def test_drop_empty_inline_placeholder(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('plain text'), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(6), '{}')
+        state = {'start': 6, 'end': 8}
+        # A filled-in block survives...
+        buffer.insert(buffer.get_iter_at_offset(7), '\\b1')
+        state['end'] = 11
+        panel._drop_empty_inline_placeholder(state)
+        assert '{\\b1}' in _buffer_text(panel)
+        # ...an untouched placeholder does not.
+        buffer.delete(buffer.get_iter_at_offset(6),
+                      buffer.get_iter_at_offset(11))
+        buffer.insert(buffer.get_iter_at_offset(6), '{}')
+        state = {'start': 6, 'end': 8}
+        panel._drop_empty_inline_placeholder(state)
+        assert _buffer_text(panel) == 'plain text'
+
 
 class TestSubtitleListCleanDisplay:
     def _make_view(self, texts):
