@@ -235,25 +235,30 @@ def test_expand_output_name_sanitizes_separators():
 
 
 def test_expand_output_names_plain_pattern_is_numbered_base_name():
-    names = expand_output_names("test file", ["ep01.srt", "ep02.srt"])
-    assert names == ["test file 01.srt", "test file 02.srt"]
+    names = expand_output_names("show S01E", ["ep01.srt", "ep02.srt"])
+    assert names == ["show S01E01.srt", "show S01E02.srt"]
+
+
+def test_expand_output_names_trailing_space_separates_number():
+    names = expand_output_names("show ", ["ep01.srt", "ep02.srt"])
+    assert names == ["show 01.srt", "show 02.srt"]
 
 
 def test_expand_output_names_numbering_width_grows_with_batch():
     files = [f"ep{i}.srt" for i in range(12)]
     names = expand_output_names("batch", files)
-    assert names[0] == "batch 01.srt"
-    assert names[9] == "batch 10.srt"
-    assert names[-1] == "batch 12.srt"
+    assert names[0] == "batch01.srt"
+    assert names[9] == "batch10.srt"
+    assert names[-1] == "batch12.srt"
 
     wide = expand_output_names("batch", [f"ep{i}.srt" for i in range(100)])
-    assert wide[0] == "batch 001.srt"
-    assert wide[-1] == "batch 100.srt"
+    assert wide[0] == "batch001.srt"
+    assert wide[-1] == "batch100.srt"
 
 
 def test_expand_output_names_keeps_each_files_extension():
     names = expand_output_names("set", ["movie.ass", "trailer.ass"])
-    assert names == ["set 01.ass", "set 02.ass"]
+    assert names == ["set01.ass", "set02.ass"]
 
 
 def test_expand_output_names_with_placeholder_substitutes():
@@ -268,4 +273,4 @@ def test_expand_output_names_empty_keeps_originals():
 
 def test_expand_output_names_sanitizes_base_name():
     names = expand_output_names("a/b", ["ep01.srt"])
-    assert names == ["a_b 01.srt"]
+    assert names == ["a_b01.srt"]

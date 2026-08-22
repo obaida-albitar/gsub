@@ -1237,11 +1237,12 @@ class TestBatchRenameDialog:
     def test_pattern_edit_updates_preview(self, window):
         dialog = self._make(window)
 
-        dialog.pattern_row.set_text("test file")
-        assert dialog.get_output_names() == ["test file 01.srt", "test file 02.srt"]
+        dialog.pattern_row.set_text("test file S01E")
+        assert dialog.get_output_names() == [
+            "test file S01E01.srt", "test file S01E02.srt"]
 
         titles = self._row_titles(dialog)
-        assert titles == ["test file 01.srt", "test file 02.srt"]
+        assert titles == ["test file S01E01.srt", "test file S01E02.srt"]
 
     def test_pattern_with_placeholder_substitutes(self, window):
         dialog = self._make(window)

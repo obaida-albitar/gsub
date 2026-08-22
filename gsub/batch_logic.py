@@ -159,19 +159,21 @@ def expand_output_names(pattern: str, filenames) -> list:
     - The pattern contains ``{name}``: per-file substitution via
       :func:`expand_output_name` (e.g. ``{name}_fixed`` -> ``ep01_fixed.srt``).
     - Otherwise the pattern is the base name shared by every file and the
-      files are numbered after it (e.g. ``test file`` -> ``test file 01.srt``,
-      ``test file 02.srt``, ...). An empty pattern keeps the original names.
+      file number is appended directly after it (e.g. ``show S01E`` ->
+      ``show S01E01.srt``, ``show S01E02.srt``, ...). The pattern is used
+      as typed, so a trailing space yields ``show 01.srt`` style names.
+      An empty pattern keeps the original names.
     """
     filenames = list(filenames)
-    pattern = pattern.strip()
+    stripped = pattern.strip()
 
-    if not pattern or '{name}' in pattern:
+    if not stripped or '{name}' in stripped:
         return [expand_output_name(pattern, name) for name in filenames]
 
-    base = pattern.replace('/', '_').strip() or "subtitle"
+    base = pattern.replace('/', '_')
     width = max(2, len(str(len(filenames))))
     names = []
     for i, original in enumerate(filenames, start=1):
         ext = os.path.splitext(original)[1]
-        names.append(f"{base} {i:0{width}d}{ext}")
+        names.append(f"{base}{i:0{width}d}{ext}")
     return names
