@@ -117,6 +117,10 @@ modules:
   # --- Python dependencies -------------------------------------------------
   - name: python-deps
     buildsystem: simple
+    # flatpak-builder sandboxes module builds without network; pip needs it.
+    build-options:
+      build-args:
+        - --share=network
     build-commands:
       # PyGObject/pycairo build against the SDK's gobject-introspection.
       - pip3 install --no-deps --prefix=/app
