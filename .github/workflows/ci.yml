@@ -10,12 +10,13 @@ jobs:
   test:
     name: Tests & lint
     runs-on: ubuntu-24.04
+    # The distro python3-gi stack is used instead of pip PyGObject: the
+    # source-built pip PyGObject cannot find Ubuntu's GIRepository typelibs,
+    # which breaks both the app imports and the blueprint compiler.
+    env:
+      LIBGL_ALWAYS_SOFTWARE: '1'
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
 
       - name: Install system dependencies
         run: |
@@ -24,50 +25,34 @@ jobs:
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
             libadwaita-1-0 \
-            libgirepository1.0-dev \
-            libgirepository-1.0-1 \
-            libgirepository-2.0-dev \
+            python3-gi \
+            python3-gi-cairo \
+            python3-pip \
             libglib2.0-dev-bin \
-            gobject-introspection \
-            libcairo2-dev \
-            libmpv-dev \
             libmpv2 \
-            pkg-config \
             xvfb
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-          pip install -e .
+          python3 -m pip install --break-system-packages \
+            pytest pytest-cov pytest-xdist 'ruff==0.15.16'
+          python3 -m pip install --break-system-packages \
+            python-mpv PyOpenGL av charset-normalizer
+          # --no-deps: blueprint-compiler must use the distro gi, not a
+          # pip-installed PyGObject; likewise gsub's gi/pycairo come from apt.
+          python3 -m pip install --break-system-packages --no-deps blueprint-compiler
+          python3 -m pip install --break-system-packages --no-deps -e .
 
       - name: Lint
         run: ruff check .
 
       # pip's editable install does not run setup.py's build_py hook, so the
       # gresource is compiled explicitly (same as `make install` does locally).
-      - name: Debug gir paths
-        run: |
-          ls /usr/lib/x86_64-linux-gnu/girepository-1.0/ | head -5
-          ls /usr/lib/x86_64-linux-gnu/girepository-2.0/ | head -5
-          echo "GI_TYPELIB_PATH=$GI_TYPELIB_PATH"
-          python3 -c "import gi; print('gi at', gi.__file__)" || true
-          python3 -c "import gi; gi.require_version('GIRepository','3.0'); from gi.repository import GIRepository; print('search:', GIRepository.Repository.get_search_path())" || true
-          blueprint-compiler --version || true
-        env:
-          GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-2.0
-
       - name: Build UI resources
         run: make build-resources
-        env:
-          # The pip-installed blueprint-compiler needs the system GIRepository
-          # typelibs on its search path.
-          GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-2.0
 
       - name: Run tests (virtual display)
-        run: xvfb-run -a pytest
-        env:
-          LIBGL_ALWAYS_SOFTWARE: '1'
+        run: xvfb-run -a python3 -m pytest
 
   flatpak:
     name: Flatpak bundle
