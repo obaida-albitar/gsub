@@ -53,10 +53,8 @@ data/blueprints/*.ui
 # Compiled gresource bundle (generated at build time)
 gsub/gsub.gresource
 
-# Flatpak build artifacts
-builddir-flatpak/
-flatpak-repo/
-.flatpak-builder/
+# Flatpak build artifacts (builder state itself lives in
+# ~/.cache/gsub-flatpak — see the Makefile)
 *.flatpak
 
 # Application specific

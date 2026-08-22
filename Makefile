@@ -66,34 +66,41 @@ run:
 # in as an SDK dependency). Use the native flatpak-builder when installed
 # (e.g. sudo dnf install flatpak-builder), otherwise the Flathub-packaged one
 # (flatpak install flathub org.flatpak.Builder).
+#
+# All builder state lives OUTSIDE the project tree: the download cache can
+# contain extracted trees with absolute symlinks back into the host (e.g.
+# var/run/host/...), which loops directory walkers like setuptools' package
+# discovery and makes `pip install -e .` hang forever.
 FLATPAK_BUILDER := $(shell command -v flatpak-builder 2>/dev/null)
 ifeq ($(FLATPAK_BUILDER),)
 FLATPAK_BUILDER = flatpak run org.flatpak.Builder
 endif
 FLATPAK_MANIFEST = io.github.obaidaalbitar.gsub.yml
-FLATPAK_BUILDDIR = builddir-flatpak
-FLATPAK_REPO = flatpak-repo
+FLATPAK_WORK = $(HOME)/.cache/gsub-flatpak
+FLATPAK_BUILDDIR = $(FLATPAK_WORK)/build
+FLATPAK_REPO = $(FLATPAK_WORK)/repo
+FLATPAK_STATE = $(FLATPAK_WORK)/state
 VERSION := $(shell sed -n "s/^  version: '\([^']*\)'.*/\1/p" meson.build)
 
 # Build and install into the user Flatpak for quick local testing
 # (flatpak run io.github.obaidaalbitar.gsub). Incremental: module build state
-# is cached under .flatpak-builder between runs.
+# is cached under $(FLATPAK_WORK)/state between runs.
 flatpak:
-	$(FLATPAK_BUILDER) --user --install --force-clean \
-		--install-deps-from=flathub \
+	$(FLATPAK_BUILDER) --state-dir=$(FLATPAK_STATE) --user --install \
+		--force-clean --install-deps-from=flathub \
 		$(FLATPAK_BUILDDIR) $(FLATPAK_MANIFEST)
 
 # Produce the single-file release bundle (same artifact as the CI flatpak job).
 bundle:
-	$(FLATPAK_BUILDER) --force-clean --repo=$(FLATPAK_REPO) \
-		--install-deps-from=flathub \
+	$(FLATPAK_BUILDER) --state-dir=$(FLATPAK_STATE) --force-clean \
+		--repo=$(FLATPAK_REPO) --install-deps-from=flathub \
 		$(FLATPAK_BUILDDIR) $(FLATPAK_MANIFEST)
 	flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/ \
 		$(FLATPAK_REPO) gsub-v$(VERSION).x86_64.flatpak $(APP_ID)
 	@echo "Bundle written to gsub-v$(VERSION).x86_64.flatpak"
 
 clean-flatpak:
-	rm -rf $(FLATPAK_BUILDDIR) $(FLATPAK_REPO) .flatpak-builder
+	rm -rf $(FLATPAK_WORK) builddir-flatpak flatpak-repo .flatpak-builder
 
 clean:
 	rm -rf __pycache__ .pytest_cache .ruff_cache .coverage htmlcov \
