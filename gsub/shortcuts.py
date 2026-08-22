@@ -38,11 +38,12 @@ from dataclasses import dataclass
 # Dialog sections, in display order.
 SECTION_FILE = "File"
 SECTION_EDITING = "Editing"
+SECTION_BATCH = "Batch"
 SECTION_VIDEO = "Video"
 SECTION_TIMELINE = "Timeline"
 SECTION_NAVIGATION = "Navigation"
 
-SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_VIDEO,
+SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_BATCH, SECTION_VIDEO,
                  SECTION_TIMELINE, SECTION_NAVIGATION)
 
 
@@ -87,6 +88,11 @@ SHORTCUTS = (
     Shortcut("win.duplicate-entry", ("<Ctrl>D",), "Duplicate Subtitle", SECTION_EDITING),
     Shortcut("win.move-up", ("<Ctrl>Up",), "Move Up", SECTION_EDITING),
     Shortcut("win.move-down", ("<Ctrl>Down",), "Move Down", SECTION_EDITING),
+    # Batch: handled by the batch file list's key controller, not action
+    # accels — plain Delete is already the global win.remove-entry accel,
+    # and the list consumes it first while it has focus.
+    Shortcut(None, ("Delete",), "Batch: Remove Selected File", SECTION_BATCH),
+    Shortcut(None, ("<Ctrl><Shift>Delete",), "Batch: Clear All Files", SECTION_BATCH),
     # Video
     Shortcut("win.open-video", ("<Ctrl><Shift>O",), "Open Video…", SECTION_VIDEO),
     # Window key: as a plain accel, space would win over text input and

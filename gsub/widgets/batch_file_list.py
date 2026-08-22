@@ -2,15 +2,21 @@
 Batch file list widget for managing multiple subtitle files.
 """
 
+import gettext
+
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 
-from gi.repository import Gtk, Adw, Gio, GObject
+from gi.repository import Gtk, Adw, Gio, GLib, GObject, Gdk
 from gsub.models import SubtitleDocument
 from gsub.logger import get_logger
 from gsub.resources import template_resource_path
 import os
+
+# Same translation domain as the package-level gettext.install(); bound
+# explicitly so the `_` alias is visible to static analysis.
+_ = gettext.translation('gsub', fallback=True).gettext
 
 logger = get_logger(__name__)
 
@@ -65,10 +71,95 @@ class BatchFileList(Adw.Bin):
         self._files: list[BatchFileItem] = []
 
         self._list_store = Gio.ListStore.new(BatchFileItem)
-        self.list_view.set_model(Gtk.SingleSelection.new(self._list_store))
+        self._selection = Gtk.SingleSelection.new(self._list_store)
+        self.list_view.set_model(self._selection)
         self.list_view.set_factory(self._create_factory())
 
+        self._setup_context_menu()
+
         self.update_ui()
+
+    def _setup_context_menu(self):
+        """Right-click menu + Delete keys for removing files.
+
+        Menu items target widget-local actions; the Delete accelerators are
+        shown as plain menu attributes because they are dispatched by this
+        widget's key controller, never registered as application accels
+        (plain Delete already belongs to win.remove-entry).
+        """
+        actions = Gio.SimpleActionGroup()
+        remove_action = Gio.SimpleAction.new('remove-file', None)
+        remove_action.connect('activate', lambda *a: self.remove_selected())
+        clear_action = Gio.SimpleAction.new('clear-all', None)
+        clear_action.connect('activate', lambda *a: self._request_clear_all())
+        actions.add_action(remove_action)
+        actions.add_action(clear_action)
+        self.insert_action_group('batch-list', actions)
+
+        menu = Gio.Menu()
+        remove_item = Gio.MenuItem.new(_('Remove File'), 'batch-list.remove-file')
+        remove_item.set_attribute_value('accel', GLib.Variant.new_string('Delete'))
+        menu.append_item(remove_item)
+        clear_item = Gio.MenuItem.new(_('Clear All'), 'batch-list.clear-all')
+        clear_item.set_attribute_value(
+            'accel', GLib.Variant.new_string('<Ctrl><Shift>Delete'))
+        menu.append_item(clear_item)
+
+        self.context_popover = Gtk.PopoverMenu.new_from_model(menu)
+        self.context_popover.set_has_arrow(False)
+        self.context_popover.set_parent(self.list_view)
+
+        right_click = Gtk.GestureClick.new()
+        right_click.set_button(3)
+        right_click.connect('pressed', self._on_right_click)
+        self.list_view.add_controller(right_click)
+
+        key_controller = Gtk.EventControllerKey.new()
+        key_controller.connect('key-pressed', self._on_key_pressed)
+        self.list_view.add_controller(key_controller)
+
+    def _on_right_click(self, gesture, n_press, x, y):
+        """Select the row under the pointer and show the context menu."""
+        if self.file_count == 0:
+            return
+        self._select_row_at(x, y)
+        rect = Gdk.Rectangle()
+        rect.x = x
+        rect.y = y
+        rect.width = 1
+        rect.height = 1
+        self.context_popover.set_pointing_to(rect)
+        self.context_popover.popup()
+
+    def _select_row_at(self, x, y):
+        """Move the list selection to the row widget under (x, y)."""
+        widget = self.list_view.pick(x, y, Gtk.PickFlags.DEFAULT)
+        while widget is not None and not isinstance(widget, BatchFileRow):
+            widget = widget.get_parent()
+        item = widget.get_item() if widget is not None else None
+        if item is not None:
+            found, pos = self._list_store.find(item)
+            if found:
+                self._selection.select_item(pos, True)
+
+    def _on_key_pressed(self, controller, keyval, keycode, state):
+        """Delete removes the selected file; Ctrl+Shift+Delete clears all.
+
+        Consumed here (bubble phase) so the global win.remove-entry Delete
+        accel never fires while the batch list has focus.
+        """
+        if self.file_count == 0:
+            return False
+        ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
+        shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
+        if keyval == Gdk.KEY_Delete:
+            if ctrl and shift:
+                self._request_clear_all()
+                return True
+            if not ctrl and not shift:
+                self.remove_selected()
+                return True
+        return False
 
     def _create_factory(self):
         factory = Gtk.SignalListItemFactory()
@@ -116,6 +207,38 @@ class BatchFileList(Adw.Bin):
         self._files.clear()
         self.update_ui()
         self.emit('files-changed')
+
+    def get_selected_item(self) -> BatchFileItem | None:
+        """The item currently selected in the list view."""
+        return self._selection.get_selected_item()
+
+    def remove_selected(self):
+        """Remove the file selected in the list view (context menu / Delete)."""
+        item = self.get_selected_item()
+        if item is not None:
+            self.remove_file(item)
+
+    def _request_clear_all(self):
+        """Clear the list, confirming first when unsaved changes exist."""
+        if any(f.modified for f in self._files):
+            dialog = Adw.AlertDialog.new(
+                _('Remove All Files?'),
+                _('Some files have unsaved changes that will be lost.'))
+            dialog.add_response('cancel', _('Cancel'))
+            dialog.add_response('remove', _('Remove All'))
+            dialog.set_response_appearance(
+                'remove', Adw.ResponseAppearance.DESTRUCTIVE)
+            dialog.choose(self.get_root() or self, None,
+                          self._on_clear_all_response)
+        else:
+            self.clear()
+
+    def _on_clear_all_response(self, dialog, result):
+        try:
+            if dialog.choose_finish(result) == 'remove':
+                self.clear()
+        except Exception:
+            pass  # Dialog dismissed
 
     @property
     def file_count(self):
@@ -176,6 +299,10 @@ class BatchFileRow(Adw.ActionRow):
     def unbind(self):
         self._item = None
         self._callback = None
+
+    def get_item(self) -> BatchFileItem | None:
+        """The item currently bound to this row (None when recycled)."""
+        return self._item
 
     def _on_toggled(self, check):
         if self._item:

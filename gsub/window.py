@@ -1421,8 +1421,13 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_batch_files_changed(self, widget):
         """Handle batch file list changes."""
+        if self.batch_file_list.file_count == 0:
+            # An emptied batch is a fresh batch: drop the established format
+            # so the next added file can be of any format again.
+            self.batch_format = None
         self._refresh_batch_context()
         self._update_batch_action_buttons()
+        self._update_batch_status()
 
     def _refresh_batch_context(self):
         """Update batch panel context from the currently loaded files.
