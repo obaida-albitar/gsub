@@ -77,9 +77,12 @@ modules:
       - /include
       - /lib/pkgconfig
     sources:
-      - type: archive
-        url: https://github.com/haasn/libplacebo/archive/refs/tags/v7.360.1.tar.gz
-        sha256: d05fdf90bea2f629eaa2d115e909fd356388ac639e54f77b87a018a6d76224bd
+      # git source (not a tag archive): flatpak-builder initialises the
+      # vendored glad submodule under 3rdparty/, which archives omit.
+      - type: git
+        url: https://github.com/haasn/libplacebo.git
+        tag: v7.360.1
+        commit: 719cc95244a1f1d648dd72459822e026e6530f22
 
   - name: libmpv
     buildsystem: meson

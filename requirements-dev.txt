@@ -11,5 +11,9 @@ pytest-xdist>=3.3.0
 # which would make lint results differ between machines.
 ruff==0.15.16
 
+# Compiles data/blueprints/*.blp at pip-install time (setup.py). Also
+# available from distributions as `blueprint-compiler`; either works.
+blueprint-compiler
+
 # Canonical system build (alternative to pip)
 meson>=1.0.0
