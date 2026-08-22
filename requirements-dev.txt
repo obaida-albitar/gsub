@@ -7,7 +7,9 @@
 pytest>=7.4.0
 pytest-cov>=4.1.0
 pytest-xdist>=3.3.0
-ruff>=0.5.0
+# Pinned exactly: newer ruff releases can enable additional default rules,
+# which would make lint results differ between machines.
+ruff==0.15.16
 
 # Canonical system build (alternative to pip)
 meson>=1.0.0

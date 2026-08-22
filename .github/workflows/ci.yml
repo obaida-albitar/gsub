@@ -60,7 +60,7 @@ jobs:
           bundle: gsub-${{ github.ref_name }}.x86_64.flatpak
           manifest-path: io.github.obaidaalbitar.gsub.yml
           artifact-name: gsub-flatpak-bundle
-          cache-key: flatpak-builder-${{ github.sha }}
+          cache-key: flatpak-builder-v1
 
   release:
     name: Attach Flatpak bundle to release
