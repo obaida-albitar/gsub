@@ -117,20 +117,31 @@ class EditorPanel(Gtk.Box):
             None, foreground="#888a85", style=Pango.Style.ITALIC)
 
         # Right-click on the text view: visual editing for the mid-line
-        # {...} blocks (line-start blocks live in the Formatting rows).
+        # {...} blocks (line-start blocks live in the Formatting rows) plus
+        # a plain Copy for the selection.
         self._inline_click_offset = None
+        self._dismiss_controller_root = None
         inline_actions = Gio.SimpleActionGroup()
         for name, handler in (
             ('add', self._on_inline_add_tags),
             ('edit', self._on_inline_edit_tags),
             ('remove', self._on_inline_remove_tags),
+            ('copy', self._on_inline_copy),
         ):
             action = Gio.SimpleAction.new(name, None)
             action.connect('activate', handler)
             inline_actions.add_action(action)
         self.text_view.insert_action_group('text-tags', inline_actions)
 
-        self._inline_menu_popover = Gtk.PopoverMenu.new_from_model(Gio.Menu())
+        # Built from a populated model (never an empty one): the popover's
+        # autohide grab misbehaves when constructed from an empty menu.
+        # _format is not set yet here, so the initial model is built
+        # inline; every right-click replaces it with the contextual one.
+        initial_menu = Gio.Menu()
+        initial_section = Gio.Menu()
+        initial_section.append(_("Add Formatting Here"), 'text-tags.add')
+        initial_menu.append_section(None, initial_section)
+        self._inline_menu_popover = Gtk.PopoverMenu.new_from_model(initial_menu)
         self._inline_menu_popover.set_has_arrow(False)
         self._inline_menu_popover.set_parent(self.text_view)
 
@@ -138,6 +149,10 @@ class EditorPanel(Gtk.Box):
         text_right_click.set_button(3)
         text_right_click.connect('pressed', self._on_text_right_click)
         self.text_view.add_controller(text_right_click)
+
+        # Row count of the leading block's editor; a grown count means a
+        # row was added and the group headers must be moved after it.
+        self._leading_row_count = 0
 
         # Visual editor for the leading override block (ASS/SSA only), plus
         # one _TagGroup per additional line-start block.
@@ -266,6 +281,7 @@ class EditorPanel(Gtk.Box):
             self._clear_tag_groups()
             self.text_buffer.set_text(entry.text)
             self.tag_editor.load_body(None)
+            self._leading_row_count = 0
         self.formatting_expander.set_visible(is_ass)
         self._apply_inline_tag_highlight()
         self._update_formatting_subtitle()
@@ -302,6 +318,7 @@ class EditorPanel(Gtk.Box):
 
         self.text_buffer.set_text("")
         self.tag_editor.load_body(None)
+        self._leading_row_count = 0
         self._clear_tag_groups()
         self._apply_inline_tag_highlight()
 
@@ -400,24 +417,10 @@ class EditorPanel(Gtk.Box):
         self._clear_tag_groups()
         self.text_buffer.set_text(clean)
         self.tag_editor.load_body(leading_body)
+        self._leading_row_count = len(self.tag_editor.get_rows())
 
         for offset, body in group_anchors:
-            header = Adw.ExpanderRow()
-            header.set_expanded(True)
-            add_button = Gtk.MenuButton(
-                icon_name='list-add-symbolic',
-                valign=Gtk.Align.CENTER,
-                tooltip_text=_('Add tag'))
-            add_button.add_css_class('flat')
-            header.add_suffix(add_button)
-            self.formatting_expander.add_row(header)
-            editor = TagEditorRows(header)
-            editor.load_body(body)
-            editor.setup_add_button(add_button)
-            editor.connect("changed", self._on_tag_group_changed)
-            self._tag_groups.append(
-                _TagGroup(offset=offset, header=header, editor=editor,
-                          add_button=add_button))
+            self._insert_tag_group(offset, body)
         self._refresh_tag_group_headers()
 
     def _refresh_tag_group_headers(self):
@@ -540,6 +543,13 @@ class EditorPanel(Gtk.Box):
 
     def _on_tag_editor_changed(self, *args):
         """A formatting row changed: recompose and debounce as a text change."""
+        row_count = len(self.tag_editor.get_rows())
+        if row_count > self._leading_row_count:
+            # A row was added to the leading block: move the group headers
+            # after it so the leading block's rows stay together, ahead of
+            # the per-line expanders (containers append only).
+            self._reorder_tag_group_headers()
+        self._leading_row_count = row_count
         self._update_formatting_subtitle()
         self._queue_text_change()
 
@@ -584,22 +594,25 @@ class EditorPanel(Gtk.Box):
     # --- Inline (mid-line) tag blocks -----------------------------------------
 
     def _on_text_right_click(self, gesture, n_press, x, y):
-        """Offer tag actions for the inline block at the click, if any."""
-        if self._format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
-            return
-        buffer_x, buffer_y = self.text_view.window_to_buffer_coords(
-            Gtk.TextWindowType.WIDGET, x, y)
-        _over_line, iter_at = self.text_view.get_iter_at_location(
-            buffer_x, buffer_y)
-        self._inline_click_offset = iter_at.get_offset()
+        """Offer Copy and tag actions for the click (and selection)."""
+        is_ass = self._format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
+        inside_block = False
+        if is_ass:
+            buffer_x, buffer_y = self.text_view.window_to_buffer_coords(
+                Gtk.TextWindowType.WIDGET, x, y)
+            _over_line, iter_at = self.text_view.get_iter_at_location(
+                buffer_x, buffer_y)
+            self._inline_click_offset = iter_at.get_offset()
+            inside_block = (
+                self._find_inline_block_at(self._inline_click_offset)
+                is not None)
 
-        menu = Gio.Menu()
-        if self._find_inline_block_at(self._inline_click_offset) is not None:
-            menu.append(_("Edit Formatting…"), 'text-tags.edit')
-            menu.append(_("Remove Formatting"), 'text-tags.remove')
-        else:
-            menu.append(_("Add Formatting Here"), 'text-tags.add')
+        has_selection = self.text_buffer.get_has_selection()
+        menu = self._build_inline_menu(inside_block, has_selection)
+        if menu.get_n_items() == 0:
+            return  # nothing to offer (SRT without a selection)
         self._inline_menu_popover.set_menu_model(menu)
+        self._ensure_global_dismiss_controller()
 
         rect = Gdk.Rectangle()
         rect.x = x
@@ -608,6 +621,47 @@ class EditorPanel(Gtk.Box):
         rect.height = 1
         self._inline_menu_popover.set_pointing_to(rect)
         self._inline_menu_popover.popup()
+
+    def _build_inline_menu(self, inside_block: bool, has_selection: bool) -> Gio.Menu:
+        """The right-click menu for the current context (may be empty)."""
+        menu = Gio.Menu()
+        if has_selection:
+            menu.append(_("Copy"), 'text-tags.copy')
+
+        is_ass = self._format in (SubtitleFormat.ASS, SubtitleFormat.SSA)
+        if is_ass:
+            section = Gio.Menu()
+            if inside_block:
+                section.append(_("Edit Formatting…"), 'text-tags.edit')
+                section.append(_("Remove Formatting"), 'text-tags.remove')
+            else:
+                section.append(_("Add Formatting Here"), 'text-tags.add')
+            menu.append_section(None, section)
+        return menu
+
+    def _ensure_global_dismiss_controller(self):
+        """Close the inline menu on any click anywhere in the window.
+
+        Insurance for the popover's autohide grab: a capture-phase click
+        controller on the window root pops the menu down even when the
+        grab misses the outside click. No-op while the grab works, since
+        such clicks never reach the window at all.
+        """
+        root = self.get_root()
+        if root is None or self._dismiss_controller_root is root:
+            return
+        self._dismiss_controller_root = root
+        controller = Gtk.GestureClick()
+        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        controller.set_button(0)
+
+        def on_pressed(*_args):
+            if self._inline_menu_popover.get_visible():
+                self._inline_menu_popover.pop_down()
+            return False
+
+        controller.connect('pressed', on_pressed)
+        root.add_controller(controller)
 
     def _find_inline_block_at(self, offset: int):
         """The {...} block match covering ``offset`` in the buffer, or None."""
@@ -619,15 +673,24 @@ class EditorPanel(Gtk.Box):
         return None
 
     def _on_inline_add_tags(self, action, param):
-        """Insert an empty block at the right-click offset and edit it."""
-        offset = self._inline_click_offset
-        if offset is None:
-            return
+        """Insert an empty block before the selection (or at the click)."""
+        if self.text_buffer.get_has_selection():
+            selection_start, _selection_end = self.text_buffer.get_selection_bounds()
+            offset = selection_start.get_offset()
+        else:
+            offset = self._inline_click_offset
+            if offset is None:
+                return
         block = self._find_inline_block_at(offset)
         start = block.end() if block is not None else offset
         at = self.text_buffer.get_iter_at_offset(start)
         self.text_buffer.insert(at, '{}')
         self._open_inline_tag_editor(start, start + 2, body='')
+
+    def _on_inline_copy(self, action, param):
+        """Copy the current text selection to the clipboard."""
+        if self.text_buffer.get_has_selection():
+            self.text_buffer.copy_clipboard()
 
     def _on_inline_edit_tags(self, action, param):
         """Open the tag editor on the block at the right-click offset."""
@@ -657,8 +720,9 @@ class EditorPanel(Gtk.Box):
 
         Every row change splices the serialized block back into the buffer
         (through the normal debounced text-changed path, so undo keeps
-        working); a block that is still the empty ``{}`` placeholder when
-        the dialog closes is removed again.
+        working). On close, a block left at a line start is promoted into
+        the Formatting rows like every other line-start block; anything
+        else that is still the empty ``{}`` placeholder is removed again.
         """
         dialog = Adw.Dialog(title=_("Edit Tags"))
         dialog.set_content_width(420)
@@ -697,11 +761,96 @@ class EditorPanel(Gtk.Box):
             'changed', lambda *_: self._splice_inline_block(state, editor))
 
         def on_closed(*_args):
-            # Drop a placeholder the user never filled in.
-            self._drop_empty_inline_placeholder(state)
+            # A block left at a line start joins the Formatting rows (like
+            # every line-start block at load time); anything else just
+            # drops the empty placeholder.
+            if not self._promote_inline_block_to_group(state):
+                self._drop_empty_inline_placeholder(state)
 
         dialog.connect('closed', on_closed)
         dialog.present(self.get_root() or self)
+
+    def _promote_inline_block_to_group(self, state: dict) -> bool:
+        """Move the block at ``state`` from the buffer into the tag rows.
+
+        Line-start blocks are presented as "Line N tags" groups (that is
+        how the parser splits them at load time), so a block the user
+        added at a line start is extracted here once editing finishes.
+        Returns True when promoted; empty or mid-line blocks return False
+        and keep their inline presentation.
+        """
+        if self._format not in (SubtitleFormat.ASS, SubtitleFormat.SSA):
+            return False
+        block_start = self.text_buffer.get_iter_at_offset(state['start'])
+        block_end = self.text_buffer.get_iter_at_offset(state['end'])
+        text = self.text_buffer.get_text(block_start, block_end, False)
+        if len(text) < 2 or not (text.startswith('{') and text.endswith('}')):
+            return False
+        if text == '{}':
+            return False  # untouched placeholder: caller drops it
+        offset = state['start']
+        start, end = self.text_buffer.get_bounds()
+        full = self.text_buffer.get_text(start, end, False)
+        if offset != 0 and full[offset - 1:offset] != '\n':
+            return False  # mid-line: stays inline
+        # Remove the block from the buffer (groups anchored after this
+        # offset shift automatically); the debounced recomposition that
+        # follows picks the new group up.
+        self.text_buffer.delete(block_start, block_end)
+        self._insert_tag_group(offset, text[1:-1])
+        return True
+
+    def _insert_tag_group(self, offset: int, body: str) -> "_TagGroup":
+        """Add a new line-start tag group (nested expander + rows) at ``offset``.
+
+        Shared by the load-time split and the promotion of added blocks;
+        keeps both ``_tag_groups`` and the visible headers in offset order
+        (recomposition splices blocks in list order, and containers have
+        no insert API, so ordering means remove-and-reappend).
+        """
+        header = Adw.ExpanderRow()
+        header.set_expanded(True)
+        add_button = Gtk.MenuButton(
+            icon_name='list-add-symbolic',
+            valign=Gtk.Align.CENTER,
+            tooltip_text=_('Add tag'))
+        add_button.add_css_class('flat')
+        header.add_suffix(add_button)
+        self.formatting_expander.add_row(header)
+        editor = TagEditorRows(header)
+        editor.load_body(body)
+        editor.setup_add_button(add_button)
+        editor.connect("changed", self._on_tag_group_changed)
+
+        group = _TagGroup(offset=offset, header=header, editor=editor,
+                          add_button=add_button)
+        index = len(self._tag_groups)
+        for i, existing in enumerate(self._tag_groups):
+            if existing.offset > offset:
+                index = i
+                break
+        self._tag_groups.insert(index, group)
+        self._reorder_tag_group_headers()
+        self._refresh_tag_group_headers()
+        self._update_formatting_subtitle()
+        return group
+
+    def _reorder_tag_group_headers(self):
+        """Re-append every group header in offset order, after other rows.
+
+        Containers append only, so reordering means removing the headers
+        and adding them back; this also keeps newly added leading-block
+        rows ahead of the per-line group expanders.
+        """
+        if not self._tag_groups:
+            return
+        ordered = sorted(self._tag_groups, key=lambda g: g.offset)
+        for group in ordered:
+            if group.header.get_parent() is not None:
+                self.formatting_expander.remove(group.header)
+        for group in ordered:
+            if group.header.get_parent() is None:
+                self.formatting_expander.add_row(group.header)
 
     def _splice_inline_block(self, state: dict, editor: TagEditorRows):
         """Replace the edited block's buffer range with its serialization.

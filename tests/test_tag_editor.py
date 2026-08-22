@@ -580,6 +580,135 @@ class TestEditorPanelTagEditing:
         panel._drop_empty_inline_placeholder(state)
         assert _buffer_text(panel) == 'plain text'
 
+    # --- Added-block promotion & menu behavior ---------------------------------
+
+    def test_promoted_line_start_block_becomes_group(self):
+        """A block added at a line start joins the Formatting rows on close."""
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('one\ntwo three'), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(4), '{\\b1}')
+        state = {'start': 4, 'end': 9}
+
+        assert panel._promote_inline_block_to_group(state) is True
+        assert _buffer_text(panel) == 'one\ntwo three'
+        assert len(panel._tag_groups) == 1
+        group = panel._tag_groups[0]
+        assert group.offset == 4
+        assert group.editor.get_block() == '{\\b1}'
+        assert group.header.get_title() == 'Line 2 tags'
+        assert group.header.get_subtitle() == 'two three'
+        _wait_debounce(panel)
+        assert emitted and emitted[-1] == 'one\n{\\b1}two three'
+
+    def test_promoted_group_orders_before_later_groups(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(0), '{\\u1}')
+        state = {'start': 0, 'end': 5}
+
+        assert panel._promote_inline_block_to_group(state) is True
+        # The promoted block left the buffer again, so the line-2 anchor is
+        # back to its pre-insert position (newline + line 1).
+        offsets = [g.offset for g in panel._tag_groups]
+        assert offsets == sorted(offsets) == [0, len(USER_LINE_1) + 1]
+        # Headers appear in the same order as their offsets.
+        indexes = [g.header.get_index() for g in panel._tag_groups]
+        assert indexes == sorted(indexes)
+        expected = (USER_LEAD + '{\\u1}' + USER_LINE_1
+                    + '\n{\\fs22}' + USER_LINE_2)
+        assert panel._compose_text() == expected
+        _wait_debounce(panel)
+
+    def test_midline_block_is_not_promoted(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('one two'), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(4), '{\\b1}')
+        state = {'start': 4, 'end': 9}
+
+        assert panel._promote_inline_block_to_group(state) is False
+        assert _buffer_text(panel) == 'one {\\b1}two'
+        assert panel._tag_groups == []
+
+    def test_empty_placeholder_is_not_promoted(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('one\ntwo'), 0)
+
+        buffer = panel.text_buffer
+        buffer.insert(buffer.get_iter_at_offset(4), '{}')
+        state = {'start': 4, 'end': 6}
+
+        assert panel._promote_inline_block_to_group(state) is False
+        assert panel._tag_groups == []
+
+    def test_inline_add_tags_inserts_before_selection(self, monkeypatch):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('keep moving forward'), 0)
+        opened = {}
+        monkeypatch.setattr(
+            panel, '_open_inline_tag_editor',
+            lambda start, end, body=None: opened.update(
+                {'start': start, 'end': end, 'body': body}))
+
+        buffer = panel.text_buffer
+        buffer.select_range(buffer.get_iter_at_offset(5),
+                            buffer.get_iter_at_offset(11))  # "moving"
+        panel._inline_click_offset = 16  # click elsewhere: selection wins
+        panel._on_inline_add_tags(None, None)
+
+        assert _buffer_text(panel) == 'keep {}moving forward'
+        assert opened == {'start': 5, 'end': 7, 'body': ''}
+
+    def test_inline_menu_content(self):
+        from gi.repository import GLib
+
+        panel = _make_panel()
+        panel.set_entry(_make_entry('a {\\i1}b c'), 0)
+
+        menu = panel._build_inline_menu(inside_block=True, has_selection=True)
+        assert menu.get_n_items() == 2  # Copy + formatting section
+        variant = menu.get_item_attribute_value(0, 'action', GLib.VariantType('s'))
+        assert variant.get_string() == 'text-tags.copy'
+
+        menu = panel._build_inline_menu(inside_block=False, has_selection=False)
+        assert menu.get_n_items() == 1  # Add Formatting Here only
+
+        srt_panel = _make_panel(fmt=SubtitleFormat.SRT)
+        menu = srt_panel._build_inline_menu(inside_block=False, has_selection=False)
+        assert menu.get_n_items() == 0  # no selection, no formatting items
+
+    def test_inline_copy_action_copies_selection(self, monkeypatch):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('hello world'), 0)
+        calls = []
+        monkeypatch.setattr(
+            panel.text_buffer, 'copy_clipboard', lambda: calls.append(True))
+
+        buffer = panel.text_buffer
+        buffer.select_range(buffer.get_iter_at_offset(0),
+                            buffer.get_iter_at_offset(5))
+        panel.text_view.activate_action('text-tags.copy', None)
+        assert calls == [True]
+
+    def test_added_leading_row_stays_before_group_headers(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry('{\\b1}lead line\n{\\i1}second line'), 0)
+
+        group_header = panel._tag_groups[0].header
+        lead_rows = panel.tag_editor.get_rows()
+        assert lead_rows[0].get_index() < group_header.get_index()
+
+        panel.tag_editor.add_tag('\\fs40')
+        lead_rows = panel.tag_editor.get_rows()
+        assert max(r.get_index() for r in lead_rows) < group_header.get_index()
+
 
 class TestSubtitleListCleanDisplay:
     def _make_view(self, texts):

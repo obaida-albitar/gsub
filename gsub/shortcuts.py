@@ -104,14 +104,18 @@ SHORTCUTS = (
     # Handled by the video player's key controller, not an action accel.
     Shortcut(None, ("plus", "equal", "minus", "0"),
              "Subtitle Size: Increase / Decrease / Reset", SECTION_VIDEO),
-    # Timeline: precise navigation on the custom timeline. The arrow-key
-    # accels are keybinding-class and coexist fine with text editing, but
-    # the plain typable frame-step keys (period/comma) are window keys —
-    # otherwise typing "." or "," in the text editor would step the video.
-    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE),
+    # Timeline: precise navigation on the custom timeline. The arrow keys
+    # are window keys, not accels: as application accels they won over
+    # widget keybindings and stole Left/Right from the subtitle text
+    # editor's caret (same class of problem as space/period/comma above).
+    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE,
+             window_key=True),
     Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_TIMELINE,
              window_key=True),
     Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE,

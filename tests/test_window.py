@@ -912,12 +912,22 @@ class TestWindowKeyLookup:
             ("space", "win.play-pause"),
             ("period", "win.frame-step"),
             ("comma", "win.frame-back-step"),
+            ("Left", "win.seek-nudge-back"),
+            ("Right", "win.seek-nudge-forward"),
         ):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name), 0) == action
 
+    def test_shift_arrows_match_the_large_seeks(self, table):
+        assert _window_key_lookup(
+            table, Gdk.keyval_from_name("Left"),
+            Gdk.ModifierType.SHIFT_MASK) == "win.seek-nudge-back-large"
+        assert _window_key_lookup(
+            table, Gdk.keyval_from_name("Right"),
+            Gdk.ModifierType.SHIFT_MASK) == "win.seek-nudge-forward-large"
+
     def test_control_held_does_not_match(self, table):
-        for key_name in ("space", "period", "comma"):
+        for key_name in ("space", "period", "comma", "Left", "Right"):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name),
                 Gdk.ModifierType.CONTROL_MASK) is None
@@ -928,17 +938,23 @@ class TestWindowKeyLookup:
             Gdk.ModifierType.SHIFT_MASK) is None
 
     def test_unrelated_keyvals_do_not_match(self, table):
-        for key_name in ("a", "Return", "Left", "Escape"):
+        for key_name in ("a", "Return", "Escape"):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name), 0) is None
 
     def test_table_covers_exactly_the_window_key_actions(self, table):
         assert set(table.values()) == {
-            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+            "win.play-pause", "win.frame-step", "win.frame-back-step",
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large"}
         assert set(table) == {
             (Gdk.keyval_from_name("space"), 0),
             (Gdk.keyval_from_name("period"), 0),
             (Gdk.keyval_from_name("comma"), 0),
+            (Gdk.keyval_from_name("Left"), 0),
+            (Gdk.keyval_from_name("Right"), 0),
+            (Gdk.keyval_from_name("Left"), int(Gdk.ModifierType.SHIFT_MASK)),
+            (Gdk.keyval_from_name("Right"), int(Gdk.ModifierType.SHIFT_MASK)),
         }
 
 
@@ -955,11 +971,15 @@ class TestWindowKeyController:
 
     def test_window_keys_not_registered_as_accels(self, window):
         app = window.get_application()
-        for name in ("play-pause", "frame-step", "frame-back-step"):
+        for name in ("play-pause", "frame-step", "frame-back-step",
+                     "seek-nudge-back", "seek-nudge-forward",
+                     "seek-nudge-back-large", "seek-nudge-forward-large"):
             assert app.get_accels_for_action(f"win.{name}") == [], name
         # The controller dispatches them from its own lookup table instead.
         assert set(window._window_keys.values()) == {
-            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+            "win.play-pause", "win.frame-step", "win.frame-back-step",
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large"}
 
     def test_space_toggles_playback_with_a_video(self, window):
         window.current_video_file = "/movies/example.mkv"
