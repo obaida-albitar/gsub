@@ -20,6 +20,7 @@ import threading
 from typing import Optional
 
 from gsub.logger import get_logger
+from gsub.utils import read_preferences, write_preferences
 
 logger = get_logger(__name__)
 
@@ -157,45 +158,8 @@ def _make_get_proc_address():
     return MpvGlGetProcAddressFn(wrapper), get_draw_fbo
 
 
-# Player preferences live in ~/.config/gsub/preferences.conf. Releases before
-# the package rename kept them in ~/.config/subtitle-editor/; that legacy
-# location stays as a read-only fallback so existing settings migrate
-# silently the first time a preference is saved.
-_PREFERENCES_DIR = "~/.config/gsub"
-_LEGACY_PREFERENCES_DIR = "~/.config/subtitle-editor"
-_PREFERENCES_FILENAME = "preferences.conf"
-
-
-def _preference_file_paths() -> list[str]:
-    """Candidate locations for preferences.conf, new path first."""
-    return [
-        os.path.join(os.path.expanduser(_PREFERENCES_DIR), _PREFERENCES_FILENAME),
-        os.path.join(os.path.expanduser(_LEGACY_PREFERENCES_DIR), _PREFERENCES_FILENAME),
-    ]
-
-
-def _read_preferences() -> dict:
-    """Read the key=value preferences file (legacy location as fallback)."""
-    prefs = {}
-    for path in _preference_file_paths():
-        if os.path.exists(path):
-            with open(path, "r") as f:
-                for line in f:
-                    if "=" in line:
-                        key, val = line.strip().split("=", 1)
-                        prefs[key] = val
-            break
-    return prefs
-
-
-def _write_preferences(prefs: dict) -> None:
-    """Write the key=value preferences file to the current config dir."""
-    config_dir = os.path.expanduser(_PREFERENCES_DIR)
-    os.makedirs(config_dir, exist_ok=True)
-    config_file = os.path.join(config_dir, _PREFERENCES_FILENAME)
-    with open(config_file, "w") as f:
-        for key, val in prefs.items():
-            f.write(f"{key}={val}\n")
+# Player preferences live in ~/.config/gsub/preferences.conf (see
+# gsub.utils.read_preferences/write_preferences).
 
 
 @Gtk.Template(resource_path=template_resource_path("video-player"))
@@ -1396,7 +1360,7 @@ class VideoPlayerWidget(Gtk.Box):
     @staticmethod
     def _load_waveform_preference() -> bool:
         try:
-            value = _read_preferences().get("waveform_enabled")
+            value = read_preferences().get("waveform_enabled")
             if value is not None:
                 return value.strip().lower() == "true"
         except Exception as e:
@@ -1406,9 +1370,9 @@ class VideoPlayerWidget(Gtk.Box):
     @staticmethod
     def _save_waveform_preference(value: bool):
         try:
-            prefs = _read_preferences()
+            prefs = read_preferences()
             prefs["waveform_enabled"] = "true" if value else "false"
-            _write_preferences(prefs)
+            write_preferences(prefs)
         except Exception as e:
             logger.error(f"Error saving waveform preference: {e}")
 
@@ -1451,7 +1415,7 @@ class VideoPlayerWidget(Gtk.Box):
     @staticmethod
     def _load_subtitle_scale_preference():
         try:
-            raw = _read_preferences().get("subtitle_scale")
+            raw = read_preferences().get("subtitle_scale")
             if raw is not None:
                 try:
                     value = float(raw)
@@ -1471,9 +1435,9 @@ class VideoPlayerWidget(Gtk.Box):
     @staticmethod
     def _save_subtitle_scale_preference(value: float):
         try:
-            prefs = _read_preferences()
+            prefs = read_preferences()
             prefs["subtitle_scale"] = f"{value:.2f}"
-            _write_preferences(prefs)
+            write_preferences(prefs)
         except Exception as e:
             logger.error(f"Error saving subtitle scale: {e}")
 

@@ -268,6 +268,38 @@ template $GsubASSStylesDialog : Adw.Dialog {
           subtitle: _("Live sample for the selected style");
           expanded: true;
 
+          [suffix]
+          Button preview_text_reset {
+            icon-name: "edit-clear-symbolic";
+            tooltip-text: _("Reset preview text");
+            valign: center;
+            styles ["flat"]
+          }
+
+          // Editable preview sample text (any language / length; newlines
+          // are kept). Wired from code; shared with the style props editor.
+          ScrolledWindow preview_text_scroll {
+            styles ["card"]
+            min-content-height: 64;
+            max-content-height: 120;
+            hscrollbar-policy: never;
+            vscrollbar-policy: automatic;
+            margin-start: 12;
+            margin-end: 12;
+            margin-top: 6;
+
+            child: TextView preview_text_view {
+              wrap-mode: word_char;
+              pixels-above-lines: 4;
+              pixels-below-lines: 4;
+              left-margin: 12;
+              right-margin: 12;
+              top-margin: 8;
+              bottom-margin: 8;
+              accepts-tab: false;
+            };
+          }
+
           ScrolledWindow preview_scroller {
             hexpand: true;
             halign: fill;

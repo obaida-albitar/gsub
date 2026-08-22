@@ -1,6 +1,47 @@
 """Small GTK-free helpers shared by the UI layer."""
 
+import os
 from typing import Iterable, List, Optional, Tuple
+
+# App preferences live in ~/.config/gsub/preferences.conf. Releases before
+# the package rename kept them in ~/.config/subtitle-editor/; that legacy
+# location stays as a read-only fallback so existing settings migrate
+# silently the first time a preference is saved.
+_PREFERENCES_DIR = "~/.config/gsub"
+_LEGACY_PREFERENCES_DIR = "~/.config/subtitle-editor"
+_PREFERENCES_FILENAME = "preferences.conf"
+
+
+def _preference_file_paths() -> list[str]:
+    """Candidate locations for preferences.conf, new path first."""
+    return [
+        os.path.join(os.path.expanduser(_PREFERENCES_DIR), _PREFERENCES_FILENAME),
+        os.path.join(os.path.expanduser(_LEGACY_PREFERENCES_DIR), _PREFERENCES_FILENAME),
+    ]
+
+
+def read_preferences() -> dict:
+    """Read the key=value preferences file (legacy location as fallback)."""
+    prefs = {}
+    for path in _preference_file_paths():
+        if os.path.exists(path):
+            with open(path, "r") as f:
+                for line in f:
+                    if "=" in line:
+                        key, val = line.strip().split("=", 1)
+                        prefs[key] = val
+            break
+    return prefs
+
+
+def write_preferences(prefs: dict) -> None:
+    """Write the key=value preferences file to the current config dir."""
+    config_dir = os.path.expanduser(_PREFERENCES_DIR)
+    os.makedirs(config_dir, exist_ok=True)
+    config_file = os.path.join(config_dir, _PREFERENCES_FILENAME)
+    with open(config_file, "w") as f:
+        for key, val in prefs.items():
+            f.write(f"{key}={val}\n")
 
 
 def is_video_content_type(content_type: Optional[str]) -> bool:
