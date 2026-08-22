@@ -10,11 +10,11 @@ jobs:
   test:
     name: Tests & lint
     runs-on: ubuntu-latest
-    # Debian trixie carries the GNOME 48 stack (libadwaita 1.8), matching the
-    # app's minimum; Ubuntu 24.04's libadwaita 1.5 lacks Adw.ShortcutsDialog
-    # and friends. The distro python3-gi is used because the pip-built
-    # PyGObject cannot find Ubuntu's GIRepository typelibs.
-    container: debian:trixie
+    # Debian testing (forky) carries libadwaita 1.9, satisfying the app's
+    # >=1.8 minimum (Adw.ShortcutsDialog & friends); trixie is stuck on 1.7
+    # and Ubuntu 24.04 on 1.5. The distro python3-gi is used because the
+    # pip-built PyGObject cannot find the system GIRepository typelibs.
+    container: debian:testing
     env:
       LIBGL_ALWAYS_SOFTWARE: '1'
     steps:
