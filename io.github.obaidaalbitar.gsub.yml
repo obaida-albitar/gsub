@@ -97,7 +97,6 @@ modules:
       - -Dcdda=disabled
       - -Ddvbin=disabled
       - -Dlibarchive=disabled
-      - -Dsdl2=disabled
       - -Dvulkan=disabled
     cleanup:
       - /include
