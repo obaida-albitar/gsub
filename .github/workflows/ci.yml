@@ -27,6 +27,7 @@ jobs:
             libgirepository1.0-dev \
             libgirepository-2.0-dev \
             libglib2.0-dev-bin \
+            gobject-introspection \
             libcairo2-dev \
             libmpv-dev \
             libmpv2 \
@@ -46,6 +47,10 @@ jobs:
       # gresource is compiled explicitly (same as `make install` does locally).
       - name: Build UI resources
         run: make build-resources
+        env:
+          # The pip-installed blueprint-compiler needs the system GIRepository
+          # typelibs on its search path.
+          GI_TYPELIB_PATH: /usr/lib/x86_64-linux-gnu/girepository-1.0:/usr/lib/x86_64-linux-gnu/girepository-2.0
 
       - name: Run tests (virtual display)
         run: xvfb-run -a pytest
