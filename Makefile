@@ -1,10 +1,13 @@
 PREFIX ?= $(HOME)/.local
 APP_ID = io.github.obaidaalbitar.gsub
+# App IDs used by earlier releases; their desktop files/icons are removed on
+# install and uninstall so old entries don't linger in the app grid.
+LEGACY_APP_IDS = app.gsub io.github.obaida-albitar.gsub
 PYTHON ?= python3
 
 all: install
 
-install: install-pip build-resources install-desktop install-icon update-cache
+install: install-pip build-resources clean-legacy install-desktop install-icon update-cache
 	@echo "gsub installed. You can now launch it from the GNOME app grid."
 	@echo "Run 'gsub' from the terminal."
 
@@ -29,14 +32,22 @@ install-icon:
 	install -d $(PREFIX)/share/icons/hicolor/scalable/apps
 	install -m 644 data/$(APP_ID).svg $(PREFIX)/share/icons/hicolor/scalable/apps/
 
+clean-legacy:
+	@for id in $(LEGACY_APP_IDS); do \
+		rm -f $(PREFIX)/share/applications/$$id.desktop \
+		      $(PREFIX)/share/icons/hicolor/scalable/apps/$$id.svg; \
+	done
+
 update-cache:
 	-gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor/ 2>/dev/null || true
 	-update-desktop-database $(PREFIX)/share/applications 2>/dev/null || true
 
 uninstall:
 	$(PYTHON) -m pip uninstall -y gsub 2>/dev/null || true
-	rm -f $(PREFIX)/share/applications/$(APP_ID).desktop
-	rm -f $(PREFIX)/share/icons/hicolor/scalable/apps/$(APP_ID).svg
+	@for id in $(APP_ID) $(LEGACY_APP_IDS); do \
+		rm -f $(PREFIX)/share/applications/$$id.desktop \
+		      $(PREFIX)/share/icons/hicolor/scalable/apps/$$id.svg; \
+	done
 	-gtk-update-icon-cache -f -t $(PREFIX)/share/icons/hicolor/ 2>/dev/null || true
 	-update-desktop-database $(PREFIX)/share/applications 2>/dev/null || true
 	@echo "gsub uninstalled."
@@ -111,5 +122,5 @@ clean:
 reinstall: uninstall install
 
 .PHONY: all install install-pip build-resources install-desktop install-icon \
-	update-cache uninstall reinstall test test-fast coverage lint fmt run clean \
-	flatpak bundle clean-flatpak
+	clean-legacy update-cache uninstall reinstall test test-fast coverage lint \
+	fmt run clean flatpak bundle clean-flatpak
