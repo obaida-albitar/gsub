@@ -200,7 +200,7 @@ def window():
     original_config_dir = GsubWindow._get_config_dir
     GsubWindow._get_config_dir = lambda self: config_dir
 
-    app = Adw.Application(application_id="io.github.obaida-albitar.gsub.window-tests")
+    app = Adw.Application(application_id="io.github.obaidaalbitar.gsub.window-tests")
     app.register(None)
     win = GsubWindow(application=app)
 

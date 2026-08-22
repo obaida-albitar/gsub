@@ -1702,7 +1702,7 @@ class GsubWindow(Adw.ApplicationWindow):
         about = Adw.AboutWindow(
             transient_for=self,
             application_name="Gsub",
-            application_icon="io.github.obaida-albitar.gsub",
+            application_icon="io.github.obaidaalbitar.gsub",
             developer_name="Gsub Contributors",
             version=__version__,
             license_type=Gtk.License.GPL_3_0,

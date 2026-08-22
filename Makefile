@@ -1,5 +1,5 @@
 PREFIX ?= $(HOME)/.local
-APP_ID = io.github.obaida-albitar.gsub
+APP_ID = io.github.obaidaalbitar.gsub
 PYTHON ?= python3
 
 all: install

@@ -112,7 +112,7 @@ it with:
 flatpak install --user gsub-v0.7.x86_64.flatpak
 ```
 
-Launch **Gsub** from the app grid, or run `flatpak run io.github.obaida-albitar.gsub`.
+Launch **Gsub** from the app grid, or run `flatpak run io.github.obaidaalbitar.gsub`.
 The bundle bundles everything (GTK, libadwaita, libmpv, FFmpeg), so no system
 dependencies are required.
 

@@ -1,6 +1,6 @@
-include data/io.github.obaida-albitar.gsub.desktop
-include data/io.github.obaida-albitar.gsub.svg
-include data/io.github.obaida-albitar.gsub.metainfo.xml
+include data/io.github.obaidaalbitar.gsub.desktop
+include data/io.github.obaidaalbitar.gsub.svg
+include data/io.github.obaidaalbitar.gsub.metainfo.xml
 include data/gsub.gresource.xml
 include data/style.css
 recursive-include data/blueprints *.blp

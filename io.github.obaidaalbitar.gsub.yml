@@ -1,4 +1,4 @@
-app-id: io.github.obaida-albitar.gsub
+app-id: io.github.obaidaalbitar.gsub
 runtime: org.gnome.Platform
 runtime-version: '48'
 sdk: org.gnome.Sdk

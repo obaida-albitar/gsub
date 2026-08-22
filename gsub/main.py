@@ -35,7 +35,7 @@ class GsubApplication(Adw.Application):
 
     def __init__(self):
         super().__init__(
-            application_id='io.github.obaida-albitar.gsub',
+            application_id='io.github.obaidaalbitar.gsub',
             flags=Gio.ApplicationFlags.HANDLES_OPEN
         )
         self.window = None

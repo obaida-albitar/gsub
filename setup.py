@@ -86,8 +86,8 @@ class BuildPyCommand(build_py):
 setup(
     package_data={"gsub": [GRESOURCE_FILENAME]},
     data_files=[
-        ("share/applications", ["data/io.github.obaida-albitar.gsub.desktop"]),
-        ("share/icons/hicolor/scalable/apps", ["data/io.github.obaida-albitar.gsub.svg"]),
+        ("share/applications", ["data/io.github.obaidaalbitar.gsub.desktop"]),
+        ("share/icons/hicolor/scalable/apps", ["data/io.github.obaidaalbitar.gsub.svg"]),
     ],
     cmdclass={"build_py": BuildPyCommand},
 )

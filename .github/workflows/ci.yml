@@ -22,7 +22,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gir1.2-gtk-4.0 \
-            gir1.2-adwaita-1 \
+            gir1.2-adw-1 \
             libadwaita-1-0 \
             libgirepository1.0-dev \
             libgirepository-2.0-dev \
@@ -58,7 +58,7 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           bundle: gsub-${{ github.ref_name }}.x86_64.flatpak
-          manifest-path: io.github.obaida-albitar.gsub.yml
+          manifest-path: io.github.obaidaalbitar.gsub.yml
           artifact-name: gsub-flatpak-bundle
           cache-key: flatpak-builder-${{ github.sha }}
 

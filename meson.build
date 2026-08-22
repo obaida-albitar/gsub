@@ -89,7 +89,7 @@ gresource = custom_target(
 )
 
 # --- Application icon & desktop file ----------------------------------------
-app_id = 'io.github.obaida-albitar.gsub'
+app_id = 'io.github.obaidaalbitar.gsub'
 icon_dir = get_option('datadir') / 'icons' / 'hicolor' / 'scalable' / 'apps'
 install_data('data' / app_id + '.svg', install_dir: icon_dir, rename: app_id + '.svg')
 

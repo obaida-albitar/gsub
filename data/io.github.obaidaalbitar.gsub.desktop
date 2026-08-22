@@ -2,7 +2,7 @@
 Name=Gsub
 Comment=Edit SRT and ASS/SSA subtitle files
 Exec=gsub %F
-Icon=io.github.obaida-albitar.gsub
+Icon=io.github.obaidaalbitar.gsub
 Terminal=false
 Type=Application
 Categories=GTK;AudioVideo;Video;TextTools;

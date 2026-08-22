@@ -6,8 +6,8 @@ single gresource (compiled at build time by meson, see data/gsub.gresource.xml).
 This module loads and registers that gresource once and exposes convenience
 helpers for the rest of the codebase.
 
-Resource base path: /io/github/obaida-albitar/gsub
-Template resource paths follow the convention  /io/github/obaida-albitar/gsub/<name>.ui
+Resource base path: /io/github/obaidaalbitar/gsub
+Template resource paths follow the convention  /io/github/obaidaalbitar/gsub/<name>.ui
 """
 
 import os
@@ -21,7 +21,7 @@ gi.require_version("Gdk", "4.0")
 
 from gi.repository import Gio, Gtk, Gdk
 
-RESOURCE_BASE_PATH = "/io/github/obaida-albitar/gsub"
+RESOURCE_BASE_PATH = "/io/github/obaidaalbitar/gsub"
 
 # Resource path of the compiled gresource file. When running from the meson
 # build tree this resolves to the build dir; when installed it lives in the
@@ -105,7 +105,7 @@ def register_resources() -> None:
 
 
 def template_resource_path(name: str) -> str:
-    """Return the gresource path for a template, e.g. 'window' -> '/io/github/obaida-albitar/gsub/window.ui'."""
+    """Return the gresource path for a template, e.g. 'window' -> '/io/github/obaidaalbitar/gsub/window.ui'."""
     return f"{RESOURCE_BASE_PATH}/{name}.ui"
 
 

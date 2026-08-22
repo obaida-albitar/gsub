@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <component type="desktop-application">
-  <id>io.github.obaida-albitar.gsub</id>
+  <id>io.github.obaidaalbitar.gsub</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0+</project_license>
   <name>Gsub</name>
@@ -20,10 +20,10 @@
       compatibility checker that flags and fixes common ASS problems.
     </p>
   </description>
-  <launchable type="desktop-id">io.github.obaida-albitar.gsub.desktop</launchable>
+  <launchable type="desktop-id">io.github.obaidaalbitar.gsub.desktop</launchable>
   <url type="homepage">https://github.com/obaida-albitar/gsub</url>
   <url type="bugtracker">https://github.com/obaida-albitar/gsub/issues</url>
-  <developer id="io.github.obaida-albitar">
+  <developer id="io.github.obaidaalbitar">
     <name>Gsub Contributors</name>
   </developer>
   <content_rating type="oars-1.1"/>
@@ -57,7 +57,7 @@
     </release>
     <release version="0.6" date="2026-08-22">
       <description>
-        <p>Application ID changed to io.github.obaida-albitar.gsub; packaging
+        <p>Application ID changed to io.github.obaidaalbitar.gsub; packaging
         overhauled (pyproject.toml, working sdists, meson launcher); About
         dialog version fixed; ruff configured and the codebase lint-clean.</p>
         <p>Earlier in the cycle: waveform timeline with background peak
