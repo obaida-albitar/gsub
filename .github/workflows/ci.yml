@@ -9,28 +9,32 @@ on:
 jobs:
   test:
     name: Tests & lint
-    runs-on: ubuntu-24.04
-    # The distro python3-gi stack is used instead of pip PyGObject: the
-    # source-built pip PyGObject cannot find Ubuntu's GIRepository typelibs,
-    # which breaks both the app imports and the blueprint compiler.
+    runs-on: ubuntu-latest
+    # Debian trixie carries the GNOME 48 stack (libadwaita 1.8), matching the
+    # app's minimum; Ubuntu 24.04's libadwaita 1.5 lacks Adw.ShortcutsDialog
+    # and friends. The distro python3-gi is used because the pip-built
+    # PyGObject cannot find Ubuntu's GIRepository typelibs.
+    container: debian:trixie
     env:
       LIBGL_ALWAYS_SOFTWARE: '1'
     steps:
-      - uses: actions/checkout@v4
-
       - name: Install system dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            git make \
             gir1.2-gtk-4.0 \
             gir1.2-adw-1 \
-            libadwaita-1-0 \
             python3-gi \
             python3-gi-cairo \
             python3-pip \
             libglib2.0-dev-bin \
+            libegl1 \
+            libgl1-mesa-dri \
             libmpv2 \
             xvfb
+
+      - uses: actions/checkout@v4
 
       - name: Install Python dependencies
         run: |
@@ -51,14 +55,21 @@ jobs:
       - name: Build UI resources
         run: make build-resources
 
+      # Import the widget package directly so a broken import fails loudly
+      # here, instead of being swallowed by the test files' skip gates and
+      # resurfacing later as an opaque GType collision during collection.
+      - name: Smoke-test widget imports
+        run: xvfb-run -a python3 -c "from gsub.resources import register_resources; register_resources(); import gsub.widgets"
+
+      # -rs prints the skip reasons (including module-level import skips).
       - name: Run tests (virtual display)
-        run: xvfb-run -a python3 -m pytest
+        run: xvfb-run -a python3 -m pytest -rs
 
   flatpak:
     name: Flatpak bundle
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-48
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
       options: --privileged
     steps:
       - uses: actions/checkout@v4
@@ -67,7 +78,8 @@ jobs:
         with:
           bundle: gsub-${{ github.ref_name }}.x86_64.flatpak
           manifest-path: io.github.obaidaalbitar.gsub.yml
-          artifact-name: gsub-flatpak-bundle
+          # v6 renamed the artifact-name input to upload-artifact.
+          upload-artifact: gsub-flatpak-bundle
           cache-key: flatpak-builder-v1
 
   release:

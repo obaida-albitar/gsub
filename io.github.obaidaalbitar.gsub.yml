@@ -1,6 +1,8 @@
 app-id: io.github.obaidaalbitar.gsub
 runtime: org.gnome.Platform
-runtime-version: '48'
+# GNOME 50 (libadwaita 1.9): the app needs Adw 1.8+ (Adw.ShortcutsDialog);
+# runtime 48 only ships libadwaita 1.7 and is end-of-life anyway.
+runtime-version: '50'
 sdk: org.gnome.Sdk
 command: gsub
 
@@ -39,9 +41,12 @@ modules:
 
   - name: uchardet
     buildsystem: cmake-ninja
+    # CMAKE_POLICY_VERSION_MINIMUM: CMake 4 (GNOME 50 SDK) rejects uchardet's
+    # ancient cmake_minimum_required; the override restores compatibility.
     config-opts:
       - -DCMAKE_BUILD_TYPE=Release
       - -DBUILD_STATIC=0
+      - -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     cleanup:
       - /bin
       - /include
@@ -122,10 +127,10 @@ modules:
       build-args:
         - --share=network
     build-commands:
-      # PyGObject/pycairo build against the SDK's gobject-introspection.
+      # PyGObject/pycairo are NOT installed here: the GNOME runtime already
+      # ships them (3.52.4 in runtime 48, above our >=3.42 floor), and pip
+      # cannot uninstall the SDK copy (no RECORD file) to replace it.
       - pip3 install --no-deps --prefix=/app
-        PyGObject==3.56.3
-        pycairo==1.29.1
         python-mpv==1.0.8
         PyOpenGL==3.1.10
         charset-normalizer==3.5.1

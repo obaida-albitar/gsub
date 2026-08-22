@@ -18,6 +18,8 @@ try:
         Gtk.init()
     except Exception:
         pass
+    from gsub.widgets.timeline import TimelineWidget  # noqa: E402
+    CTRL = Gdk.ModifierType.CONTROL_MASK
     _HAS_DISPLAY = Gdk.Display.get_default() is not None
 except Exception:  # pragma: no cover - environment without GTK
     _HAS_DISPLAY = False
@@ -26,11 +28,7 @@ pytestmark = pytest.mark.skipif(
     not _HAS_DISPLAY, reason="no display available for GTK widget tests"
 )
 
-from gsub.widgets.timeline import TimelineWidget  # noqa: E402
-
 WIDTH = 600  # fixed fake allocation: with duration 600 s, 1 px = 1 s
-
-CTRL = Gdk.ModifierType.CONTROL_MASK
 
 
 class _FakeGesture:

@@ -137,9 +137,10 @@ foreach src : package_files
 endforeach
 
 # --- Post-install -----------------------------------------------------------
-# Refresh icon and desktop caches after install.
+# Refresh icon and desktop caches after install. No glib_compile_schemas: the
+# app installs no GSettings schemas, and glib-compile-schemas fails when the
+# schemas directory does not exist.
 gnome.post_install(
-  glib_compile_schemas: true,
   gtk_update_icon_cache: true,
   update_desktop_database: true,
 )

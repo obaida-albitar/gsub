@@ -61,6 +61,40 @@ fmt:
 run:
 	$(PYTHON) -m gsub.main
 
+# --- Flatpak ---------------------------------------------------------------
+# One-time setup: org.gnome.Sdk//50 from flathub (org.gnome.Platform is pulled
+# in as an SDK dependency). Use the native flatpak-builder when installed
+# (e.g. sudo dnf install flatpak-builder), otherwise the Flathub-packaged one
+# (flatpak install flathub org.flatpak.Builder).
+FLATPAK_BUILDER := $(shell command -v flatpak-builder 2>/dev/null)
+ifeq ($(FLATPAK_BUILDER),)
+FLATPAK_BUILDER = flatpak run org.flatpak.Builder
+endif
+FLATPAK_MANIFEST = io.github.obaidaalbitar.gsub.yml
+FLATPAK_BUILDDIR = builddir-flatpak
+FLATPAK_REPO = flatpak-repo
+VERSION := $(shell sed -n "s/^  version: '\([^']*\)'.*/\1/p" meson.build)
+
+# Build and install into the user Flatpak for quick local testing
+# (flatpak run io.github.obaidaalbitar.gsub). Incremental: module build state
+# is cached under .flatpak-builder between runs.
+flatpak:
+	$(FLATPAK_BUILDER) --user --install --force-clean \
+		--install-deps-from=flathub \
+		$(FLATPAK_BUILDDIR) $(FLATPAK_MANIFEST)
+
+# Produce the single-file release bundle (same artifact as the CI flatpak job).
+bundle:
+	$(FLATPAK_BUILDER) --force-clean --repo=$(FLATPAK_REPO) \
+		--install-deps-from=flathub \
+		$(FLATPAK_BUILDDIR) $(FLATPAK_MANIFEST)
+	flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/ \
+		$(FLATPAK_REPO) gsub-v$(VERSION).x86_64.flatpak $(APP_ID)
+	@echo "Bundle written to gsub-v$(VERSION).x86_64.flatpak"
+
+clean-flatpak:
+	rm -rf $(FLATPAK_BUILDDIR) $(FLATPAK_REPO) .flatpak-builder
+
 clean:
 	rm -rf __pycache__ .pytest_cache .ruff_cache .coverage htmlcov \
 		gsub.egg-info builddir gsub/gsub.gresource \
@@ -70,4 +104,5 @@ clean:
 reinstall: uninstall install
 
 .PHONY: all install install-pip build-resources install-desktop install-icon \
-	update-cache uninstall reinstall test test-fast coverage lint fmt run clean
+	update-cache uninstall reinstall test test-fast coverage lint fmt run clean \
+	flatpak bundle clean-flatpak

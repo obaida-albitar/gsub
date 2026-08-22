@@ -10,23 +10,23 @@ because importing the widgets package loads the template classes.
 
 import pytest
 
-from gsub.resources import register_resources
-
+# The widgets package __init__ loads template classes, which validate their
+# resource paths at import time, so the gresource bundle must be built
+# (make build-resources) and registered before importing.
 try:
-    register_resources()
-except Exception:  # pragma: no cover - unbuilt resources
-    pass
+    from gsub.resources import register_resources
 
-# Imported after register_resources(): the widgets package __init__ loads
-# template classes, which validate their resource paths at import time.
-from gsub.widgets.style_widgets import (  # noqa: E402
-    BORDER_STYLE_CHOICES,
-    ENCODING_CHOICES,
-    AlignmentGrid,
-    border_style_label,
-    encoding_choices_with,
-    encoding_label,
-)
+    register_resources()
+    from gsub.widgets.style_widgets import (
+        BORDER_STYLE_CHOICES,
+        ENCODING_CHOICES,
+        AlignmentGrid,
+        border_style_label,
+        encoding_choices_with,
+        encoding_label,
+    )
+except Exception as exc:  # pragma: no cover - environment without GTK stack
+    pytest.skip(f"style widgets not importable: {exc}", allow_module_level=True)
 
 try:
     from gi.repository import Adw, Gdk, Gtk

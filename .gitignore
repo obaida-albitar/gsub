@@ -53,5 +53,11 @@ data/blueprints/*.ui
 # Compiled gresource bundle (generated at build time)
 gsub/gsub.gresource
 
+# Flatpak build artifacts
+builddir-flatpak/
+flatpak-repo/
+.flatpak-builder/
+*.flatpak
+
 # Application specific
 *.pyc
