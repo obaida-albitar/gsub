@@ -62,11 +62,12 @@ template $GsubTimeShiftDialog : Adw.Dialog {
             icon-name: "media-seek-backward-symbolic";
           }
 
-          [suffix]
-          Box back_box {
-            spacing: 6;
-            // Preset buttons added from code.
-          }
+      [suffix]
+      Box back_box {
+        valign: center;
+        spacing: 6;
+        // Preset buttons added from code.
+      }
         }
 
         Adw.ActionRow preset_row_forward {
@@ -78,11 +79,12 @@ template $GsubTimeShiftDialog : Adw.Dialog {
             icon-name: "media-seek-forward-symbolic";
           }
 
-          [suffix]
-          Box forward_box {
-            spacing: 6;
-            // Preset buttons added from code.
-          }
+      [suffix]
+      Box forward_box {
+        valign: center;
+        spacing: 6;
+        // Preset buttons added from code.
+      }
         }
       }
 
@@ -100,10 +102,11 @@ template $GsubTimeShiftDialog : Adw.Dialog {
             icon-name: "view-list-symbolic";
           }
 
-          [prefix]
-          CheckButton scope_all {
-            active: true;
-          }
+      [prefix]
+      CheckButton scope_all {
+        valign: center;
+        active: true;
+      }
         }
 
         Adw.ActionRow scope_selected_row {
@@ -115,8 +118,10 @@ template $GsubTimeShiftDialog : Adw.Dialog {
             icon-name: "edit-select-symbolic";
           }
 
-          [prefix]
-          CheckButton scope_selected {}
+      [prefix]
+      CheckButton scope_selected {
+        valign: center;
+      }
         }
 
         Adw.ActionRow scope_from_row {
@@ -128,8 +133,10 @@ template $GsubTimeShiftDialog : Adw.Dialog {
             icon-name: "go-next-symbolic";
           }
 
-          [prefix]
-          CheckButton scope_from {}
+      [prefix]
+      CheckButton scope_from {
+        valign: center;
+      }
         }
       }
     };

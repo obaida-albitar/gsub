@@ -41,6 +41,7 @@ from gsub.commands.ass_commands import ReplaceASSHeaderCommand
 from gsub.commands.subtitle_commands import EditTextCommand, build_new_entry
 from gsub.resources import template_resource_path
 from gsub.shortcuts import accels_for_action, window_key_entries
+from gsub.utils import is_video_content_type
 from gsub.widgets.subtitle_list import SubtitleListView
 from gsub.widgets.timeline import active_entry_at
 from gsub.widgets.editor_panel import EditorPanel
@@ -50,6 +51,7 @@ from gsub.widgets.home_screen import HomeScreenView
 from gsub.widgets.batch_file_list import BatchFileList
 from gsub.widgets.batch_operations_panel import BatchOperationsPanel
 from gsub.widgets.batch_confirm_dialog import BatchConfirmDialog
+from gsub.widgets.batch_rename_dialog import BatchRenameDialog
 from gsub.parsers.ass_validator import (
     validate_document,
     COLOR_FIELD_ATTR,
@@ -312,6 +314,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.paned.set_resize_start_child(False)
         self.paned.set_resize_end_child(True)
         main_box.append(self.paned)
+        self._attach_file_drop_target(main_box, self._on_editor_files_drop)
 
         # Left side: Subtitle list with card container. Until a document is
         # opened or created, an empty state offers the New/Open entry points
@@ -384,6 +387,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.batch_paned.set_vexpand(True)
         self.batch_paned.set_position(480)  # roomy default for long file names
         batch_box.append(self.batch_paned)
+        self._attach_file_drop_target(batch_box, self._on_batch_files_drop)
 
         # Left side: batch file list
         batch_list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
@@ -428,6 +432,9 @@ class GsubWindow(Adw.ApplicationWindow):
 
         self.batch_operations.action_box.append(batch_button_box)
         self.batch_paned.set_end_child(batch_ops_container)
+
+        # Start disabled: no files are loaded yet.
+        self._update_batch_action_buttons()
 
         # Set default view to home
         self.view_stack.set_visible_child_name("home")
@@ -1453,8 +1460,13 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _update_batch_action_buttons(self):
         """Enable/disable batch action buttons based on state."""
+        has_files = self.batch_file_list.file_count > 0
         has_selected = len(self.batch_file_list.get_selected_files()) > 0
         has_ops = self.batch_operations.has_any_operation()
+
+        # With no files loaded the whole operations panel stays inert (the
+        # file list itself remains active so files can still be added).
+        self.batch_operations.set_sensitive(has_files)
 
         self.batch_apply_btn.set_sensitive(has_selected and has_ops)
         self.batch_save_btn.set_sensitive(has_selected)
@@ -1516,44 +1528,57 @@ class GsubWindow(Adw.ApplicationWindow):
             if not files:
                 return
 
-            for gfile in files:
-                file_path = gfile.get_path()
-                try:
-                    success, contents, _ = gfile.load_contents(None)
-                    if not success:
-                        continue
-
-                    content = decode_subtitle_text(contents)
-                    ext = os.path.splitext(file_path)[1].lower()
-
-                    doc, _warnings = parse_subtitle_document(content, ext)
-                    if doc is None:
-                        continue
-
-                    doc.file_path = file_path
-
-                    # Enforce same format for all files
-                    if self.batch_format is None:
-                        self.batch_format = doc.format
-                    elif doc.format != self.batch_format:
-                        self._show_toast(
-                            f"Skipped {os.path.basename(file_path)}: "
-                            f"expected {self.batch_format.value.upper()} format"
-                        )
-                        continue
-
-                    self.batch_file_list.add_file(doc, file_path)
-                    self._save_last_directory(os.path.dirname(file_path))
-                    self._show_toast(f"Added {os.path.basename(file_path)}")
-
-                except Exception as e:
-                    self._show_toast(f"Error loading {os.path.basename(file_path)}: {str(e)}")
-
-            self._update_batch_status()
-            self._update_batch_action_buttons()
+            self._add_batch_files(files)
 
         except Exception:
             pass  # User cancelled
+
+    def _add_batch_files(self, files) -> int:
+        """Load subtitle files into the batch list; returns how many were added.
+
+        Shared by the file chooser and drag-and-drop. Files whose format
+        differs from the batch's established format are skipped with a toast.
+        """
+        added = 0
+        for gfile in files:
+            file_path = gfile.get_path() if gfile is not None else None
+            if not file_path:
+                continue
+            try:
+                success, contents, _ = gfile.load_contents(None)
+                if not success:
+                    continue
+
+                content = decode_subtitle_text(contents)
+                ext = os.path.splitext(file_path)[1].lower()
+
+                doc, _warnings = parse_subtitle_document(content, ext)
+                if doc is None:
+                    continue
+
+                doc.file_path = file_path
+
+                # Enforce same format for all files
+                if self.batch_format is None:
+                    self.batch_format = doc.format
+                elif doc.format != self.batch_format:
+                    self._show_toast(
+                        f"Skipped {os.path.basename(file_path)}: "
+                        f"expected {self.batch_format.value.upper()} format"
+                    )
+                    continue
+
+                self.batch_file_list.add_file(doc, file_path)
+                self._save_last_directory(os.path.dirname(file_path))
+                self._show_toast(f"Added {os.path.basename(file_path)}")
+                added += 1
+
+            except Exception as e:
+                self._show_toast(f"Error loading {os.path.basename(file_path)}: {str(e)}")
+
+        self._update_batch_status()
+        self._update_batch_action_buttons()
+        return added
 
     def _on_batch_apply(self):
         """Apply configured operations to all selected batch files."""
@@ -1671,28 +1696,43 @@ class GsubWindow(Adw.ApplicationWindow):
                 return
 
             output_dir = folder.get_path()
-            saved = 0
-            for item in selected_files:
-                try:
-                    dest_path = os.path.join(output_dir, item.filename)
 
-                    if item.document.format == SubtitleFormat.SRT:
-                        content = SRTParser.serialize(item.document)
-                    else:
-                        content = ASSParser.serialize(item.document)
+            # Let the user pick a naming pattern before anything is written.
+            rename = BatchRenameDialog(
+                self,
+                filenames=[item.filename for item in selected_files],
+            )
 
-                    with open(dest_path, 'w', encoding='utf-8') as f:
-                        f.write(content)
+            def on_rename_closed(rename_dialog):
+                if not rename_dialog.is_confirmed():
+                    return
 
-                    item.document.modified = False
-                    item.modified = False
-                    saved += 1
-                except Exception as e:
-                    self._show_toast(f"Error saving {item.filename}: {str(e)}")
+                names = rename_dialog.get_output_names()
+                saved = 0
+                for item, filename in zip(selected_files, names):
+                    try:
+                        dest_path = os.path.join(output_dir, filename)
 
-            if saved > 0:
-                self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''} to {output_dir}")
-            self._update_batch_status()
+                        if item.document.format == SubtitleFormat.SRT:
+                            content = SRTParser.serialize(item.document)
+                        else:
+                            content = ASSParser.serialize(item.document)
+
+                        with open(dest_path, 'w', encoding='utf-8') as f:
+                            f.write(content)
+
+                        item.document.modified = False
+                        item.modified = False
+                        saved += 1
+                    except Exception as e:
+                        self._show_toast(f"Error saving {item.filename}: {str(e)}")
+
+                if saved > 0:
+                    self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''} to {output_dir}")
+                self._update_batch_status()
+
+            rename.connect('closed', on_rename_closed)
+            rename.present(self)
 
         except Exception:
             pass  # User cancelled
@@ -2104,6 +2144,62 @@ class GsubWindow(Adw.ApplicationWindow):
             self._show_error("Cannot open video: no local file path")
             return
         self.load_video_path(file_path)
+
+    # --- Drag and drop --------------------------------------------------------
+
+    @staticmethod
+    def _is_video_file(gfile) -> bool:
+        """Return True when the file's content type is a video type.
+
+        Any failure to query the content type falls back to "not a video" so
+        the file is still opened through the regular subtitle path. Mirrors
+        ``GsubApplication._is_video_file`` in main.py.
+        """
+        try:
+            info = gfile.query_info(
+                Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE,
+                Gio.FileQueryInfoFlags.NONE,
+                None,
+            )
+            return is_video_content_type(
+                info.get_attribute_string(Gio.FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE))
+        except Exception:
+            return False
+
+    def _attach_file_drop_target(self, widget, callback):
+        """Let ``widget`` accept files dragged in from a file manager."""
+        target = Gtk.DropTarget.new(Gdk.FileList, Gdk.DragAction.COPY)
+        target.connect('drop', callback)
+        widget.add_controller(target)
+
+    def _on_editor_files_drop(self, target, value, x, y):
+        """Open dragged files in the editor: the first subtitle becomes the
+        document, the first video loads into the player."""
+        files = value.get_files() if value is not None else []
+        videos = [f for f in files if self._is_video_file(f)]
+        others = [f for f in files if not self._is_video_file(f)]
+
+        if others:
+            self.open_file(others[0])
+            if len(others) > 1:
+                self._show_toast("Only the first subtitle was opened")
+        if videos:
+            self.open_video(videos[0])
+            if len(videos) > 1:
+                self._show_toast("Only the first video was opened")
+        return True
+
+    def _on_batch_files_drop(self, target, value, x, y):
+        """Add dragged subtitle files to the batch list."""
+        files = value.get_files() if value is not None else []
+        videos = [f for f in files if self._is_video_file(f)]
+        subtitles = [f for f in files if not self._is_video_file(f)]
+
+        if videos:
+            self._show_toast("Videos cannot be added in batch mode")
+        if subtitles:
+            self._add_batch_files(subtitles)
+        return True
 
     def load_video_path(self, file_path: str):
         """Load a video into the player and reveal the video pane.

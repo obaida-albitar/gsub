@@ -1199,3 +1199,82 @@ class TestBatchConfirmDialog:
         other = self._make(window)
         other.on_cancel_clicked(None)
         assert other.is_confirmed() is False
+
+
+@pytest.mark.integration
+class TestBatchRenameDialog:
+    """The naming-pattern dialog shown before batch "Save All As…" writes."""
+
+    @staticmethod
+    def _make(window, filenames=("ep01.srt", "ep02.srt")):
+        from gsub.widgets.batch_rename_dialog import BatchRenameDialog
+
+        return BatchRenameDialog(window, filenames=list(filenames))
+
+    @staticmethod
+    def _row_titles(dialog):
+        found = []
+
+        def _walk(widget):
+            if isinstance(widget, Adw.ActionRow):
+                found.append(widget.get_title())
+                return
+            child = widget.get_first_child()
+            while child is not None:
+                _walk(child)
+                child = child.get_next_sibling()
+
+        _walk(dialog.preview_group)
+        return found
+
+    def test_default_pattern_keeps_names_and_enables_save(self, window):
+        dialog = self._make(window)
+
+        assert dialog.get_output_names() == ["ep01.srt", "ep02.srt"]
+        assert dialog.save_button.get_sensitive() is True
+        assert self._row_titles(dialog) == ["ep01.srt", "ep02.srt"]
+
+    def test_pattern_edit_updates_preview(self, window):
+        dialog = self._make(window)
+
+        dialog.pattern_row.set_text("test file")
+        assert dialog.get_output_names() == ["test file 01.srt", "test file 02.srt"]
+
+        titles = self._row_titles(dialog)
+        assert titles == ["test file 01.srt", "test file 02.srt"]
+
+    def test_pattern_with_placeholder_substitutes(self, window):
+        dialog = self._make(window)
+
+        dialog.pattern_row.set_text("{name}_fixed")
+        assert dialog.get_output_names() == ["ep01_fixed.srt", "ep02_fixed.srt"]
+
+    def test_colliding_names_block_save(self, window):
+        dialog = self._make(window, filenames=("ep01.srt", "ep01.srt"))
+
+        # Same original basename twice -> identical expanded names.
+        dialog.pattern_row.set_text("{name}")
+        assert dialog.save_button.get_sensitive() is False
+
+        # Numbered base names are unique even for duplicate basenames.
+        dialog.pattern_row.set_text("test file")
+        assert dialog.save_button.get_sensitive() is True
+
+    def test_long_batches_are_summarized(self, window):
+        names = [f"ep{i:02d}.srt" for i in range(10)]
+        dialog = self._make(window, filenames=names)
+
+        titles = self._row_titles(dialog)
+        assert len(titles) == dialog.PREVIEW_LIMIT + 1
+        assert titles[-1] == "…and 2 more"
+
+    def test_save_confirms_and_cancel_does_not(self, window):
+        dialog = self._make(window)
+        assert dialog.is_confirmed() is False
+
+        dialog.on_save(None)
+        assert dialog.is_confirmed() is True
+
+        other = self._make(window)
+        other.on_cancel_clicked(None)
+        assert other.is_confirmed() is False
