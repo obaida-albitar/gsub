@@ -101,6 +101,23 @@ class TestIssueRendering:
         label = _row_widgets(rows[0])[1]
         assert label.get_label() == "<b>Line 3</b>\nm1"
 
+    def test_ampersand_in_issue_text_is_markup_escaped(self):
+        # Color messages contain "&H[A]BBGGRR"; unescaped, the ampersand
+        # makes Pango reject the whole markup and the row loses its text.
+        panel, _ = _make_panel()
+        panel.set_issues([
+            _issue(CompatSeverity.WARNING,
+                   location="Style 'BadColors'",
+                   message=("PrimaryColour '#FF0000' is not a valid ASS "
+                            "color (&H[A]BBGGRR)")),
+        ])
+        label = _row_widgets(_rows(panel)[0])[1]
+        # Apostrophes are escaped too (&apos;); both render as plain text.
+        assert label.get_label() == (
+            "<b>Style &apos;BadColors&apos;</b>\nPrimaryColour "
+            "&apos;#FF0000&apos; is not a valid ASS color "
+            "(&amp;H[A]BBGGRR)")
+
     def test_count_label_summarises_severities(self):
         panel, _ = _make_panel()
         panel.set_issues([
