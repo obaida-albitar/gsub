@@ -9,6 +9,7 @@ logic can be unit-tested without instantiating GTK widgets. The GUI layer
 """
 
 import dataclasses
+import os
 from typing import Iterable, Optional
 
 from gsub.models import ASSStyle, SubtitleDocument, SubtitleFormat
@@ -125,3 +126,54 @@ def apply_resolution(doc: SubtitleDocument, width: int, height: int) -> bool:
     doc.metadata["PlayResX"] = str(width)
     doc.metadata["PlayResY"] = str(height)
     return True
+
+
+def expand_output_name(pattern: str, original_filename: str) -> str:
+    """Expand a ``{name}`` naming pattern for a single file name.
+
+    Every ``{name}`` placeholder is replaced with the original file's stem
+    (name without extension); the original extension is always kept and
+    appended. An empty pattern keeps the original name. Path separators in
+    the result are replaced with underscores so the name can't escape the
+    chosen output directory.
+    """
+    stem, ext = os.path.splitext(original_filename)
+    if not stem:
+        stem = "subtitle"
+
+    pattern = pattern.strip()
+    if not pattern:
+        pattern = '{name}'
+
+    name = pattern.replace('{name}', stem).replace('/', '_').strip()
+    if not name:
+        name = stem
+    return name + ext
+
+
+def expand_output_names(pattern: str, filenames) -> list:
+    """Expand a batch-save naming pattern into one output name per file.
+
+    Two modes:
+
+    - The pattern contains ``{name}``: per-file substitution via
+      :func:`expand_output_name` (e.g. ``{name}_fixed`` -> ``ep01_fixed.srt``).
+    - Otherwise the pattern is the base name shared by every file and the
+      file number is appended directly after it (e.g. ``show S01E`` ->
+      ``show S01E01.srt``, ``show S01E02.srt``, ...). The pattern is used
+      as typed, so a trailing space yields ``show 01.srt`` style names.
+      An empty pattern keeps the original names.
+    """
+    filenames = list(filenames)
+    stripped = pattern.strip()
+
+    if not stripped or '{name}' in stripped:
+        return [expand_output_name(pattern, name) for name in filenames]
+
+    base = pattern.replace('/', '_')
+    width = max(2, len(str(len(filenames))))
+    names = []
+    for i, original in enumerate(filenames, start=1):
+        ext = os.path.splitext(original)[1]
+        names.append(f"{base}{i:0{width}d}{ext}")
+    return names

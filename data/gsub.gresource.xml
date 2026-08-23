@@ -13,6 +13,7 @@
     <file alias="window.ui">window.ui</file>
     <file alias="home-screen.ui">home-screen.ui</file>
     <file alias="batch-confirm-dialog.ui">batch-confirm-dialog.ui</file>
+    <file alias="batch-rename-dialog.ui">batch-rename-dialog.ui</file>
     <file alias="batch-operations-panel.ui">batch-operations-panel.ui</file>
     <file alias="batch-file-row.ui">batch-file-row.ui</file>
     <file alias="time-shift.ui">time-shift.ui</file>

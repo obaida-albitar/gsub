@@ -78,14 +78,19 @@ class TestShortcutsTable:
 
     @pytest.mark.unit
     def test_window_keys_are_never_registered_as_accels(self):
-        """Window-handled keys (space/period/comma) must not be app accels.
+        """Window-handled keys (space/period/comma/arrows/Delete) not accels.
 
-        Accels win over text input for plain typable keys, so they would
-        steal Space/period/comma from the text editor.
+        Accels win over text input and widget keybindings, so they would
+        steal Space/period/comma/Delete from the text editor and Left/Right
+        from the text editor's caret movement — Delete would remove the
+        whole subtitle entry instead of a character.
         """
         entries = window_key_entries()
         assert {shortcut.action for shortcut in entries} == {
-            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+            "win.play-pause", "win.frame-step", "win.frame-back-step",
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
         for shortcut in entries:
             # Display accels stay for the shortcuts dialog...
             assert shortcut.accels, f"{shortcut.action} needs a display accel"
@@ -141,6 +146,21 @@ class TestTimelineSection:
     @pytest.mark.unit
     def test_timeline_sits_after_video_in_section_order(self):
         assert SECTION_ORDER.index(SECTION_TIMELINE) == SECTION_ORDER.index(SECTION_VIDEO) + 1
+
+    @pytest.mark.unit
+    def test_seek_arrow_keys_are_window_keys(self):
+        """Plain Left/Right must not be application accels.
+
+        As accels they won over widget keybindings and stole caret
+        movement from the subtitle text editor; as window keys they only
+        seek after the focused widget (text view, entries, ...) declined
+        the key.
+        """
+        window_keys = {s.action for s in window_key_entries()}
+        for action in ("win.seek-nudge-back", "win.seek-nudge-forward",
+                       "win.seek-nudge-back-large", "win.seek-nudge-forward-large"):
+            assert accels_for_action(action) == [], action
+            assert action in window_keys, action
 
     @pytest.mark.unit
     def test_keyboard_entries_moved_from_video(self):

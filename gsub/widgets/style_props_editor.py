@@ -15,23 +15,40 @@ Hosts read the selection with :meth:`get_checked_styles` and
 """
 
 import copy
+import gettext
 
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('PangoCairo', '1.0')
 
-from gi.repository import Adw, Gdk, GObject, Gtk, Pango, PangoCairo
+from gi.repository import Adw, Gdk, GLib, GObject, Gtk, Pango, PangoCairo
 
 from gsub.models import ASSStyle
 from gsub.resources import template_resource_path
-from gsub.utils import merge_font_families, parse_ass_color, format_ass_color
+from gsub.utils import (
+    merge_font_families,
+    parse_ass_color,
+    format_ass_color,
+    read_preferences,
+    write_preferences,
+)
 from gsub.widgets.style_widgets import (  # noqa: E402
     BORDER_STYLE_CHOICES,
     ENCODING_CHOICES,
     AlignmentGrid,
     ChoiceRow,
 )
+
+# Same translation domain as the package-level gettext.install(); bound
+# explicitly so the `_` alias is visible to static analysis.
+_ = gettext.translation('gsub', fallback=True).gettext
+
+# The editable ASS preview sample: the key under which the user's custom
+# text is persisted in preferences.conf.
+PREVIEW_TEXT_PREFERENCES_KEY = 'ass_preview_text'
+
+DEFAULT_PREVIEW_TEXT = _('The quick brown fox jumps over the lazy dog 0123456789')
 
 
 # Human-readable labels for summaries (batch confirm dialog, toasts).
@@ -187,6 +204,62 @@ def update_ass_preview(label: Gtk.Label, css_provider: Gtk.CssProvider, style: A
         label.set_attributes(None)
 
 
+def wire_preview_text(text_view: Gtk.TextView, label: Gtk.Label,
+                      reset_button=None) -> None:
+    """Turn ``text_view`` into the editor of the ASS preview sample text.
+
+    Shared by the ASS Styles dialog and the style properties editor so both
+    previews show the same user-typed text: the view starts from the value
+    persisted in preferences.conf (falling back to the default sample), every
+    keystroke updates the label live (newlines included), and the text is
+    remembered across sessions (save debounced). An empty text falls back to
+    the default sample so the preview is never blank.
+    """
+    try:
+        saved = read_preferences().get(PREVIEW_TEXT_PREFERENCES_KEY)
+    except Exception:
+        saved = None
+    buffer = text_view.get_buffer()
+    buffer.set_text(saved if saved is not None else DEFAULT_PREVIEW_TEXT)
+
+    save_timeout_id = [None]
+
+    def current_text() -> str:
+        start, end = buffer.get_bounds()
+        return buffer.get_text(start, end, False)
+
+    def apply(value: str) -> None:
+        label.set_text(value or DEFAULT_PREVIEW_TEXT)
+
+    def queue_save(value: str) -> None:
+        def save():
+            save_timeout_id[0] = None
+            try:
+                prefs = read_preferences()
+                prefs[PREVIEW_TEXT_PREFERENCES_KEY] = value
+                write_preferences(prefs)
+            except Exception:
+                pass
+            return False
+
+        if save_timeout_id[0] is not None:
+            GLib.source_remove(save_timeout_id[0])
+        save_timeout_id[0] = GLib.timeout_add(500, save)
+
+    def on_changed(*_args) -> None:
+        value = current_text()
+        apply(value)
+        queue_save(value)
+
+    buffer.connect('changed', on_changed)
+    apply(current_text())
+
+    if reset_button is not None:
+        def on_reset(*_args) -> None:
+            buffer.set_text(DEFAULT_PREVIEW_TEXT)
+        reset_button.connect('clicked', on_reset)
+
+
 @Gtk.Template(resource_path=template_resource_path('style-props-editor'))
 class GsubStylePropsEditor(Adw.PreferencesGroup):
     """Checklist of styles + tickable property rows for batch style editing."""
@@ -250,6 +323,8 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
     encoding_row = Gtk.Template.Child()
     encoding_check = Gtk.Template.Child()
     preview_expander = Gtk.Template.Child()
+    preview_text_view = Gtk.Template.Child()
+    preview_text_reset = Gtk.Template.Child()
     preview_label = Gtk.Template.Child()
 
     # (ASSStyle field, row attribute, check attribute, cast)
@@ -323,6 +398,11 @@ class GsubStylePropsEditor(Adw.PreferencesGroup):
         self._choice_rows = {}
         for field, row_attr, _check_attr, choices in self._CHOICE_SPECS:
             self._choice_rows[field] = ChoiceRow(getattr(self, row_attr), choices)
+
+        # User-editable preview sample text (persisted, shared with the
+        # styles dialog).
+        wire_preview_text(self.preview_text_view, self.preview_label,
+                          self.preview_text_reset)
 
         self._connect_signals()
 

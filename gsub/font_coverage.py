@@ -50,17 +50,25 @@ def collect_glyph_coverage_issues(
     Purely informational: a Pango failure for one style is logged and skipped
     so this check can never break document loading or the refresh cycle.
     """
-    installed = set(installed_fonts)
+    installed = {f.casefold() for f in installed_fonts}
     fontmap, ctx = _fontmap_and_context()
     lang = Pango.Language.get_default()
 
     issues = []
     for style in document.styles:
-        if style.fontname not in installed:
+        if style.fontname.casefold() not in installed:
             continue
-        sample = "".join(
-            e.text for e in document.entries if e.style == style.name
-        )[:sample_limit]
+        # Accumulate only up to the sample limit instead of joining every
+        # entry's text first (this runs after each document mutation).
+        parts = []
+        total = 0
+        for e in document.entries:
+            if e.style == style.name:
+                parts.append(e.text)
+                total += len(e.text)
+                if total >= sample_limit:
+                    break
+        sample = "".join(parts)[:sample_limit]
         if not sample:
             continue
         try:

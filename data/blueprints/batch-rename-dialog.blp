@@ -1,0 +1,48 @@
+using Gtk 4.0;
+using Adw 1;
+
+template $GsubBatchRenameDialog : Adw.Dialog {
+  content-width: 480;
+  content-height: 420;
+  title: _("Save All As…");
+
+  child: Adw.ToolbarView {
+    [top]
+    Adw.HeaderBar header {
+      show-title: false;
+
+      [start]
+      Button cancel_button {
+        label: _("Cancel");
+        clicked => $on_cancel_clicked();
+      }
+
+      [end]
+      Button save_button {
+        label: _("Save");
+        styles ["suggested-action"]
+        clicked => $on_save();
+        // Sensitivity is driven from code (names must not collide).
+      }
+    }
+
+    content: Adw.PreferencesPage prefs_page {
+      vexpand: true;
+
+      Adw.PreferencesGroup pattern_group {
+        title: _("Naming Pattern");
+        description: _("Use {name} to keep the original file name; otherwise this text is the base name and files are numbered");
+
+        Adw.EntryRow pattern_row {
+          title: _("Pattern");
+          // Text and live preview are set from code.
+        }
+      }
+
+      Adw.PreferencesGroup preview_group {
+        title: _("Resulting Names");
+        // Preview rows are added from code.
+      }
+    };
+  };
+}

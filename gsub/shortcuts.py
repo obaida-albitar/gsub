@@ -12,10 +12,11 @@ rather than "Space" and "+". Entries with action=None describe keys
 handled by widget key controllers (video player zoom, search matches);
 they are shown in the dialog but never registered as action accels.
 
-Entries flagged ``window_key`` (space, period, comma) are plain typable
-keys that must not become application accels at all: accels win over text
-input, so registering "space" would steal Space from the text editor and
-entries (and period/comma likewise). The window dispatches them itself
+Entries flagged ``window_key`` (space, period, comma, the arrow keys,
+Delete) are plain keys that must not become application accels at all:
+accels win over text input and widget keybindings, so registering them
+would steal typing from the text editor (Space, period, Delete) or the
+caret (arrows). The window dispatches them itself
 from a bubble-phase key controller, which only runs after the focused
 widget declined the key — so text widgets consume them for typing while
 the rest of the window still gets the shortcut (see
@@ -38,11 +39,12 @@ from dataclasses import dataclass
 # Dialog sections, in display order.
 SECTION_FILE = "File"
 SECTION_EDITING = "Editing"
+SECTION_BATCH = "Batch"
 SECTION_VIDEO = "Video"
 SECTION_TIMELINE = "Timeline"
 SECTION_NAVIGATION = "Navigation"
 
-SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_VIDEO,
+SECTION_ORDER = (SECTION_FILE, SECTION_EDITING, SECTION_BATCH, SECTION_VIDEO,
                  SECTION_TIMELINE, SECTION_NAVIGATION)
 
 
@@ -83,10 +85,19 @@ SHORTCUTS = (
     Shortcut("win.undo", ("<Ctrl>Z",), "Undo", SECTION_EDITING),
     Shortcut("win.redo", ("<Ctrl><Shift>Z", "<Ctrl>Y"), "Redo", SECTION_EDITING),
     Shortcut("win.add-entry", ("<Ctrl><Shift>N",), "Add Subtitle", SECTION_EDITING),
-    Shortcut("win.remove-entry", ("Delete",), "Remove Subtitle", SECTION_EDITING),
+    # Window key: as a plain accel, Delete would win over text input and
+    # delete the whole subtitle entry while the user edits text (the same
+    # class of problem as space and the arrow keys; see the docstring).
+    Shortcut("win.remove-entry", ("Delete",), "Remove Subtitle", SECTION_EDITING,
+             window_key=True),
     Shortcut("win.duplicate-entry", ("<Ctrl>D",), "Duplicate Subtitle", SECTION_EDITING),
     Shortcut("win.move-up", ("<Ctrl>Up",), "Move Up", SECTION_EDITING),
     Shortcut("win.move-down", ("<Ctrl>Down",), "Move Down", SECTION_EDITING),
+    # Batch: handled by the batch file list's key controller, not action
+    # accels. win.remove-entry is a window key (never an accel), and the
+    # list's own controller consumes Delete first while it has focus.
+    Shortcut(None, ("Delete",), "Batch: Remove Selected File", SECTION_BATCH),
+    Shortcut(None, ("<Ctrl><Shift>Delete",), "Batch: Clear All Files", SECTION_BATCH),
     # Video
     Shortcut("win.open-video", ("<Ctrl><Shift>O",), "Open Video…", SECTION_VIDEO),
     # Window key: as a plain accel, space would win over text input and
@@ -98,14 +109,18 @@ SHORTCUTS = (
     # Handled by the video player's key controller, not an action accel.
     Shortcut(None, ("plus", "equal", "minus", "0"),
              "Subtitle Size: Increase / Decrease / Reset", SECTION_VIDEO),
-    # Timeline: precise navigation on the custom timeline. The arrow-key
-    # accels are keybinding-class and coexist fine with text editing, but
-    # the plain typable frame-step keys (period/comma) are window keys —
-    # otherwise typing "." or "," in the text editor would step the video.
-    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE),
-    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE),
+    # Timeline: precise navigation on the custom timeline. The arrow keys
+    # are window keys, not accels: as application accels they won over
+    # widget keybindings and stole Left/Right from the subtitle text
+    # editor's caret (same class of problem as space/period/comma above).
+    Shortcut("win.seek-nudge-back", ("Left",), "Nudge Back 0.1 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-forward", ("Right",), "Nudge Forward 0.1 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-back-large", ("<Shift>Left",), "Jump Back 5 s", SECTION_TIMELINE,
+             window_key=True),
+    Shortcut("win.seek-nudge-forward-large", ("<Shift>Right",), "Jump Forward 5 s", SECTION_TIMELINE,
+             window_key=True),
     Shortcut("win.frame-step", ("period",), "Step One Frame Forward", SECTION_TIMELINE,
              window_key=True),
     Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE,

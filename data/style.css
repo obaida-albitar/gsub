@@ -16,7 +16,31 @@
   font-size: 20pt;
 }
 
-/* Subtitle list row of the entry currently visible in the video preview. */
+/* The subtitle list is a Gtk.ListView styled with `navigation-sidebar`.
+   The theme paints the clicked (:selected) highlight on the list item
+   wrapper's padding box, which by default sits 8px/side outside the row
+   widget itself — so any highlight painted on the row could never line up.
+   Zeroing the wrapper's padding (app CSS outranks the theme) makes the
+   wrapper's paint box and the row's allocation the same rectangle, and the
+   row's own padding restores the sidebar's usual content inset. Values
+   mirror libadwaita's `.navigation-sidebar > row` rule. */
+.navigation-sidebar > row {
+  padding: 0;
+}
+
+.navigation-sidebar > row > row {
+  padding: 0 8px;
+}
+
+/* Subtitle list row of the entry currently visible in the video preview.
+   Same rectangle and corner radius as the clicked (:selected) highlight. */
 row.active-playing {
+  border-radius: 9px;
   background-color: alpha(@accent_bg_color, 0.15);
+}
+
+/* A playing row that is also selected keeps just the selected highlight
+   (the :selected state lives on the list item wrapper, an ancestor row). */
+row:selected row.active-playing {
+  background-color: transparent;
 }

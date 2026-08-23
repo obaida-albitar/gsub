@@ -286,7 +286,7 @@ class _FakeWindow:
     def _update_title(self):
         pass
 
-    def _update_undo_redo_buttons(self):
+    def _document_mutated(self):
         pass
 
     def _refresh_video_preview(self):
@@ -374,3 +374,108 @@ def test_props_dialog_nothing_configured_shows_toast_and_stays_open():
     assert dialog.parent_window.toasts == ["Nothing to apply"]
     assert dialog.parent_window.command_manager.can_undo() is False
     assert doc.entries[0].style == "Default"
+
+
+# --- Preview sample text ----------------------------------------------------
+
+def _no_save_timers(monkeypatch, spe):
+    """Keep wire_preview_text's debounced saves from ever being scheduled.
+
+    Without this, tests that type into the view leave a pending 500 ms
+    timer whose callback would run (with the real preferences helpers,
+    after monkeypatch teardown) during some later test's main-loop
+    iterations and write to the user's actual preferences file.
+    """
+    monkeypatch.setattr(spe.GLib, 'timeout_add', lambda interval, fn: None)
+
+
+def _preview_text_state():
+    from gsub.widgets import style_props_editor as spe
+
+    view = Gtk.TextView()
+    label = Gtk.Label()
+    return spe, view, label
+
+
+def _view_text(view):
+    start, end = view.get_buffer().get_bounds()
+    return view.get_buffer().get_text(start, end, False)
+
+
+def test_wire_preview_text_shows_default_without_prefs(monkeypatch):
+    spe, view, label = _preview_text_state()
+    monkeypatch.setattr(spe, 'read_preferences', lambda: {})
+
+    spe.wire_preview_text(view, label)
+
+    assert _view_text(view) == spe.DEFAULT_PREVIEW_TEXT
+    assert label.get_text() == spe.DEFAULT_PREVIEW_TEXT
+
+
+def test_wire_preview_text_loads_saved_text(monkeypatch):
+    spe, view, label = _preview_text_state()
+    saved = "مرحبا\nhello 0123456789"
+    monkeypatch.setattr(
+        spe, 'read_preferences', lambda: {spe.PREVIEW_TEXT_PREFERENCES_KEY: saved})
+
+    spe.wire_preview_text(view, label)
+
+    assert _view_text(view) == saved
+    assert label.get_text() == saved
+
+
+def test_wire_preview_text_updates_label_live(monkeypatch):
+    spe, view, label = _preview_text_state()
+    monkeypatch.setattr(spe, 'read_preferences', lambda: {})
+    _no_save_timers(monkeypatch, spe)
+    spe.wire_preview_text(view, label)
+
+    view.get_buffer().set_text("short")
+    assert label.get_text() == "short"
+
+    # Multi-line text is kept (newline becomes a preview line break).
+    view.get_buffer().set_text("one\ntwo")
+    assert label.get_text() == "one\ntwo"
+
+    # An empty sample falls back to the default so the preview never
+    # renders blank.
+    view.get_buffer().set_text("")
+    assert label.get_text() == spe.DEFAULT_PREVIEW_TEXT
+
+
+def test_wire_preview_text_reset_button_restores_default(monkeypatch):
+    spe, view, label = _preview_text_state()
+    monkeypatch.setattr(spe, 'read_preferences', lambda: {})
+    button = Gtk.Button()
+
+    _no_save_timers(monkeypatch, spe)
+    spe.wire_preview_text(view, label, reset_button=button)
+    view.get_buffer().set_text("custom")
+    button.emit("clicked")
+
+    assert label.get_text() == spe.DEFAULT_PREVIEW_TEXT
+    assert _view_text(view) == spe.DEFAULT_PREVIEW_TEXT
+
+
+def test_wire_preview_text_saves_debounced(monkeypatch):
+    from gi.repository import GLib
+
+    spe, view, label = _preview_text_state()
+    monkeypatch.setattr(spe, 'read_preferences', lambda: {})
+    writes = []
+    monkeypatch.setattr(
+        spe, 'write_preferences', lambda prefs: writes.append(dict(prefs)))
+
+    spe.wire_preview_text(view, label)
+    view.get_buffer().set_text("my sample")
+
+    # Run the main loop until the debounced save timer fires (iteration
+    # blocks until the timer is due, so the loop exits as soon as the
+    # write happened rather than starving on a quiet loop).
+    ctx = GLib.MainContext.default()
+    deadline = 10
+    while not writes and deadline > 0:
+        ctx.iteration(True)
+        deadline -= 1
+
+    assert writes and writes[-1][spe.PREVIEW_TEXT_PREFERENCES_KEY] == "my sample"

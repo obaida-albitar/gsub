@@ -11,6 +11,8 @@ from gsub.batch_logic import (
     collect_style_font_sizes,
     common_resolution,
     compute_shared_styles,
+    expand_output_name,
+    expand_output_names,
 )
 from gsub.models import ASSStyle, SubtitleDocument, SubtitleFormat
 
@@ -205,3 +207,70 @@ def test_shared_styles_from_parsed_ass(sample_ass_content):
     doc = ASSParser.parse(sample_ass_content)
     # The sample has a single Default style -> intersection yields it.
     assert compute_shared_styles([doc]) == ["Default"]
+
+
+# --- batch-save naming pattern ----------------------------------------------
+
+def test_expand_output_name_placeholder():
+    assert expand_output_name("{name}_fixed", "ep01.srt") == "ep01_fixed.srt"
+
+
+def test_expand_output_name_default_and_empty_keep_original():
+    assert expand_output_name("{name}", "ep01.srt") == "ep01.srt"
+    assert expand_output_name("", "ep01.ass") == "ep01.ass"
+    assert expand_output_name("   ", "ep01.ass") == "ep01.ass"
+
+
+def test_expand_output_name_multiple_placeholders_and_prefix():
+    assert expand_output_name("sub-{name}-{name}", "ep01.srt") == "sub-ep01-ep01.srt"
+
+
+def test_expand_output_name_keeps_extension_per_file():
+    assert expand_output_name("{name}_v2", "movie.ass") == "movie_v2.ass"
+
+
+def test_expand_output_name_sanitizes_separators():
+    assert expand_output_name("../{name}", "ep01.srt") == ".._ep01.srt"
+    assert expand_output_name("{name}/deep", "ep01.srt") == "ep01_deep.srt"
+
+
+def test_expand_output_names_plain_pattern_is_numbered_base_name():
+    names = expand_output_names("show S01E", ["ep01.srt", "ep02.srt"])
+    assert names == ["show S01E01.srt", "show S01E02.srt"]
+
+
+def test_expand_output_names_trailing_space_separates_number():
+    names = expand_output_names("show ", ["ep01.srt", "ep02.srt"])
+    assert names == ["show 01.srt", "show 02.srt"]
+
+
+def test_expand_output_names_numbering_width_grows_with_batch():
+    files = [f"ep{i}.srt" for i in range(12)]
+    names = expand_output_names("batch", files)
+    assert names[0] == "batch01.srt"
+    assert names[9] == "batch10.srt"
+    assert names[-1] == "batch12.srt"
+
+    wide = expand_output_names("batch", [f"ep{i}.srt" for i in range(100)])
+    assert wide[0] == "batch001.srt"
+    assert wide[-1] == "batch100.srt"
+
+
+def test_expand_output_names_keeps_each_files_extension():
+    names = expand_output_names("set", ["movie.ass", "trailer.ass"])
+    assert names == ["set01.ass", "set02.ass"]
+
+
+def test_expand_output_names_with_placeholder_substitutes():
+    names = expand_output_names("{name}_fixed", ["ep01.srt", "ep02.srt"])
+    assert names == ["ep01_fixed.srt", "ep02_fixed.srt"]
+
+
+def test_expand_output_names_empty_keeps_originals():
+    names = expand_output_names("", ["ep01.srt", "ep02.ass"])
+    assert names == ["ep01.srt", "ep02.ass"]
+
+
+def test_expand_output_names_sanitizes_base_name():
+    names = expand_output_names("a/b", ["ep01.srt"])
+    assert names == ["a_b01.srt"]

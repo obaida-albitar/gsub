@@ -9,7 +9,9 @@ complex tags (``\\t(...)``, ``\\clip``, karaoke, drawings...) fall back to a
 raw-text entry row.
 
 :class:`TagEditorRows` is format-agnostic about where the rows live: it is
-given an :class:`Adw.ExpanderRow` to populate and exposes
+given a container — an :class:`Adw.ExpanderRow` (the editor panel's
+Formatting section, per-line group expanders) or an
+:class:`Adw.PreferencesGroup` (the inline-tag dialog) — and exposes
 
 - ``load_body(body)`` — rebuild the rows from a block body (no signals),
 - ``get_block()`` — the re-serialized ``{...}`` block (or None when empty),
@@ -149,9 +151,11 @@ class TagEditorRows(GObject.Object):
         'changed': (GObject.SignalFlags.RUN_FIRST, None, ()),
     }
 
-    def __init__(self, expander: Adw.ExpanderRow):
+    def __init__(self, container):
         super().__init__()
-        self._expander = expander
+        # Adw.ExpanderRow (rows via add_row) or Adw.PreferencesGroup (rows
+        # via add); both remove rows with remove().
+        self._container = container
         # Ordered pieces (tags and opaque content) of the block body.
         self._pieces: list[OverrideTag] = []
         self._rows: list[Adw.PreferencesRow] = []
@@ -169,14 +173,14 @@ class TagEditorRows(GObject.Object):
         self._updating = True
         try:
             for row in self._rows:
-                self._expander.remove(row)
+                self._remove_row(row)
             self._rows = []
             self._pieces = parse_override_block(body) if body else []
             self._empty_block = body is not None and body == ''
             for piece in self._pieces:
                 row = self._build_row(piece)
                 if row is not None:
-                    self._expander.add_row(row)
+                    self._add_row(row)
                     self._rows.append(row)
         finally:
             self._updating = False
@@ -204,7 +208,7 @@ class TagEditorRows(GObject.Object):
         self._pieces.append(tag)
         row = self._build_row(tag)
         if row is not None:
-            self._expander.add_row(row)
+            self._add_row(row)
             self._rows.append(row)
         self._emit_changed()
 
@@ -225,6 +229,17 @@ class TagEditorRows(GObject.Object):
     def _on_add_activated(self, action, parameter, raw):
         self.add_tag(raw)
 
+    def _add_row(self, row) -> None:
+        """Add a row to the container (add_row vs add, per container type)."""
+        if isinstance(self._container, Adw.ExpanderRow):
+            self._container.add_row(row)
+        else:
+            self._container.add(row)
+
+    def _remove_row(self, row) -> None:
+        """Remove a row from the container (both types use remove)."""
+        self._container.remove(row)
+
     def _emit_changed(self):
         if self._updating:
             return
@@ -243,7 +258,7 @@ class TagEditorRows(GObject.Object):
         def on_clicked(_button):
             if self._updating:
                 return
-            self._expander.remove(row)
+            self._remove_row(row)
             self._rows.remove(row)
             self._pieces.remove(piece)
             self._emit_changed()
@@ -399,12 +414,20 @@ class TagEditorRows(GObject.Object):
             box.append(spin)
         row.add_suffix(box)
 
-        def on_value_changed(_spin):
+        # The spin range caps what can be entered, but the tag's own value
+        # may lie outside it (shown clamped) or carry decimals. Only the
+        # coordinate whose spin the user touched is rewritten; the other
+        # keeps its current argument verbatim.
+        current = [args[0] if args else '0',
+                   args[1] if len(args) > 1 else '0']
+
+        def on_value_changed(spin):
             if self._updating:
                 return
-            piece.args = [str(spins[0].get_value_as_int()),
-                          str(spins[1].get_value_as_int())]
-            piece.raw = '\\pos({},{})'.format(*piece.args)
+            index = 0 if spin is spins[0] else 1
+            current[index] = _format_number(spin.get_value())
+            piece.args = list(current)
+            piece.raw = '\\pos({},{})'.format(*current)
             self._emit_changed()
 
         for spin in spins:

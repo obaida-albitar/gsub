@@ -308,7 +308,9 @@ class TestWindowConstruction:
         assert "<Control>z" in app.get_accels_for_action("win.undo")
         assert "<Control>j" in app.get_accels_for_action(
             "win.seek-to-selection")
-        assert "Delete" in app.get_accels_for_action("win.remove-entry")
+        # Delete is a window key, never an accel: as an accel it would win
+        # over the text editor and delete the entry instead of a character.
+        assert app.get_accels_for_action("win.remove-entry") == []
         # Actions absent from the shortcuts table get no accel.
         assert app.get_accels_for_action("win.batch") == []
 
@@ -912,12 +914,24 @@ class TestWindowKeyLookup:
             ("space", "win.play-pause"),
             ("period", "win.frame-step"),
             ("comma", "win.frame-back-step"),
+            ("Left", "win.seek-nudge-back"),
+            ("Right", "win.seek-nudge-forward"),
+            ("Delete", "win.remove-entry"),
         ):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name), 0) == action
 
+    def test_shift_arrows_match_the_large_seeks(self, table):
+        assert _window_key_lookup(
+            table, Gdk.keyval_from_name("Left"),
+            Gdk.ModifierType.SHIFT_MASK) == "win.seek-nudge-back-large"
+        assert _window_key_lookup(
+            table, Gdk.keyval_from_name("Right"),
+            Gdk.ModifierType.SHIFT_MASK) == "win.seek-nudge-forward-large"
+
     def test_control_held_does_not_match(self, table):
-        for key_name in ("space", "period", "comma"):
+        for key_name in ("space", "period", "comma", "Left", "Right",
+                         "Delete"):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name),
                 Gdk.ModifierType.CONTROL_MASK) is None
@@ -928,17 +942,25 @@ class TestWindowKeyLookup:
             Gdk.ModifierType.SHIFT_MASK) is None
 
     def test_unrelated_keyvals_do_not_match(self, table):
-        for key_name in ("a", "Return", "Left", "Escape"):
+        for key_name in ("a", "Return", "Escape"):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name), 0) is None
 
     def test_table_covers_exactly_the_window_key_actions(self, table):
         assert set(table.values()) == {
-            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+            "win.play-pause", "win.frame-step", "win.frame-back-step",
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
         assert set(table) == {
             (Gdk.keyval_from_name("space"), 0),
             (Gdk.keyval_from_name("period"), 0),
             (Gdk.keyval_from_name("comma"), 0),
+            (Gdk.keyval_from_name("Left"), 0),
+            (Gdk.keyval_from_name("Right"), 0),
+            (Gdk.keyval_from_name("Left"), int(Gdk.ModifierType.SHIFT_MASK)),
+            (Gdk.keyval_from_name("Right"), int(Gdk.ModifierType.SHIFT_MASK)),
+            (Gdk.keyval_from_name("Delete"), 0),
         }
 
 
@@ -955,11 +977,17 @@ class TestWindowKeyController:
 
     def test_window_keys_not_registered_as_accels(self, window):
         app = window.get_application()
-        for name in ("play-pause", "frame-step", "frame-back-step"):
+        for name in ("play-pause", "frame-step", "frame-back-step",
+                     "seek-nudge-back", "seek-nudge-forward",
+                     "seek-nudge-back-large", "seek-nudge-forward-large",
+                     "remove-entry"):
             assert app.get_accels_for_action(f"win.{name}") == [], name
         # The controller dispatches them from its own lookup table instead.
         assert set(window._window_keys.values()) == {
-            "win.play-pause", "win.frame-step", "win.frame-back-step"}
+            "win.play-pause", "win.frame-step", "win.frame-back-step",
+            "win.seek-nudge-back", "win.seek-nudge-forward",
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
 
     def test_space_toggles_playback_with_a_video(self, window):
         window.current_video_file = "/movies/example.mkv"
@@ -1012,6 +1040,23 @@ class TestWindowKeyController:
     def test_unrelated_key_falls_through(self, window):
         assert window._on_window_key_pressed(
             None, Gdk.keyval_from_name("a"), 0, 0) is False
+
+    def test_delete_removes_the_selected_entry(self, window, tmp_path):
+        _open(window, tmp_path, "del.srt", SRT_CONTENT)
+        _select(window, 0)
+
+        handled = window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("Delete"), 0, 0)
+
+        assert handled is True
+        assert len(window.document.entries) == 2
+
+    def test_delete_without_document_falls_through(self, window):
+        window.document = None
+        window._update_document_actions()
+
+        assert window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("Delete"), 0, 0) is False
 
 
 @pytest.mark.integration
@@ -1129,6 +1174,73 @@ class TestCompatibilityFixes:
         _open(window, tmp_path, "plain.srt", SRT_CONTENT)
         assert window.compat_issues == []
 
+    def test_style_edit_refreshes_compat(self, window, tmp_path):
+        # Regression: fixing a style by hand (e.g. ScaleX in the styles
+        # dialog) used to leave the stale issue listed until the file was
+        # closed and reopened.
+        import copy
+        from gsub.commands.ass_commands import ReplaceASSHeaderCommand
+
+        content = ASS_CONTENT.replace("100.0,100.0", "5.0,5.0", 1)
+        _open(window, tmp_path, "smallscale.ass", content)
+        assert any(i.code == "style.small_scale" for i in window.compat_issues)
+
+        styles = [copy.deepcopy(s) for s in window.document.styles]
+        styles[0].scale_x = 100.0
+        styles[0].scale_y = 100.0
+        window.command_manager.execute(ReplaceASSHeaderCommand(
+            window.document,
+            metadata=window.document.metadata,
+            aegisub_project_garbage=getattr(
+                window.document, "aegisub_project_garbage", {}),
+            styles=styles,
+        ))
+        window._document_mutated()  # what the styles dialog calls after saving
+
+        assert all(i.code != "style.small_scale" for i in window.compat_issues)
+
+    def test_undo_refreshes_compat(self, window, tmp_path):
+        # Undoing a fix must bring the issue back to the panel, not just to
+        # the document.
+        _open(window, tmp_path, "undo.ass", ASS_CONTENT)
+        issue = next(i for i in window.compat_issues
+                     if i.code == "color.unknown_format")
+        window._apply_compat_fix(issue)
+        assert all(i.code != "color.unknown_format"
+                   for i in window.compat_issues)
+
+        window._on_undo(None, None)
+
+        assert any(i.code == "color.unknown_format"
+                   for i in window.compat_issues)
+
+    def test_entry_removal_refreshes_compat(self, window, tmp_path):
+        # The blur issue lives on entry 1; deleting that entry must drop the
+        # issue from the panel.
+        _open(window, tmp_path, "rm.ass", ASS_CONTENT)
+        assert any(i.fix and i.fix.get("kind") == "blur"
+                   for i in window.compat_issues)
+
+        window.subtitle_list.select_entry(0)
+        window._on_remove_entry(None, None)
+
+        assert all(not (i.fix and i.fix.get("kind") == "blur")
+                   for i in window.compat_issues)
+
+    def test_compat_toggle_recomputes_stale_issues(self, window, tmp_path):
+        # Safety net: entering the Compatibility page always recomputes, so
+        # not even an out-of-band change can leave stale results on screen.
+        _open(window, tmp_path, "toggle.ass", ASS_CONTENT)
+        window.document.styles[0].primary_color = "&H00FFFFFF"
+        assert any(i.code == "color.unknown_format"
+                   for i in window.compat_issues)  # stale on purpose
+
+        window._on_compat_toggle(window.compat_btn)
+
+        assert window.view_stack.get_visible_child_name() == "compatibility"
+        assert all(i.code != "color.unknown_format"
+                   for i in window.compat_issues)
+
 
 @pytest.mark.integration
 class TestBatchConfirmDialog:
@@ -1194,6 +1306,86 @@ class TestBatchConfirmDialog:
         assert dialog.is_confirmed() is False
 
         dialog.on_apply(None)
+        assert dialog.is_confirmed() is True
+
+        other = self._make(window)
+        other.on_cancel_clicked(None)
+        assert other.is_confirmed() is False
+
+
+@pytest.mark.integration
+class TestBatchRenameDialog:
+    """The naming-pattern dialog shown before batch "Save All As…" writes."""
+
+    @staticmethod
+    def _make(window, filenames=("ep01.srt", "ep02.srt")):
+        from gsub.widgets.batch_rename_dialog import BatchRenameDialog
+
+        return BatchRenameDialog(window, filenames=list(filenames))
+
+    @staticmethod
+    def _row_titles(dialog):
+        found = []
+
+        def _walk(widget):
+            if isinstance(widget, Adw.ActionRow):
+                found.append(widget.get_title())
+                return
+            child = widget.get_first_child()
+            while child is not None:
+                _walk(child)
+                child = child.get_next_sibling()
+
+        _walk(dialog.preview_group)
+        return found
+
+    def test_default_pattern_keeps_names_and_enables_save(self, window):
+        dialog = self._make(window)
+
+        assert dialog.get_output_names() == ["ep01.srt", "ep02.srt"]
+        assert dialog.save_button.get_sensitive() is True
+        assert self._row_titles(dialog) == ["ep01.srt", "ep02.srt"]
+
+    def test_pattern_edit_updates_preview(self, window):
+        dialog = self._make(window)
+
+        dialog.pattern_row.set_text("test file S01E")
+        assert dialog.get_output_names() == [
+            "test file S01E01.srt", "test file S01E02.srt"]
+
+        titles = self._row_titles(dialog)
+        assert titles == ["test file S01E01.srt", "test file S01E02.srt"]
+
+    def test_pattern_with_placeholder_substitutes(self, window):
+        dialog = self._make(window)
+
+        dialog.pattern_row.set_text("{name}_fixed")
+        assert dialog.get_output_names() == ["ep01_fixed.srt", "ep02_fixed.srt"]
+
+    def test_colliding_names_block_save(self, window):
+        dialog = self._make(window, filenames=("ep01.srt", "ep01.srt"))
+
+        # Same original basename twice -> identical expanded names.
+        dialog.pattern_row.set_text("{name}")
+        assert dialog.save_button.get_sensitive() is False
+
+        # Numbered base names are unique even for duplicate basenames.
+        dialog.pattern_row.set_text("test file")
+        assert dialog.save_button.get_sensitive() is True
+
+    def test_long_batches_are_summarized(self, window):
+        names = [f"ep{i:02d}.srt" for i in range(10)]
+        dialog = self._make(window, filenames=names)
+
+        titles = self._row_titles(dialog)
+        assert len(titles) == dialog.PREVIEW_LIMIT + 1
+        assert titles[-1] == "…and 2 more"
+
+    def test_save_confirms_and_cancel_does_not(self, window):
+        dialog = self._make(window)
+        assert dialog.is_confirmed() is False
+
+        dialog.on_save(None)
         assert dialog.is_confirmed() is True
 
         other = self._make(window)

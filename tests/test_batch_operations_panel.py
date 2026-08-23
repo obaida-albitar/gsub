@@ -157,3 +157,99 @@ def test_batch_file_list_update_ui_no_name_error():
 
     badge = file_list.format_badge.get_label()
     assert "Default" in badge or "All" in badge
+
+
+# --- BatchFileList removal (context menu / Delete shortcuts) ----------------
+
+def _make_file_list(count=2):
+    from gsub.widgets.batch_file_list import BatchFileList
+
+    file_list = BatchFileList()
+    for i in range(count):
+        file_list.add_file(_ass_doc(), f"/tmp/file_{i}.ass")
+    return file_list
+
+
+def test_remove_file_emits_files_changed_and_updates_ui():
+    file_list = _make_file_list(2)
+    emitted = []
+    file_list.connect('files-changed', lambda *a: emitted.append(True))
+
+    file_list.remove_file(file_list._files[0])
+
+    assert emitted
+    assert file_list.file_count == 1
+    assert file_list._files[0].file_path == '/tmp/file_1.ass'
+
+
+def test_remove_selected_removes_selection_item():
+    file_list = _make_file_list(3)
+    file_list._selection.select_item(1, True)
+
+    file_list.remove_selected()
+
+    assert file_list.file_count == 2
+    assert [f.file_path for f in file_list._files] == [
+        '/tmp/file_0.ass', '/tmp/file_2.ass']
+
+
+def test_clear_empties_list_and_switches_to_empty_page():
+    file_list = _make_file_list(2)
+    file_list.clear()
+    assert file_list.file_count == 0
+    assert file_list.stack.get_visible_child_name() == 'empty'
+
+
+def test_clear_all_without_modified_files_clears_immediately():
+    file_list = _make_file_list(2)
+    file_list._request_clear_all()
+    assert file_list.file_count == 0
+
+
+def test_clear_all_with_unsaved_changes_waits_for_confirmation():
+    file_list = _make_file_list(2)
+    file_list._files[0].modified = True
+    # The confirmation dialog is async; without a running main loop (and a
+    # user clicking "Remove All") nothing may be cleared yet.
+    file_list._request_clear_all()
+    assert file_list.file_count == 2
+
+
+def test_delete_key_removes_selected_file():
+    file_list = _make_file_list(2)
+    file_list._selection.select_item(1, True)
+
+    assert file_list._on_key_pressed(None, Gdk.KEY_Delete, 0, 0) is True
+    assert file_list.file_count == 1
+    assert [f.file_path for f in file_list._files] == ['/tmp/file_0.ass']
+
+
+def test_ctrl_shift_delete_requests_clear_all():
+    file_list = _make_file_list(2)
+    requested = []
+    file_list._request_clear_all = lambda: requested.append(True)
+
+    file_list._on_key_pressed(
+        None, Gdk.KEY_Delete, 0,
+        Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
+
+    assert requested
+
+
+def test_delete_key_on_empty_list_is_ignored():
+    file_list = _make_file_list(0)
+    assert file_list._on_key_pressed(None, Gdk.KEY_Delete, 0, 0) is False
+
+
+def test_row_get_item_tracks_binding():
+    from gsub.widgets.batch_file_list import BatchFileRow
+
+    row = BatchFileRow()
+    assert row.get_item() is None
+
+    item = _make_file_list(1)._files[0]
+    row.bind(item, lambda *a: None)
+    assert row.get_item() is item
+
+    row.unbind()
+    assert row.get_item() is None

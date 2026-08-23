@@ -195,19 +195,16 @@ def split_leading_block(text: str) -> Tuple[Optional[str], str]:
     return match.group(0), text[match.end():]
 
 
-def split_line_start_blocks(text: str) -> Tuple[str, List[Tuple[int, str]]]:
-    """Split out every ``{...}`` block that sits at the start of a line.
+def split_override_blocks(text: str) -> Tuple[str, List[Tuple[int, str]]]:
+    """Split out every ``{...}`` block, wherever it sits.
 
     Returns ``(clean, anchors)`` where ``clean`` is the text without the
-    split-out blocks and ``anchors`` is an ordered list of
-    ``(offset, body)`` pairs — the offset is the block's position within
-    ``clean``. A block qualifies when nothing or a newline precedes it in
-    ``clean``: the leading block (offset 0) and blocks right after a line
-    break (a ``\\N`` the parser turned into ``\\n``). Blocks anywhere else
-    (mid-word/mid-sentence) stay in ``clean`` for raw editing. Splicing
+    blocks and ``anchors`` is an ordered list of ``(offset, body)`` pairs —
+    the offset is the block's position within ``clean``. The block at
+    offset 0 (if any) is the dialogue's leading block; every other block,
+    line-start or mid-line, gets its own anchor. Splicing
     ``'{' + body + '}'`` back in at each offset, in list order, rebuilds
-    ``text`` exactly; adjacent line-start blocks share an offset and keep
-    their order.
+    ``text`` exactly; adjacent blocks share an offset and keep their order.
 
     As with :func:`strip_override_blocks`, only complete blocks are split
     out; stray/unbalanced braces are ordinary text and stay in ``clean``.
@@ -215,22 +212,13 @@ def split_line_start_blocks(text: str) -> Tuple[str, List[Tuple[int, str]]]:
     clean_parts: List[str] = []
     anchors: List[Tuple[int, str]] = []
     clean_len = 0
-    prev_char: Optional[str] = None
     last = 0
     for match in BLOCK_PATTERN.finditer(text):
         head = text[last:match.start()]
         if head:
             clean_parts.append(head)
             clean_len += len(head)
-            prev_char = head[-1]
-        if prev_char is None or prev_char == '\n':
-            anchors.append((clean_len, match.group(1)))
-        else:
-            # Not at a line start: keep the block inline in the clean text.
-            block = match.group(0)
-            clean_parts.append(block)
-            clean_len += len(block)
-            prev_char = block[-1]
+        anchors.append((clean_len, match.group(1)))
         last = match.end()
     clean_parts.append(text[last:])
     return ''.join(clean_parts), anchors

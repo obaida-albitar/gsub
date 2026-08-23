@@ -137,6 +137,10 @@ class AlignmentGrid(Gtk.Grid):
         self._value = 2  # ASSStyle default: bottom center
         self._updating = False
 
+        # Breathing room between the nine buttons (Gtk.Grid defaults to 0).
+        self.set_row_spacing(6)
+        self.set_column_spacing(6)
+
         # Equal-size buttons keep the grid compact and square-ish.
         size_group = Gtk.SizeGroup(mode=Gtk.SizeGroupMode.BOTH)
         self._buttons = {}

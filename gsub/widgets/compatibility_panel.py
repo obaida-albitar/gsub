@@ -10,7 +10,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 
-from gi.repository import Gtk  # noqa: E402
+from gi.repository import Gtk, GLib  # noqa: E402
 
 from gsub.resources import template_resource_path  # noqa: E402
 from gsub.parsers.ass_validator import CompatIssue, CompatSeverity  # noqa: E402
@@ -94,7 +94,11 @@ class CompatibilityPanel(Gtk.Box):
         label.set_wrap(True)
         label.set_use_markup(True)
         label.set_valign(Gtk.Align.START)
-        label.set_label(f"<b>{issue.location}</b>\n{issue.message}")
+        # Issue text is arbitrary (style names, "&H..." colors); it must be
+        # escaped or Pango fails to parse the markup and drops the text.
+        label.set_label("<b>{}</b>\n{}".format(
+            GLib.markup_escape_text(issue.location),
+            GLib.markup_escape_text(issue.message)))
         row.append(label)
 
         fix_button = Gtk.Button(label="Fix")

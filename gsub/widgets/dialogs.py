@@ -24,6 +24,7 @@ from gsub.widgets.style_props_editor import (
     rgba_to_ass_color,
     rgba_to_css,
     update_ass_preview,
+    wire_preview_text,
 )
 from gsub.widgets.style_widgets import (  # noqa: E402
     BORDER_STYLE_CHOICES,
@@ -120,7 +121,7 @@ class TimeShiftDialog(Adw.Dialog):
         # Update UI - preserve selection
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Time shifted by {offset_ms}ms")
 
@@ -195,7 +196,7 @@ class BulkApplyStyleDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Applied style '{style_name}'")
 
@@ -261,7 +262,7 @@ class BatchStylePropsDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(
             f"Updated {len(target_styles)} style{'s' if len(target_styles) != 1 else ''}"
@@ -453,7 +454,7 @@ class ASSInfoDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast("Updated ASS metadata")
 
@@ -495,6 +496,8 @@ class ASSStylesDialog(Adw.Dialog):
     style_shadow = Gtk.Template.Child()
     style_alignment = Gtk.Template.Child()
     preview_expander = Gtk.Template.Child()
+    preview_text_view = Gtk.Template.Child()
+    preview_text_reset = Gtk.Template.Child()
     preview_label = Gtk.Template.Child()
     preview_frame = Gtk.Template.Child()
     preview_scroller = Gtk.Template.Child()
@@ -573,6 +576,11 @@ class ASSStylesDialog(Adw.Dialog):
         self._encoding_choice = ChoiceRow(self.style_encoding, ENCODING_CHOICES)
         self._border_style_choice.connect_changed(self._on_style_field_changed)
         self._encoding_choice.connect_changed(self._on_style_field_changed)
+
+        # User-editable preview sample text (persisted, shared with the
+        # style props editor).
+        wire_preview_text(self.preview_text_view, self.preview_label,
+                          self.preview_text_reset)
 
         self._load_style_into_editor()
         self._update_preview()
@@ -848,7 +856,7 @@ class ASSStylesDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast("Updated ASS styles")
 
