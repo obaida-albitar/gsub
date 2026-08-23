@@ -190,10 +190,12 @@ def _check_fonts(
     doc: SubtitleDocument,
     installed_fonts: Iterable[str],
 ) -> List[CompatIssue]:
-    installed = set(installed_fonts)
+    # Font family matching is case-insensitive in renderers (and Pango),
+    # so "arial" must not be reported missing when "Arial" is installed.
+    installed = {f.casefold() for f in installed_fonts}
     issues: List[CompatIssue] = []
     for style in doc.styles:
-        if style.fontname not in installed:
+        if style.fontname.casefold() not in installed:
             issues.append(CompatIssue(
                 severity=CompatSeverity.INFO,
                 code="font.missing",
@@ -358,8 +360,10 @@ def _check_override_tags(doc: SubtitleDocument) -> List[CompatIssue]:
 def _check_position_bounds(doc: SubtitleDocument) -> List[CompatIssue]:
     issues: List[CompatIssue] = []
     try:
-        w = int(doc.metadata.get("PlayResX", ""))
-        h = int(doc.metadata.get("PlayResY", ""))
+        # Some writers emit "640.0"; int() alone would silently disable the
+        # check for those, so parse as float first.
+        w = int(float(doc.metadata.get("PlayResX", "")))
+        h = int(float(doc.metadata.get("PlayResY", "")))
     except (ValueError, TypeError):
         return issues
 

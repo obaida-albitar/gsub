@@ -99,6 +99,13 @@ class TestValidatorFonts:
         doc = make_doc(styles=[ASSStyle(name="Default", fontname="Comic Sans")])
         assert not any(iss.code == "font.missing" for iss in validate_document(doc))
 
+    def test_font_match_is_case_insensitive(self):
+        # Renderers (and Pango) match font families case-insensitively, so a
+        # differently-cased name must not be reported as missing.
+        doc = make_doc(styles=[ASSStyle(name="Default", fontname="ARIAL")])
+        assert not any(iss.code == "font.missing"
+                       for iss in validate_document(doc, installed_fonts=["Arial"]))
+
 
 @pytest.mark.unit
 @pytest.mark.parser
@@ -170,6 +177,12 @@ class TestValidatorPosition:
         doc = make_doc(entries_text=["{\\pos(100,100)}"],
                        meta={"PlayResX": "1920", "PlayResY": "1080"})
         assert not any(iss.code == "position.out_of_bounds" for iss in validate_document(doc))
+
+    def test_float_playres_strings_still_enable_check(self):
+        # "640.0" used to raise inside int() and silently disable the check.
+        doc = make_doc(entries_text=["{\\pos(700,100)}"],
+                       meta={"PlayResX": "640.0", "PlayResY": "480.0"})
+        assert any(iss.code == "position.out_of_bounds" for iss in validate_document(doc))
 
 
 @pytest.mark.unit
