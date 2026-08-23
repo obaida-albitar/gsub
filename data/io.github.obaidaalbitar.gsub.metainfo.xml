@@ -46,12 +46,17 @@
     </screenshot>
   </screenshots>
   <releases>
-    <release version="0.7" date="2026-08-22">
+    <release version="0.7" date="2026-08-23">
       <description>
-        <p>Distributed as a Flatpak bundle from GitHub Releases.</p>
+        <p>Visual tag editing, a compatibility checker that stays up to
+        date, and batch-mode refinements.</p>
         <ul>
-          <li>Single-file Flatpak bundles attached to each release</li>
-          <li>Continuous integration running the full test suite and lint</li>
+          <li>Visual editing for override tags anywhere in a line, with per-line groups and a right-click tag editor</li>
+          <li>Compatibility issues refresh after every document change: style edits, undo/redo, adding/removing subtitles</li>
+          <li>Compatibility fixes: issue text with &amp;H… colors rendered blank; font matching is case-insensitive; "640.0"-style PlayRes values no longer silently disable position checks</li>
+          <li>Styles dialog: editable preview text in any language or length</li>
+          <li>Batch mode: remove loaded files via context menu or Delete; rename by appending numbers</li>
+          <li>Single-file Flatpak bundles attached to each release; continuous integration running the full test suite and lint</li>
         </ul>
       </description>
     </release>
