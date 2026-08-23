@@ -52,6 +52,7 @@ blueprint_names = [
   'compatibility-panel',
   'style-props-editor',
   'batch-style-props',
+  'batch-rename-dialog',
 ]
 
 compiled_ui = []

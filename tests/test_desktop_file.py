@@ -59,3 +59,21 @@ def test_entry_is_a_gui_application():
     section = _desktop_section()
     assert section["Type"] == "Application"
     assert section["Terminal"].lower() == "false"
+
+
+def test_every_blueprint_is_listed_in_meson():
+    # The .ui files are gitignored, so CI/Flatpak builds get them only by
+    # compiling the .blp names hardcoded in meson.build's blueprint_names.
+    # A blueprint missing from that list builds fine locally (stale .ui in
+    # the tree) and breaks only the release Flatpak job.
+    repo = DESKTOP_FILE.parent.parent
+    meson = (repo / "meson.build").read_text(encoding="utf-8")
+    listed = set()
+    for line in meson.splitlines():
+        line = line.strip().strip(",")
+        if line.startswith("'") and line.endswith("'"):
+            listed.add(line[1:-1])
+    blueprints = {p.stem for p in (repo / "data" / "blueprints").glob("*.blp")}
+    assert blueprints <= listed, (
+        f"blueprints absent from meson.build blueprint_names: "
+        f"{sorted(blueprints - listed)}")
