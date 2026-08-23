@@ -96,6 +96,18 @@ def _find_trash_button(widget):
     return None
 
 
+def _find_spinbuttons(widget):
+    """All Gtk.SpinButton children of ``widget``, in widget order."""
+    found = []
+    child = widget.get_first_child()
+    while child is not None:
+        if isinstance(child, Gtk.SpinButton):
+            found.append(child)
+        found.extend(_find_spinbuttons(child))
+        child = child.get_next_sibling()
+    return found
+
+
 def _buffer_text(panel):
     start = panel.text_buffer.get_start_iter()
     end = panel.text_buffer.get_end_iter()
@@ -252,20 +264,17 @@ class TestEditorPanelTagEditing:
         _wait_debounce(panel)
         assert emitted[-1] == '{\\t(\\fs30,\\fs40,1)}text'
 
-    def test_midline_block_stays_in_buffer(self):
+    def test_midline_block_becomes_its_own_group(self):
         panel = _make_panel()
         panel.set_entry(_make_entry('{\\b1}before{\\i1}after'), 0)
 
-        assert _buffer_text(panel) == 'before{\\i1}after'
+        # The buffer holds clean text only; BOTH blocks are in the rows.
+        assert _buffer_text(panel) == 'beforeafter'
+        assert panel.tag_editor.get_block() == '{\\b1}'
+        assert len(panel._tag_groups) == 1
+        assert panel._tag_groups[0].offset == 6  # after "before"
+        assert panel._tag_groups[0].editor.get_block() == '{\\i1}'
         assert panel._compose_text() == '{\\b1}before{\\i1}after'
-        # The mid-line block is highlighted with the inline tag.
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-
-        text = _buffer_text(panel)
-        match = BLOCK_PATTERN.search(text)
-        assert match is not None
-        tag_start = panel.text_buffer.get_iter_at_offset(match.start())
-        assert tag_start.has_tag(panel._inline_tag)
 
     def test_user_line_two_clean_lines_two_groups(self):
         """The reported line: {\fs22} starts line 2, so it gets its own group."""
@@ -356,24 +365,18 @@ class TestEditorPanelTagEditing:
         assert panel._compose_text() == expected
         _wait_debounce(panel)
 
-    def test_mixed_extracted_and_inline_blocks_roundtrip(self):
-        """Line-start blocks are extracted while mid-word blocks stay inline."""
+    def test_mixed_blocks_all_become_groups(self):
+        """Leading, mid-word and line-start blocks all get their own rows."""
         panel = _make_panel()
         emitted = []
         panel.connect('text-changed', lambda w, p, t: emitted.append(t))
         text = '{\\b1}before{\\i1}mid\n{\\u1}after'
         panel.set_entry(_make_entry(text), 0)
 
-        assert _buffer_text(panel) == 'before{\\i1}mid\nafter'
-        assert len(panel._tag_groups) == 1
-        assert panel._tag_groups[0].header.get_title() == 'Line 2 tags'
-        # The leftover mid-word block keeps its inline highlight.
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-
-        match = BLOCK_PATTERN.search(_buffer_text(panel))
-        tag_start = panel.text_buffer.get_iter_at_offset(match.start())
-        assert tag_start.has_tag(panel._inline_tag)
-
+        assert _buffer_text(panel) == 'beforemid\nafter'
+        assert len(panel._tag_groups) == 2
+        assert [g.offset for g in panel._tag_groups] == [6, 10]
+        assert panel._tag_groups[1].header.get_title() == 'Line 2 tags'
         assert panel._compose_text() == text
         ctx = GLib.MainContext.default()
         for _ in range(10):
@@ -409,7 +412,8 @@ class TestEditorPanelTagEditing:
 
         # The {} is gone entirely: the second line is clean.
         assert emitted and emitted[-1] == USER_LEAD + USER_LINE_1 + '\n' + USER_LINE_2
-        assert panel._tag_groups[0].header.get_parent() is None
+        # The emptied group is pruned outright so nothing can resurrect it.
+        assert panel._tag_groups == []
         assert panel.formatting_expander.get_subtitle() == '9 tags'
 
     def test_switching_entries_does_not_emit(self):
@@ -445,11 +449,13 @@ class TestEditorPanelTagEditing:
         group.editor.add_tag('\\b1')
         assert panel._compose_text().endswith('\n{\\fs22\\b1}' + USER_LINE_2)
 
-    def test_group_snippet_strips_inline_blocks_and_truncates(self):
+    def test_group_snippet_is_rest_of_line_and_truncates(self):
         panel = _make_panel()
         text = 'word\n{\\b1}second {\\i1}inline{\\i0} end'
         panel.set_entry(_make_entry(text), 0)
 
+        # The snippet is what the block applies to: the clean text from its
+        # position to the end of the line.
         group = panel._tag_groups[0]
         assert group.header.get_subtitle() == 'second inline end'
 
@@ -472,149 +478,178 @@ class TestEditorPanelTagEditing:
         assert panel._tag_groups[0].header.get_title() == 'Line 3 tags'
         _wait_debounce(panel)
 
-    # --- Inline (mid-line) block editing --------------------------------------
+    # --- Adding formatting blocks (right-click flow) ---------------------------
 
-    def test_find_inline_block_at(self):
-        panel = _make_panel()
-        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
-
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-        match = BLOCK_PATTERN.search(_buffer_text(panel))
-
-        assert panel._find_inline_block_at(match.start() + 1).group(1) == '\\fs20'
-        assert panel._find_inline_block_at(match.end()).group(1) == '\\fs20'
-        assert panel._find_inline_block_at(0) is None
-        assert panel._find_inline_block_at(match.end() + 3) is None
-
-    def test_inline_remove_tags_deletes_block(self):
-        panel = _make_panel()
-        emitted = []
-        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
-        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
-
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-        match = BLOCK_PATTERN.search(_buffer_text(panel))
-        panel._inline_click_offset = match.start() + 1
-        panel._on_inline_remove_tags(None, None)
-
-        assert _buffer_text(panel) == 'bold small tail'
-        assert panel._compose_text() == '{\\b1}bold small tail'
-        _wait_debounce(panel)
-        assert emitted and emitted[-1] == '{\\b1}bold small tail'
-
-    def test_inline_add_tags_inserts_placeholder(self, monkeypatch):
+    def test_add_tags_action_opens_dialog_at_click(self, monkeypatch):
         panel = _make_panel()
         panel.set_entry(_make_entry('plain text'), 0)
-        # The dialog is covered by the splice tests below; only the buffer
-        # insertion is exercised here.
         opened = {}
         monkeypatch.setattr(
             panel, '_open_inline_tag_editor',
-            lambda start, end, body=None: opened.update(
-                {'start': start, 'end': end, 'body': body}))
+            lambda offset: opened.update(offset=offset))
 
         panel._inline_click_offset = 6  # after "plain "
         panel._on_inline_add_tags(None, None)
 
-        assert _buffer_text(panel) == 'plain {}text'
-        assert opened == {'start': 6, 'end': 8, 'body': ''}
+        assert opened == {'offset': 6}
+        assert _buffer_text(panel) == 'plain text'  # buffer untouched
 
-    def test_splice_inline_block_replaces_and_recomposes(self):
-        from gsub.widgets.tag_editor import TagEditorRows
-
+    def test_add_tags_action_uses_selection_start(self, monkeypatch):
         panel = _make_panel()
-        emitted = []
-        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
-        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
-
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-        match = BLOCK_PATTERN.search(_buffer_text(panel))
-        state = {'start': match.start(), 'end': match.end()}
-
-        # A dialog-style editor: TagEditorRows inside a PreferencesGroup.
-        editor = TagEditorRows(Adw.PreferencesGroup())
-        editor.load_body(match.group(1))
-        editor.get_rows()[0].set_value(48)
-
-        panel._splice_inline_block(state, editor)
-        assert '{\\fs48}' in _buffer_text(panel)
-        assert panel._compose_text() == '{\\b1}bold {\\fs48}small tail'
-        _wait_debounce(panel)
-        assert emitted and emitted[-1] == '{\\b1}bold {\\fs48}small tail'
-
-    def test_splice_inline_block_removes_block_when_emptied(self):
-        from gsub.widgets.tag_editor import TagEditorRows
-
-        panel = _make_panel()
-        panel.set_entry(_make_entry('{\\b1}bold {\\fs20}small tail'), 0)
-
-        from gsub.parsers.ass_tags import BLOCK_PATTERN
-        match = BLOCK_PATTERN.search(_buffer_text(panel))
-        state = {'start': match.start(), 'end': match.end()}
-
-        editor = TagEditorRows(Adw.PreferencesGroup())
-        editor.load_body(match.group(1))
-        _find_trash_button(editor.get_rows()[0]).emit('clicked')
-
-        panel._splice_inline_block(state, editor)
-        assert _buffer_text(panel) == 'bold small tail'
-        assert panel._compose_text() == '{\\b1}bold small tail'
-
-    def test_drop_empty_inline_placeholder(self):
-        panel = _make_panel()
-        panel.set_entry(_make_entry('plain text'), 0)
+        panel.set_entry(_make_entry('keep moving forward'), 0)
+        opened = {}
+        monkeypatch.setattr(
+            panel, '_open_inline_tag_editor',
+            lambda offset: opened.update(offset=offset))
 
         buffer = panel.text_buffer
-        buffer.insert(buffer.get_iter_at_offset(6), '{}')
-        state = {'start': 6, 'end': 8}
-        # A filled-in block survives...
-        buffer.insert(buffer.get_iter_at_offset(7), '\\b1')
-        state['end'] = 11
-        panel._drop_empty_inline_placeholder(state)
-        assert '{\\b1}' in _buffer_text(panel)
-        # ...an untouched placeholder does not.
-        buffer.delete(buffer.get_iter_at_offset(6),
-                      buffer.get_iter_at_offset(11))
-        buffer.insert(buffer.get_iter_at_offset(6), '{}')
-        state = {'start': 6, 'end': 8}
-        panel._drop_empty_inline_placeholder(state)
-        assert _buffer_text(panel) == 'plain text'
+        buffer.select_range(buffer.get_iter_at_offset(5),
+                            buffer.get_iter_at_offset(11))  # "moving"
+        panel._inline_click_offset = 16  # click elsewhere: selection wins
+        panel._on_inline_add_tags(None, None)
 
-    # --- Added-block promotion & menu behavior ---------------------------------
+        assert opened == {'offset': 5}
 
-    def test_promoted_line_start_block_becomes_group(self):
-        """A block added at a line start joins the Formatting rows on close."""
+    def test_added_tags_appear_in_list_immediately(self):
+        """Adding formatting shows its rows right away, mid-line included."""
+        from gsub.widgets.tag_editor import TagEditorRows
+
         panel = _make_panel()
         emitted = []
         panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('keep moving forward'), 0)
+
+        group = panel._inline_add_target(5)  # dialog opened before "moving"
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, group)
+
+        # The group exists with its rows and a live snippet, before Done.
+        assert [g.offset for g in panel._tag_groups] == [5]
+        assert group.editor.get_block() == '{\\b1}'
+        assert group.header.get_title() == 'Line 1 tags'
+        assert group.header.get_subtitle() == 'moving forward'
+        assert panel._compose_text() == 'keep {\\b1}moving forward'
+
+        panel._finish_inline_add(dialog_editor, group)  # Done
+        assert panel._tag_groups == [group]  # kept
+        _wait_debounce(panel)
+        assert emitted and emitted[-1] == 'keep {\\b1}moving forward'
+
+    def test_added_tags_survive_debounce_and_close(self):
+        """Tags added through the dialog are never lost around the close
+        (regression: the old placeholder flow emitted a pending text
+        without the block once the debounce had fired mid-dialog)."""
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        entry = _make_entry('one\ntwo three')
+        panel.set_entry(entry, 0)
+
+        group = panel._inline_add_target(4)
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, group)
+        _wait_debounce(panel)
+        assert emitted == ['one\n{\\b1}two three']
+        entry.text = emitted[-1]  # what the window's EditTextCommand wrote
+
+        panel._finish_inline_add(dialog_editor, group)
+        _wait_debounce(panel)
+        assert emitted == ['one\n{\\b1}two three']
+        assert entry.text == 'one\n{\\b1}two three'
+
+    def test_add_at_line_start_creates_group(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
         panel.set_entry(_make_entry('one\ntwo three'), 0)
 
-        buffer = panel.text_buffer
-        buffer.insert(buffer.get_iter_at_offset(4), '{\\b1}')
-        state = {'start': 4, 'end': 9}
+        group = panel._inline_add_target(4)
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, group)
+        panel._finish_inline_add(dialog_editor, group)
 
-        assert panel._promote_inline_block_to_group(state) is True
-        assert _buffer_text(panel) == 'one\ntwo three'
         assert len(panel._tag_groups) == 1
-        group = panel._tag_groups[0]
-        assert group.offset == 4
-        assert group.editor.get_block() == '{\\b1}'
-        assert group.header.get_title() == 'Line 2 tags'
-        assert group.header.get_subtitle() == 'two three'
+        assert panel._tag_groups[0].offset == 4
+        assert panel._tag_groups[0].editor.get_block() == '{\\b1}'
+        assert panel._tag_groups[0].header.get_title() == 'Line 2 tags'
+        assert panel._tag_groups[0].header.get_subtitle() == 'two three'
         _wait_debounce(panel)
-        assert emitted and emitted[-1] == 'one\n{\\b1}two three'
 
-    def test_promoted_group_orders_before_later_groups(self):
+    def test_add_at_zero_without_leading_targets_leading_rows(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        panel.set_entry(_make_entry('hello world'), 0)
+
+        assert panel._inline_add_target(0) is None
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, None)
+        panel._finish_inline_add(dialog_editor, None)
+
+        assert panel._tag_groups == []
+        assert panel.tag_editor.get_block() == '{\\b1}'
+        assert panel._compose_text() == '{\\b1}hello world'
+        _wait_debounce(panel)
+
+    def test_add_at_zero_with_leading_creates_group(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        panel.set_entry(_make_entry('{\\i1}hello'), 0)
+
+        group = panel._inline_add_target(0)
+        assert group is not None
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, group)
+        panel._finish_inline_add(dialog_editor, group)
+
+        assert panel.tag_editor.get_block() == '{\\i1}'
+        assert panel._compose_text() == '{\\i1}{\\b1}hello'
+        _wait_debounce(panel)
+
+    def test_closing_without_tags_prunes_group_and_emits_nothing(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        panel = _make_panel()
+        emitted = []
+        panel.connect('text-changed', lambda w, p, t: emitted.append(t))
+        panel.set_entry(_make_entry('keep moving forward'), 0)
+
+        group = panel._inline_add_target(5)
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        # Even an add-then-remove-all cycle in the dialog ends clean.
+        dialog_editor.add_tag('\\b1')
+        panel._sync_inline_add(dialog_editor, group)
+        _find_trash_button(dialog_editor.get_rows()[0]).emit('clicked')
+        panel._sync_inline_add(dialog_editor, group)
+
+        panel._finish_inline_add(dialog_editor, group)
+
+        assert panel._tag_groups == []
+        assert group.header.get_parent() is None
+        assert panel._compose_text() == 'keep moving forward'
+        _wait_debounce(panel)
+        assert emitted == []
+
+    def test_added_group_orders_with_existing_groups(self):
+        from gsub.widgets.tag_editor import TagEditorRows
+
         panel = _make_panel()
         panel.set_entry(_make_entry(USER_LINE), 0)
 
-        buffer = panel.text_buffer
-        buffer.insert(buffer.get_iter_at_offset(0), '{\\u1}')
-        state = {'start': 0, 'end': 5}
+        group = panel._inline_add_target(0)
+        dialog_editor = TagEditorRows(Adw.PreferencesGroup())
+        dialog_editor.add_tag('\\u1')
+        panel._sync_inline_add(dialog_editor, group)
+        panel._finish_inline_add(dialog_editor, group)
 
-        assert panel._promote_inline_block_to_group(state) is True
-        # The promoted block left the buffer again, so the line-2 anchor is
-        # back to its pre-insert position (newline + line 1).
         offsets = [g.offset for g in panel._tag_groups]
         assert offsets == sorted(offsets) == [0, len(USER_LINE_1) + 1]
         # Headers appear in the same order as their offsets.
@@ -625,77 +660,43 @@ class TestEditorPanelTagEditing:
         assert panel._compose_text() == expected
         _wait_debounce(panel)
 
-    def test_midline_block_is_not_promoted(self):
-        panel = _make_panel()
-        panel.set_entry(_make_entry('one two'), 0)
-
-        buffer = panel.text_buffer
-        buffer.insert(buffer.get_iter_at_offset(4), '{\\b1}')
-        state = {'start': 4, 'end': 9}
-
-        assert panel._promote_inline_block_to_group(state) is False
-        assert _buffer_text(panel) == 'one {\\b1}two'
-        assert panel._tag_groups == []
-
-    def test_empty_placeholder_is_not_promoted(self):
-        panel = _make_panel()
-        panel.set_entry(_make_entry('one\ntwo'), 0)
-
-        buffer = panel.text_buffer
-        buffer.insert(buffer.get_iter_at_offset(4), '{}')
-        state = {'start': 4, 'end': 6}
-
-        assert panel._promote_inline_block_to_group(state) is False
-        assert panel._tag_groups == []
-
-    def test_inline_add_tags_inserts_before_selection(self, monkeypatch):
-        panel = _make_panel()
-        panel.set_entry(_make_entry('keep moving forward'), 0)
-        opened = {}
-        monkeypatch.setattr(
-            panel, '_open_inline_tag_editor',
-            lambda start, end, body=None: opened.update(
-                {'start': start, 'end': end, 'body': body}))
-
-        buffer = panel.text_buffer
-        buffer.select_range(buffer.get_iter_at_offset(5),
-                            buffer.get_iter_at_offset(11))  # "moving"
-        panel._inline_click_offset = 16  # click elsewhere: selection wins
-        panel._on_inline_add_tags(None, None)
-
-        assert _buffer_text(panel) == 'keep {}moving forward'
-        assert opened == {'start': 5, 'end': 7, 'body': ''}
-
     def test_inline_menu_content(self):
         from gi.repository import GLib
 
         panel = _make_panel()
-        panel.set_entry(_make_entry('a {\\i1}b c'), 0)
 
-        menu = panel._build_inline_menu(inside_block=True, has_selection=True)
-        assert menu.get_n_items() == 2  # Copy + formatting section
+        # ASS: the extra menu appends Add Formatting Here to the text
+        # view's built-in context menu (Copy/Cut/Paste come from GTK
+        # itself — a custom Copy action here called
+        # TextBuffer.copy_clipboard() without its clipboard argument).
+        menu = panel.text_view.get_extra_menu()
+        assert menu.get_n_items() == 1
         variant = menu.get_item_attribute_value(0, 'action', GLib.VariantType('s'))
-        assert variant.get_string() == 'text-tags.copy'
-
-        menu = panel._build_inline_menu(inside_block=False, has_selection=False)
-        assert menu.get_n_items() == 1  # Add Formatting Here only
+        assert variant.get_string() == 'text-tags.add'
 
         srt_panel = _make_panel(fmt=SubtitleFormat.SRT)
-        menu = srt_panel._build_inline_menu(inside_block=False, has_selection=False)
-        assert menu.get_n_items() == 0  # no selection, no formatting items
+        assert srt_panel.text_view.get_extra_menu().get_n_items() == 0
 
-    def test_inline_copy_action_copies_selection(self, monkeypatch):
+    def test_inline_add_action_targets_selection_or_click(self, monkeypatch):
         panel = _make_panel()
         panel.set_entry(_make_entry('hello world'), 0)
         calls = []
-        monkeypatch.setattr(
-            panel.text_buffer, 'copy_clipboard', lambda: calls.append(True))
+        monkeypatch.setattr(panel, '_open_inline_tag_editor',
+                            lambda offset: calls.append(offset))
 
+        # With a selection, formatting is added at its start.
         buffer = panel.text_buffer
+        buffer.select_range(buffer.get_iter_at_offset(6),
+                            buffer.get_iter_at_offset(11))
+        panel.text_view.activate_action('text-tags.add', None)
+        assert calls == [6]
+
+        # Without one, the recorded right-click position is used.
         buffer.select_range(buffer.get_iter_at_offset(0),
-                            buffer.get_iter_at_offset(5))
-        panel.text_view.activate_action('text-tags.copy', None)
-        assert calls == [True]
+                            buffer.get_iter_at_offset(0))
+        panel._inline_click_offset = 3
+        panel.text_view.activate_action('text-tags.add', None)
+        assert calls == [6, 3]
 
     def test_added_leading_row_stays_before_group_headers(self):
         panel = _make_panel()
@@ -708,6 +709,37 @@ class TestEditorPanelTagEditing:
         panel.tag_editor.add_tag('\\fs40')
         lead_rows = panel.tag_editor.get_rows()
         assert max(r.get_index() for r in lead_rows) < group_header.get_index()
+
+    def test_removing_last_tag_prunes_group_so_it_cannot_resurrect(self):
+        panel = _make_panel()
+        panel.set_entry(_make_entry(USER_LINE), 0)
+        header = panel._tag_groups[0].header
+
+        row = panel._tag_groups[0].editor.get_rows()[0]
+        _find_trash_button(row).emit('clicked')
+
+        assert panel._tag_groups == []
+        # Reordering (triggered by adding a leading-block tag) must not
+        # reattach the removed header.
+        panel.tag_editor.add_tag('\\b1')
+        assert panel._tag_groups == []
+        assert header.get_parent() is None
+
+    def test_pos_row_edit_keeps_untouched_coordinate(self):
+        """An out-of-range coordinate is displayed clamped but survives an
+        edit of the other spin; only the touched coordinate is rewritten."""
+        from gsub.widgets.tag_editor import TagEditorRows
+
+        editor = TagEditorRows(Adw.PreferencesGroup())
+        editor.load_body('\\pos(5000,50)')
+        x_spin, y_spin = _find_spinbuttons(editor.get_rows()[0])
+        assert x_spin.get_value() == 4096  # display is clamped...
+
+        y_spin.set_value(75)
+        assert editor.get_block() == '{\\pos(5000,75)}'  # ...the tag is not
+
+        x_spin.set_value(100)  # touching X commits its (spin) value
+        assert editor.get_block() == '{\\pos(100,75)}'
 
 
 class TestSubtitleListCleanDisplay:

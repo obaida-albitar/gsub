@@ -12,10 +12,11 @@ rather than "Space" and "+". Entries with action=None describe keys
 handled by widget key controllers (video player zoom, search matches);
 they are shown in the dialog but never registered as action accels.
 
-Entries flagged ``window_key`` (space, period, comma) are plain typable
-keys that must not become application accels at all: accels win over text
-input, so registering "space" would steal Space from the text editor and
-entries (and period/comma likewise). The window dispatches them itself
+Entries flagged ``window_key`` (space, period, comma, the arrow keys,
+Delete) are plain keys that must not become application accels at all:
+accels win over text input and widget keybindings, so registering them
+would steal typing from the text editor (Space, period, Delete) or the
+caret (arrows). The window dispatches them itself
 from a bubble-phase key controller, which only runs after the focused
 widget declined the key — so text widgets consume them for typing while
 the rest of the window still gets the shortcut (see
@@ -84,13 +85,17 @@ SHORTCUTS = (
     Shortcut("win.undo", ("<Ctrl>Z",), "Undo", SECTION_EDITING),
     Shortcut("win.redo", ("<Ctrl><Shift>Z", "<Ctrl>Y"), "Redo", SECTION_EDITING),
     Shortcut("win.add-entry", ("<Ctrl><Shift>N",), "Add Subtitle", SECTION_EDITING),
-    Shortcut("win.remove-entry", ("Delete",), "Remove Subtitle", SECTION_EDITING),
+    # Window key: as a plain accel, Delete would win over text input and
+    # delete the whole subtitle entry while the user edits text (the same
+    # class of problem as space and the arrow keys; see the docstring).
+    Shortcut("win.remove-entry", ("Delete",), "Remove Subtitle", SECTION_EDITING,
+             window_key=True),
     Shortcut("win.duplicate-entry", ("<Ctrl>D",), "Duplicate Subtitle", SECTION_EDITING),
     Shortcut("win.move-up", ("<Ctrl>Up",), "Move Up", SECTION_EDITING),
     Shortcut("win.move-down", ("<Ctrl>Down",), "Move Down", SECTION_EDITING),
     # Batch: handled by the batch file list's key controller, not action
-    # accels — plain Delete is already the global win.remove-entry accel,
-    # and the list consumes it first while it has focus.
+    # accels. win.remove-entry is a window key (never an accel), and the
+    # list's own controller consumes Delete first while it has focus.
     Shortcut(None, ("Delete",), "Batch: Remove Selected File", SECTION_BATCH),
     Shortcut(None, ("<Ctrl><Shift>Delete",), "Batch: Clear All Files", SECTION_BATCH),
     # Video

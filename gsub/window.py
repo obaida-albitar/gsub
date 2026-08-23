@@ -610,11 +610,13 @@ class GsubWindow(Adw.ApplicationWindow):
             self.get_application().set_accels_for_action(f"win.{name}", shortcuts)
 
     def _setup_window_key_controller(self):
-        """Dispatch window-handled keys (space, period, comma) ourselves.
+        """Dispatch window-handled keys (space, period, comma, Delete).
 
         Registering these as application accels would let the accel win
-        over text input, so a plain "space" accel swallowed Space in the
-        subtitle text editor and entries. A bubble-phase key controller on
+        over text input and widget keybindings, so a plain "space" accel
+        swallowed Space in the subtitle text editor and entries, and a
+        "Delete" accel deleted the whole subtitle entry instead of a
+        character. A bubble-phase key controller on
         the window only runs after the focused widget had its chance, so
         text widgets consume these keys for typing while the rest of the
         window (subtitle list, timeline, ...) still gets the shortcut.

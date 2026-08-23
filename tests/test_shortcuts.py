@@ -78,17 +78,19 @@ class TestShortcutsTable:
 
     @pytest.mark.unit
     def test_window_keys_are_never_registered_as_accels(self):
-        """Window-handled keys (space/period/comma/arrows) must not be accels.
+        """Window-handled keys (space/period/comma/arrows/Delete) not accels.
 
-        Accels win over text input for plain typable keys, so they would
-        steal Space/period/comma from the text editor — and Left/Right
-        from the text editor's caret movement.
+        Accels win over text input and widget keybindings, so they would
+        steal Space/period/comma/Delete from the text editor and Left/Right
+        from the text editor's caret movement — Delete would remove the
+        whole subtitle entry instead of a character.
         """
         entries = window_key_entries()
         assert {shortcut.action for shortcut in entries} == {
             "win.play-pause", "win.frame-step", "win.frame-back-step",
             "win.seek-nudge-back", "win.seek-nudge-forward",
-            "win.seek-nudge-back-large", "win.seek-nudge-forward-large"}
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
         for shortcut in entries:
             # Display accels stay for the shortcuts dialog...
             assert shortcut.accels, f"{shortcut.action} needs a display accel"

@@ -414,12 +414,20 @@ class TagEditorRows(GObject.Object):
             box.append(spin)
         row.add_suffix(box)
 
-        def on_value_changed(_spin):
+        # The spin range caps what can be entered, but the tag's own value
+        # may lie outside it (shown clamped) or carry decimals. Only the
+        # coordinate whose spin the user touched is rewritten; the other
+        # keeps its current argument verbatim.
+        current = [args[0] if args else '0',
+                   args[1] if len(args) > 1 else '0']
+
+        def on_value_changed(spin):
             if self._updating:
                 return
-            piece.args = [str(spins[0].get_value_as_int()),
-                          str(spins[1].get_value_as_int())]
-            piece.raw = '\\pos({},{})'.format(*piece.args)
+            index = 0 if spin is spins[0] else 1
+            current[index] = _format_number(spin.get_value())
+            piece.args = list(current)
+            piece.raw = '\\pos({},{})'.format(*current)
             self._emit_changed()
 
         for spin in spins:

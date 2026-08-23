@@ -308,7 +308,9 @@ class TestWindowConstruction:
         assert "<Control>z" in app.get_accels_for_action("win.undo")
         assert "<Control>j" in app.get_accels_for_action(
             "win.seek-to-selection")
-        assert "Delete" in app.get_accels_for_action("win.remove-entry")
+        # Delete is a window key, never an accel: as an accel it would win
+        # over the text editor and delete the entry instead of a character.
+        assert app.get_accels_for_action("win.remove-entry") == []
         # Actions absent from the shortcuts table get no accel.
         assert app.get_accels_for_action("win.batch") == []
 
@@ -914,6 +916,7 @@ class TestWindowKeyLookup:
             ("comma", "win.frame-back-step"),
             ("Left", "win.seek-nudge-back"),
             ("Right", "win.seek-nudge-forward"),
+            ("Delete", "win.remove-entry"),
         ):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name), 0) == action
@@ -927,7 +930,8 @@ class TestWindowKeyLookup:
             Gdk.ModifierType.SHIFT_MASK) == "win.seek-nudge-forward-large"
 
     def test_control_held_does_not_match(self, table):
-        for key_name in ("space", "period", "comma", "Left", "Right"):
+        for key_name in ("space", "period", "comma", "Left", "Right",
+                         "Delete"):
             assert _window_key_lookup(
                 table, Gdk.keyval_from_name(key_name),
                 Gdk.ModifierType.CONTROL_MASK) is None
@@ -946,7 +950,8 @@ class TestWindowKeyLookup:
         assert set(table.values()) == {
             "win.play-pause", "win.frame-step", "win.frame-back-step",
             "win.seek-nudge-back", "win.seek-nudge-forward",
-            "win.seek-nudge-back-large", "win.seek-nudge-forward-large"}
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
         assert set(table) == {
             (Gdk.keyval_from_name("space"), 0),
             (Gdk.keyval_from_name("period"), 0),
@@ -955,6 +960,7 @@ class TestWindowKeyLookup:
             (Gdk.keyval_from_name("Right"), 0),
             (Gdk.keyval_from_name("Left"), int(Gdk.ModifierType.SHIFT_MASK)),
             (Gdk.keyval_from_name("Right"), int(Gdk.ModifierType.SHIFT_MASK)),
+            (Gdk.keyval_from_name("Delete"), 0),
         }
 
 
@@ -973,13 +979,15 @@ class TestWindowKeyController:
         app = window.get_application()
         for name in ("play-pause", "frame-step", "frame-back-step",
                      "seek-nudge-back", "seek-nudge-forward",
-                     "seek-nudge-back-large", "seek-nudge-forward-large"):
+                     "seek-nudge-back-large", "seek-nudge-forward-large",
+                     "remove-entry"):
             assert app.get_accels_for_action(f"win.{name}") == [], name
         # The controller dispatches them from its own lookup table instead.
         assert set(window._window_keys.values()) == {
             "win.play-pause", "win.frame-step", "win.frame-back-step",
             "win.seek-nudge-back", "win.seek-nudge-forward",
-            "win.seek-nudge-back-large", "win.seek-nudge-forward-large"}
+            "win.seek-nudge-back-large", "win.seek-nudge-forward-large",
+            "win.remove-entry"}
 
     def test_space_toggles_playback_with_a_video(self, window):
         window.current_video_file = "/movies/example.mkv"
@@ -1032,6 +1040,23 @@ class TestWindowKeyController:
     def test_unrelated_key_falls_through(self, window):
         assert window._on_window_key_pressed(
             None, Gdk.keyval_from_name("a"), 0, 0) is False
+
+    def test_delete_removes_the_selected_entry(self, window, tmp_path):
+        _open(window, tmp_path, "del.srt", SRT_CONTENT)
+        _select(window, 0)
+
+        handled = window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("Delete"), 0, 0)
+
+        assert handled is True
+        assert len(window.document.entries) == 2
+
+    def test_delete_without_document_falls_through(self, window):
+        window.document = None
+        window._update_document_actions()
+
+        assert window._on_window_key_pressed(
+            None, Gdk.keyval_from_name("Delete"), 0, 0) is False
 
 
 @pytest.mark.integration

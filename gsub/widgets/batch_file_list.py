@@ -84,8 +84,9 @@ class BatchFileList(Adw.Bin):
 
         Menu items target widget-local actions; the Delete accelerators are
         shown as plain menu attributes because they are dispatched by this
-        widget's key controller, never registered as application accels
-        (plain Delete already belongs to win.remove-entry).
+        widget's key controller, never registered as application accels.
+        The controller consumes Delete before the window's bubble-phase
+        window-key dispatch (win.remove-entry) can see it.
         """
         actions = Gio.SimpleActionGroup()
         remove_action = Gio.SimpleAction.new('remove-file', None)
@@ -145,8 +146,9 @@ class BatchFileList(Adw.Bin):
     def _on_key_pressed(self, controller, keyval, keycode, state):
         """Delete removes the selected file; Ctrl+Shift+Delete clears all.
 
-        Consumed here (bubble phase) so the global win.remove-entry Delete
-        accel never fires while the batch list has focus.
+        Consumed here (bubble phase, closer to the focus than the window's
+        key controller) so the win.remove-entry window key never fires
+        while the batch list has focus.
         """
         if self.file_count == 0:
             return False
