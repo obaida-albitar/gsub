@@ -454,7 +454,7 @@ class _RegionWindow:
     def _update_title(self):
         self.titles += 1
 
-    def _update_undo_redo_buttons(self):
+    def _document_mutated(self):
         self.undo_buttons += 1
 
 

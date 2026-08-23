@@ -121,7 +121,7 @@ class TimeShiftDialog(Adw.Dialog):
         # Update UI - preserve selection
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Time shifted by {offset_ms}ms")
 
@@ -196,7 +196,7 @@ class BulkApplyStyleDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(f"Applied style '{style_name}'")
 
@@ -262,7 +262,7 @@ class BatchStylePropsDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast(
             f"Updated {len(target_styles)} style{'s' if len(target_styles) != 1 else ''}"
@@ -454,7 +454,7 @@ class ASSInfoDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast("Updated ASS metadata")
 
@@ -856,7 +856,7 @@ class ASSStylesDialog(Adw.Dialog):
 
         self.parent_window.subtitle_list.refresh(preserve_selection=True)
         self.parent_window._update_title()
-        self.parent_window._update_undo_redo_buttons()
+        self.parent_window._document_mutated()
         self.parent_window._refresh_video_preview()
         self.parent_window._show_toast("Updated ASS styles")
 

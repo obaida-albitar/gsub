@@ -1174,6 +1174,73 @@ class TestCompatibilityFixes:
         _open(window, tmp_path, "plain.srt", SRT_CONTENT)
         assert window.compat_issues == []
 
+    def test_style_edit_refreshes_compat(self, window, tmp_path):
+        # Regression: fixing a style by hand (e.g. ScaleX in the styles
+        # dialog) used to leave the stale issue listed until the file was
+        # closed and reopened.
+        import copy
+        from gsub.commands.ass_commands import ReplaceASSHeaderCommand
+
+        content = ASS_CONTENT.replace("100.0,100.0", "5.0,5.0", 1)
+        _open(window, tmp_path, "smallscale.ass", content)
+        assert any(i.code == "style.small_scale" for i in window.compat_issues)
+
+        styles = [copy.deepcopy(s) for s in window.document.styles]
+        styles[0].scale_x = 100.0
+        styles[0].scale_y = 100.0
+        window.command_manager.execute(ReplaceASSHeaderCommand(
+            window.document,
+            metadata=window.document.metadata,
+            aegisub_project_garbage=getattr(
+                window.document, "aegisub_project_garbage", {}),
+            styles=styles,
+        ))
+        window._document_mutated()  # what the styles dialog calls after saving
+
+        assert all(i.code != "style.small_scale" for i in window.compat_issues)
+
+    def test_undo_refreshes_compat(self, window, tmp_path):
+        # Undoing a fix must bring the issue back to the panel, not just to
+        # the document.
+        _open(window, tmp_path, "undo.ass", ASS_CONTENT)
+        issue = next(i for i in window.compat_issues
+                     if i.code == "color.unknown_format")
+        window._apply_compat_fix(issue)
+        assert all(i.code != "color.unknown_format"
+                   for i in window.compat_issues)
+
+        window._on_undo(None, None)
+
+        assert any(i.code == "color.unknown_format"
+                   for i in window.compat_issues)
+
+    def test_entry_removal_refreshes_compat(self, window, tmp_path):
+        # The blur issue lives on entry 1; deleting that entry must drop the
+        # issue from the panel.
+        _open(window, tmp_path, "rm.ass", ASS_CONTENT)
+        assert any(i.fix and i.fix.get("kind") == "blur"
+                   for i in window.compat_issues)
+
+        window.subtitle_list.select_entry(0)
+        window._on_remove_entry(None, None)
+
+        assert all(not (i.fix and i.fix.get("kind") == "blur")
+                   for i in window.compat_issues)
+
+    def test_compat_toggle_recomputes_stale_issues(self, window, tmp_path):
+        # Safety net: entering the Compatibility page always recomputes, so
+        # not even an out-of-band change can leave stale results on screen.
+        _open(window, tmp_path, "toggle.ass", ASS_CONTENT)
+        window.document.styles[0].primary_color = "&H00FFFFFF"
+        assert any(i.code == "color.unknown_format"
+                   for i in window.compat_issues)  # stale on purpose
+
+        window._on_compat_toggle(window.compat_btn)
+
+        assert window.view_stack.get_visible_child_name() == "compatibility"
+        assert all(i.code != "color.unknown_format"
+                   for i in window.compat_issues)
+
 
 @pytest.mark.integration
 class TestBatchConfirmDialog:

@@ -682,6 +682,13 @@ class GsubWindow(Adw.ApplicationWindow):
             if action is not None:
                 action.set_enabled(enabled)
 
+    def _document_mutated(self):
+        """Refresh everything that depends on document content after a
+        mutation (command executed, undone or redone): undo/redo buttons and
+        the compatibility issues, so the panel never shows stale results."""
+        self._update_undo_redo_buttons()
+        self._refresh_compat()
+
     def _update_format_actions(self):
         """Enable/disable ASS-only actions based on current document format."""
         fmt = self.document.format if self.document else None
@@ -846,6 +853,9 @@ class GsubWindow(Adw.ApplicationWindow):
             self.compat_btn.set_label(f"Compatibility ({n})")
         else:
             self.view_stack.set_visible_child_name("compatibility")
+            # Recompute on entering the page so it can never show stale
+            # results, whatever path changed the document.
+            self._refresh_compat()
             self.compat_btn.set_label("Editor")
 
     def _update_header_bar(self):
@@ -1178,7 +1188,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
-            self._update_undo_redo_buttons()
+            self._document_mutated()
             self._refresh_video_preview()
             self._show_toast(f"Undo: {desc}" if desc else "Undo")
 
@@ -1190,7 +1200,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_editor_after_change()
             self._update_title()
             self._update_status()
-            self._update_undo_redo_buttons()
+            self._document_mutated()
             self._refresh_video_preview()
             self._show_toast(f"Redo: {desc}" if desc else "Redo")
     
@@ -1242,7 +1252,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.subtitle_list.select_entry(position)
         self._update_title()
         self._update_status()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         self._refresh_video_preview()
         self._show_toast(toast)
 
@@ -1273,7 +1283,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.editor_panel.clear()
         self._update_title()
         self._update_status()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         self._refresh_video_preview()
 
         count = len(positions)
@@ -1309,7 +1319,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.select_entry(positions_sorted[-1] + offset)
         self._update_title()
         self._update_status()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         self._refresh_video_preview()
 
         count = len(positions)
@@ -1328,7 +1338,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.entry_moved(position, position - 1)
             self.subtitle_list.select_entry(position - 1)
             self._update_title()
-            self._update_undo_redo_buttons()
+            self._document_mutated()
             self._refresh_video_preview()
 
     def _on_move_down(self, action, param):
@@ -1344,7 +1354,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.subtitle_list.entry_moved(position, position + 1)
             self.subtitle_list.select_entry(position + 1)
             self._update_title()
-            self._update_undo_redo_buttons()
+            self._document_mutated()
             self._refresh_video_preview()
     
     def _on_time_shift(self, action, param):
@@ -1411,7 +1421,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.command_manager.execute(cmd)
             self.subtitle_list.refresh(preserve_selection=True)
             self._update_title()
-            self._update_undo_redo_buttons()
+            self._document_mutated()
             self._refresh_video_preview()
             self._show_toast("Subtitles sorted by time")
     
@@ -1901,14 +1911,12 @@ class GsubWindow(Adw.ApplicationWindow):
         
         cmd = EditTextCommand(self.document, position, new_text)
         self.command_manager.execute(cmd)
-        
+
         self.subtitle_list.refresh_entry(position)
         self._update_title()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
-        if self.document:
-            self._refresh_compat()
 
     def _on_timing_changed(self, widget, position, start_time, end_time):
         """Handle timing change in editor panel."""
@@ -1919,10 +1927,10 @@ class GsubWindow(Adw.ApplicationWindow):
         
         cmd = EditTimingCommand(self.document, position, start_time, end_time)
         self.command_manager.execute(cmd)
-        
+
         self.subtitle_list.refresh_entry(position)
         self._update_title()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
 
@@ -1940,11 +1948,9 @@ class GsubWindow(Adw.ApplicationWindow):
 
         self.subtitle_list.refresh_entry(position)
         self._update_title()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
-        if self.document:
-            self._refresh_compat()
 
     def _on_position_changed(self, widget, position, margin_l, margin_r, margin_v):
         """Handle position (margin) change in editor panel (ASS/SSA only)."""
@@ -1961,9 +1967,9 @@ class GsubWindow(Adw.ApplicationWindow):
         # Update video player to reflect position changes
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
-        
+
         self._update_title()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
 
     # --- Compatibility checking ---
 
@@ -2086,8 +2092,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.command_manager.execute(command)
         self.document.modified = True
         self._update_title()
-        self._update_undo_redo_buttons()
-        self._refresh_compat()
+        self._document_mutated()
         self._refresh_video_preview()
 
     # Video player handlers
@@ -2370,7 +2375,7 @@ class GsubWindow(Adw.ApplicationWindow):
         if self.editor_panel.current_position == position:
             self.editor_panel.set_entry(entry, position)
         self._update_title()
-        self._update_undo_redo_buttons()
+        self._document_mutated()
         if self.video_player:
             self.video_player.queue_subtitle_redraw()
             self.video_player.refresh_timeline_regions()

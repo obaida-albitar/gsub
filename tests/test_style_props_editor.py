@@ -286,7 +286,7 @@ class _FakeWindow:
     def _update_title(self):
         pass
 
-    def _update_undo_redo_buttons(self):
+    def _document_mutated(self):
         pass
 
     def _refresh_video_preview(self):
