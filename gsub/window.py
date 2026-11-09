@@ -212,7 +212,7 @@ class GsubWindow(Adw.ApplicationWindow):
         file_box.append(open_button)
 
         self.save_button = Gtk.Button()
-        self.save_button.set_icon_name("document-save-symbolic")
+        self.save_button.set_icon_name("media-floppy-symbolic")
         self.save_button.set_tooltip_text("Save (Ctrl+S)")
         self.save_button.set_action_name("win.save")
         file_box.append(self.save_button)

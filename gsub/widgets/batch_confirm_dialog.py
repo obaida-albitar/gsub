@@ -37,7 +37,7 @@ class BatchConfirmDialog(Adw.Dialog):
             for line in operation_summary:
                 row = Adw.ActionRow()
                 row.set_title(line)
-                icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic")
+                icon = Gtk.Image.new_from_icon_name("object-select-symbolic")
                 icon.add_css_class("success-color")
                 row.add_prefix(icon)
                 row.set_activatable(False)
