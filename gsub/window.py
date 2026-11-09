@@ -121,11 +121,14 @@ class GsubWindow(Adw.ApplicationWindow):
     banner = Gtk.Template.Child()
     header_bar = Gtk.Template.Child()
     menu_button = Gtk.Template.Child()
+    title_stack = Gtk.Template.Child()
     title_widget = Gtk.Template.Child()
+    view_switcher = Gtk.Template.Child()
     header_start_stack = Gtk.Template.Child()
     toast_overlay = Gtk.Template.Child()
-    view_stack = Gtk.Template.Child()
+    content_stack = Gtk.Template.Child()
     bottom_bar = Gtk.Template.Child()
+    file_label = Gtk.Template.Child()
     status_bar = Gtk.Template.Child()
     action_box = Gtk.Template.Child()
 
@@ -177,30 +180,8 @@ class GsubWindow(Adw.ApplicationWindow):
         home_header = Gtk.Box()
         self.header_start_stack.add_named(home_header, "home")
 
-        # Editor page: nav buttons + Open/Save + Undo/Redo + Video toggle
+        # Editor page: Open/Save + Undo/Redo + Video toggle
         editor_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-
-        nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        nav_box.add_css_class("linked")
-
-        home_btn = Gtk.Button()
-        home_btn.set_icon_name("go-home-symbolic")
-        home_btn.set_tooltip_text("Home")
-        home_btn.connect('clicked', lambda b: self._navigate_to_home())
-        nav_box.append(home_btn)
-
-        batch_btn = Gtk.Button()
-        batch_btn.set_icon_name("folder-documents-symbolic")
-        batch_btn.set_tooltip_text("Batch Operations")
-        batch_btn.connect('clicked', lambda b: self._navigate_to_batch())
-        nav_box.append(batch_btn)
-
-        editor_header.append(nav_box)
-
-        separator = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        separator.set_margin_start(4)
-        separator.set_margin_end(4)
-        editor_header.append(separator)
 
         file_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
         file_box.add_css_class("linked")
@@ -253,27 +234,8 @@ class GsubWindow(Adw.ApplicationWindow):
 
         self.header_start_stack.add_named(editor_header, "editor")
 
-        # Batch page: navigation + Add Files
+        # Batch page: Add Files
         batch_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
-        batch_nav_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        batch_nav_box.add_css_class("linked")
-        batch_home_btn = Gtk.Button()
-        batch_home_btn.set_icon_name("go-home-symbolic")
-        batch_home_btn.set_tooltip_text("Home")
-        batch_home_btn.connect('clicked', lambda b: self._navigate_to_home())
-        batch_nav_box.append(batch_home_btn)
-        batch_editor_btn = Gtk.Button()
-        batch_editor_btn.set_icon_name("document-edit-symbolic")
-        batch_editor_btn.set_tooltip_text("Editor")
-        batch_editor_btn.connect('clicked', lambda b: self._navigate_to_editor())
-        batch_nav_box.append(batch_editor_btn)
-        batch_header.append(batch_nav_box)
-
-        separator2 = Gtk.Separator(orientation=Gtk.Orientation.VERTICAL)
-        separator2.set_margin_start(4)
-        separator2.set_margin_end(4)
-        batch_header.append(separator2)
 
         batch_add_btn = Gtk.Button()
         add_content = Adw.ButtonContent()
@@ -295,15 +257,18 @@ class GsubWindow(Adw.ApplicationWindow):
         # Header start buttons - use a stack to switch between views.
         self._build_header_start_stack()
 
+        # --- Content pages: Home, switcher views, Compatibility ---
+        self.view_stack = Adw.ViewStack()
+        self.content_stack.add_named(self.view_stack, "main")
+
         # --- Home page ---
         self.home_screen = HomeScreenView()
         self.home_screen.connect('open-file', lambda w: self._navigate_to_editor())
         self.home_screen.connect('open-batch', lambda w: self._navigate_to_batch())
-        self.view_stack.add_titled(self.home_screen, "home", "Home")
+        self.content_stack.add_named(self.home_screen, "home")
 
         # --- Editor page (single-file editing) ---
         main_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.view_stack.add_titled(main_box, "editor", "Editor")
 
         # Editing area - horizontal split (list + editor with video)
         self.paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
@@ -377,11 +342,10 @@ class GsubWindow(Adw.ApplicationWindow):
         # --- Compatibility page ---
         self.compat_panel = CompatibilityPanel()
         self.compat_panel.on_fix = self._apply_compat_fix
-        self.view_stack.add_titled(self.compat_panel, "compatibility", "Compatibility")
+        self.content_stack.add_named(self.compat_panel, "compatibility")
 
         # --- Batch page ---
         batch_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
-        self.view_stack.add_titled(batch_box, "batch", "Batch Operations")
 
         self.batch_paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         self.batch_paned.set_vexpand(True)
@@ -436,8 +400,18 @@ class GsubWindow(Adw.ApplicationWindow):
         # Start disabled: no files are loaded yet.
         self._update_batch_action_buttons()
 
+        # --- Switcher views (Editor + Batch Operations) ---
+        editor_page = self.view_stack.add_titled(main_box, "editor", "Editor")
+        editor_page.set_icon_name("document-edit-symbolic")
+        batch_page = self.view_stack.add_titled(
+            batch_box, "batch", "Batch Operations")
+        batch_page.set_icon_name("folder-documents-symbolic")
+        self.view_stack.set_visible_child_name("editor")
+        self.view_switcher.set_stack(self.view_stack)
+        self.view_stack.connect("notify::visible-child", self._on_view_switched)
+
         # Set default view to home
-        self.view_stack.set_visible_child_name("home")
+        self.content_stack.set_visible_child_name("home")
 
         self._update_bottom_bar()
 
@@ -476,10 +450,6 @@ class GsubWindow(Adw.ApplicationWindow):
     def _create_batch_menu(self):
         """Create the primary menu for the batch view."""
         menu = Gio.Menu()
-        nav_section = Gio.Menu()
-        nav_section.append("Home", "win.home")
-        nav_section.append("Editor", "win.editor-view")
-        menu.append_section(None, nav_section)
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
         app_section.append("About Gsub", "win.about")
@@ -565,9 +535,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("seek-to-selection", self._on_seek_to_selection)
 
         # Navigation actions
-        self._create_action("home", self._on_home)
         self._create_action("batch", self._on_batch)
-        self._create_action("editor-view", self._on_editor_view)
         self._create_action("find", self._on_find)
 
         # Edit actions
@@ -658,6 +626,8 @@ class GsubWindow(Adw.ApplicationWindow):
         else:
             self.title_widget.set_title("Gsub")
             self.title_widget.set_subtitle("")
+
+        self._update_file_label()
     
     def _update_status(self):
         """Update status bar."""
@@ -667,6 +637,22 @@ class GsubWindow(Adw.ApplicationWindow):
             self.status_bar.set_text(f"{count} subtitles • {format_name} format")
         else:
             self.status_bar.set_text("No file loaded")
+
+    def _update_file_label(self):
+        """Show the document name (and modified state) in the bottom bar."""
+        if self.current_view != "editor" or self.document is None:
+            self.file_label.set_visible(False)
+            return
+        if self.current_file:
+            name = os.path.basename(self.current_file)
+            self.file_label.set_tooltip_text(self.current_file)
+        else:
+            name = "Untitled"
+            self.file_label.set_tooltip_text("")
+        if self.document.modified:
+            name += " • Modified"
+        self.file_label.set_text(name)
+        self.file_label.set_visible(True)
     
     def _update_undo_redo_buttons(self):
         """Update undo/redo button sensitivity."""
@@ -810,15 +796,6 @@ class GsubWindow(Adw.ApplicationWindow):
         """Hide the banner notification."""
         self.banner.set_revealed(False)
 
-    def _navigate_to_home(self):
-        """Switch to the home view."""
-        self.current_view = "home"
-        self.view_stack.set_visible_child_name("home")
-        self.title_widget.set_title("Gsub")
-        self.title_widget.set_subtitle("")
-        self._update_header_bar()
-        self._update_bottom_bar()
-
     def _navigate_to_editor(self):
         """Switch to the editor view.
 
@@ -828,6 +805,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """
         self.current_view = "editor"
         self.view_stack.set_visible_child_name("editor")
+        self.content_stack.set_visible_child_name("main")
         if getattr(self, 'compat_btn', None) is not None:
             n = len(getattr(self, "compat_issues", []))
             self.compat_btn.set_label(f"Compatibility ({n})")
@@ -840,33 +818,56 @@ class GsubWindow(Adw.ApplicationWindow):
         """Switch to the batch operations view."""
         self.current_view = "batch"
         self.view_stack.set_visible_child_name("batch")
+        self.content_stack.set_visible_child_name("main")
         self.title_widget.set_title("Batch Operations")
         self.title_widget.set_subtitle("")
         self._update_header_bar()
         self._update_bottom_bar()
 
+    def _on_view_switched(self, view_stack, _pspec):
+        """Follow the view selected with the header switcher."""
+        view = view_stack.get_visible_child_name()
+        if view not in ("editor", "batch") or view == self.current_view:
+            return
+        if view == "editor":
+            self._navigate_to_editor()
+        else:
+            self._navigate_to_batch()
+
     def _on_compat_toggle(self, _btn):
         """Toggle between the editor and the Compatibility page."""
-        if self.view_stack.get_visible_child_name() == "compatibility":
-            self.view_stack.set_visible_child_name("editor")
+        if self.content_stack.get_visible_child_name() == "compatibility":
+            self.content_stack.set_visible_child_name("main")
             n = len(getattr(self, "compat_issues", []))
             self.compat_btn.set_label(f"Compatibility ({n})")
         else:
-            self.view_stack.set_visible_child_name("compatibility")
+            self.content_stack.set_visible_child_name("compatibility")
             # Recompute on entering the page so it can never show stale
             # results, whatever path changed the document.
             self._refresh_compat()
             self.compat_btn.set_label("Editor")
+        self._update_title_area()
 
     def _update_header_bar(self):
         """Update the header bar buttons and menu based on current view."""
         self.header_start_stack.set_visible_child_name(self.current_view)
+        self._update_title_area()
         if self.current_view == "home":
             self.menu_button.set_menu_model(self._create_home_menu())
         elif self.current_view == "batch":
             self.menu_button.set_menu_model(self._create_batch_menu())
         else:
             self.menu_button.set_menu_model(self._create_editor_menu())
+
+    def _update_title_area(self):
+        """Show the view switcher while browsing views, the title otherwise."""
+        show_switcher = (
+            self.current_view in ("editor", "batch")
+            and self.content_stack.get_visible_child_name() == "main"
+        )
+        self.title_stack.set_visible_child(
+            self.view_switcher if show_switcher else self.title_widget
+        )
 
     def _update_bottom_bar(self):
         """Update the bottom bar buttons based on current view."""
@@ -900,6 +901,8 @@ class GsubWindow(Adw.ApplicationWindow):
         else:
             # Home view - just status
             self.status_bar.set_text("")
+
+        self._update_file_label()
 
     def open_file(self, gfile: Gio.File):
         """Open a subtitle file."""
@@ -952,7 +955,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._refresh_compat()
             if self.compat_issues:
                 self._show_toast(
-                    f"{len(self.compat_issues)} compatibility issue(s) found — see Compatibility tab")
+                    f"{len(self.compat_issues)} compatibility issue(s) found — see Compatibility view")
 
         except Exception as e:
             self._show_error(f"Error opening file: {str(e)}")
@@ -1773,14 +1776,6 @@ class GsubWindow(Adw.ApplicationWindow):
         shortcuts = build_shortcuts_dialog()
         shortcuts.present(self)
     
-    def _on_home(self, action, param):
-        """Navigate to home view."""
-        self._navigate_to_home()
-
-    def _on_editor_view(self, action, param):
-        """Navigate to editor view."""
-        self._navigate_to_editor()
-
     def _on_batch(self, action, param):
         """Navigate to batch operations view."""
         self._navigate_to_batch()
@@ -1998,7 +1993,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.compat_issues = self._collect_compat_issues()
         self.compat_panel.set_issues(self.compat_issues)
         if (getattr(self, "compat_btn", None) is not None
-                and self.view_stack.get_visible_child_name() != "compatibility"):
+                and self.content_stack.get_visible_child_name() != "compatibility"):
             self.compat_btn.set_label(f"Compatibility ({len(self.compat_issues)})")
 
     def _apply_compat_fix(self, issue: CompatIssue):

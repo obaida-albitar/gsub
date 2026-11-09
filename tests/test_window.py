@@ -277,17 +277,19 @@ class TestWindowConstruction:
             "duplicate-entry", "move-up", "move-down", "insert-above",
             "insert-below", "time-shift", "sort-by-time", "open-video",
             "play-pause", "toggle-video", "select-tracks",
-            "seek-to-selection", "home", "batch", "editor-view", "find",
+            "seek-to-selection", "batch", "find",
             "about", "show-help-overlay",
         ):
             assert window.lookup_action(name) is not None, name
 
     def test_starts_on_home_with_empty_editor(self, window):
         assert window.current_view == "home"
-        assert window.view_stack.get_visible_child_name() == "home"
+        assert window.content_stack.get_visible_child_name() == "home"
+        assert window.title_stack.get_visible_child() is window.title_widget
         assert window.list_stack.get_visible_child_name() == "empty"
         assert window.document is None
         assert window.title_widget.get_title() == "Gsub"
+        assert window.file_label.get_visible() is False
 
     def test_document_actions_disabled_without_document(self, window):
         window.document = None
@@ -323,34 +325,48 @@ class TestNavigation:
 
         assert window.current_view == "editor"
         assert window.view_stack.get_visible_child_name() == "editor"
+        assert window.content_stack.get_visible_child_name() == "main"
+        # The view switcher replaces the window title once views are on screen.
+        assert window.title_stack.get_visible_child() is window.view_switcher
         # No dialog, no crash: the list shows its empty placeholder.
         assert window.list_stack.get_visible_child_name() == "empty"
         assert window.compat_btn.get_label() == "Compatibility (0)"
-
-    def test_home_navigation_resets_title(self, window):
-        window._navigate_to_batch()
-        assert window.title_widget.get_title() == "Batch Operations"
-
-        window._navigate_to_home()
-        assert window.current_view == "home"
-        assert window.view_stack.get_visible_child_name() == "home"
-        assert window.title_widget.get_title() == "Gsub"
 
     def test_batch_navigation(self, window):
         window._navigate_to_batch()
         assert window.current_view == "batch"
         assert window.view_stack.get_visible_child_name() == "batch"
+        assert window.content_stack.get_visible_child_name() == "main"
         # The batch status bar describes the empty list.
         assert "No files loaded" in window.status_bar.get_text()
 
-    def test_navigation_actions_switch_views(self, window):
-        for action, expected in (
-            ("win.batch", "batch"),
-            ("win.home", "home"),
-            ("win.editor-view", "editor"),
-        ):
-            assert window.activate_action(action) is True
-            assert window.view_stack.get_visible_child_name() == expected
+    def test_navigation_action_switches_to_batch_view(self, window):
+        assert window.activate_action("win.batch") is True
+        assert window.current_view == "batch"
+        assert window.view_stack.get_visible_child_name() == "batch"
+
+    def test_switcher_switches_views(self, window):
+        window._navigate_to_batch()
+        window.view_stack.set_visible_child_name("editor")
+        _pump()
+        assert window.current_view == "editor"
+        assert window.content_stack.get_visible_child_name() == "main"
+
+    def test_file_name_shown_in_footer(self, window, tmp_path):
+        _open(window, tmp_path, "footer.srt", SRT_CONTENT)
+
+        assert window.file_label.get_visible() is True
+        assert window.file_label.get_text() == "footer.srt"
+
+        window.document.modified = True
+        window._update_title()
+        assert window.file_label.get_text() == "footer.srt • Modified"
+
+    def test_file_name_hidden_outside_editor(self, window, tmp_path):
+        _open(window, tmp_path, "footer.srt", SRT_CONTENT)
+        window._navigate_to_batch()
+
+        assert window.file_label.get_visible() is False
 
 
 @pytest.mark.integration
@@ -1237,7 +1253,7 @@ class TestCompatibilityFixes:
 
         window._on_compat_toggle(window.compat_btn)
 
-        assert window.view_stack.get_visible_child_name() == "compatibility"
+        assert window.content_stack.get_visible_child_name() == "compatibility"
         assert all(i.code != "color.unknown_format"
                    for i in window.compat_issues)
 

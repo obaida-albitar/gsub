@@ -5,8 +5,17 @@ template $GsubWindow : Adw.ApplicationWindow {
   content: Adw.ToolbarView toolbar_view {
     [top]
     Adw.HeaderBar header_bar {
-      title-widget: Adw.WindowTitle title_widget {
-        title: _("Gsub");
+      title-widget: Stack title_stack {
+        transition-type: crossfade;
+
+        Adw.WindowTitle title_widget {
+          title: _("Gsub");
+        }
+
+        Adw.ViewSwitcher view_switcher {
+          policy: wide;
+          halign: center;
+        }
       };
 
       [end]
@@ -29,7 +38,7 @@ template $GsubWindow : Adw.ApplicationWindow {
     }
 
     content: Adw.ToastOverlay toast_overlay {
-      child: Adw.ViewStack view_stack {};
+      child: Stack content_stack {};
     };
 
     [bottom]
@@ -39,6 +48,14 @@ template $GsubWindow : Adw.ApplicationWindow {
       margin-end: 12;
       margin-top: 6;
       margin-bottom: 6;
+
+      Label file_label {
+        halign: start;
+        ellipsize: end;
+        max-width-chars: 40;
+        margin-end: 6;
+        visible: false;
+      }
 
       Label status_bar {
         halign: start;

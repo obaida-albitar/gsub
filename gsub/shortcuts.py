@@ -143,7 +143,6 @@ SHORTCUTS = (
     Shortcut(None, ("<Ctrl>Pointer_Button1",), "Select Subtitle on Timeline",
              SECTION_TIMELINE, "Ctrl + Click"),
     # Navigation
-    Shortcut("win.home", ("<Alt>Home",), "Home", SECTION_NAVIGATION),
     Shortcut("win.find", ("<Ctrl>F",), "Find in Subtitles", SECTION_NAVIGATION),
     # Handled by the search entry's key controller, not an action accel.
     Shortcut(None, ("Return", "<Shift>Return"),
