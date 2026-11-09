@@ -106,12 +106,29 @@ bundle:
 	$(FLATPAK_BUILDER) --state-dir=$(FLATPAK_STATE) --force-clean \
 		--repo=$(FLATPAK_REPO) --install-deps-from=flathub \
 		$(FLATPAK_BUILDDIR) $(FLATPAK_MANIFEST)
+	flatpak build-update-repo $(FLATPAK_REPO)
 	flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/ \
 		$(FLATPAK_REPO) gsub-v$(VERSION).x86_64.flatpak $(APP_ID)
 	@echo "Bundle written to gsub-v$(VERSION).x86_64.flatpak"
 
+# Local OSTree repo helpers. Prefer the single-file bundle for installs;
+# only use a file:// remote for iterative local testing. The remote URL must
+# always point at $(FLATPAK_REPO); a stale URL is what makes GNOME Software
+# fail with "server has no summary file".
+FLATPAK_LOCAL_REMOTE ?= local-gsub
+flatpak-remote-add:
+	flatpak remote-add --user --if-not-exists --no-gpg-verify $(FLATPAK_LOCAL_REMOTE) $(FLATPAK_REPO)
+	flatpak build-update-repo $(FLATPAK_REPO)
+	@echo "Remote '$(FLATPAK_LOCAL_REMOTE)' -> $(FLATPAK_REPO). Run 'flatpak update --user' to test."
+
+flatpak-remote-delete:
+	flatpak remote-delete --user $(FLATPAK_LOCAL_REMOTE)
+
 clean-flatpak:
 	rm -rf $(FLATPAK_WORK) builddir-flatpak flatpak-repo .flatpak-builder
+	@if flatpak remotes --user 2>/dev/null | grep -qx "$(FLATPAK_LOCAL_REMOTE)"; then \
+		echo "NOTE: user remote '$(FLATPAK_LOCAL_REMOTE)' still exists. If its URL no longer exists, GNOME Software will report 'server has no summary file'. Remove it with: make flatpak-remote-delete"; \
+	fi
 
 clean:
 	rm -rf __pycache__ .pytest_cache .ruff_cache .coverage htmlcov \
@@ -123,4 +140,4 @@ reinstall: uninstall install
 
 .PHONY: all install install-pip build-resources install-desktop install-icon \
 	clean-legacy update-cache uninstall reinstall test test-fast coverage lint \
-	fmt run clean flatpak bundle clean-flatpak
+	fmt run clean flatpak bundle clean-flatpak flatpak-remote-add flatpak-remote-delete

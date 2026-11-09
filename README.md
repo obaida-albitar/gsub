@@ -116,6 +116,13 @@ Launch **Gsub** from the app grid, or run `flatpak run io.github.obaidaalbitar.g
 The bundle bundles everything (GTK, libadwaita, libmpv, FFmpeg), so no system
 dependencies are required.
 
+> **Troubleshooting:** if GNOME Software reports
+> `Remote listing for local-gsub not available; server has no summary file`,
+> you have a stale local Flatpak remote (e.g. `file://.../flatpak-repo` that
+> was deleted by `make clean-flatpak`). The bundle install needs no remote,
+> so remove it with `flatpak remote-delete --user local-gsub` (or
+> `make flatpak-remote-delete`), then run `flatpak update --user --appstream`.
+
 ### Option B — From source with meson (system install)
 
 ```bash
