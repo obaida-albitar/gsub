@@ -1646,7 +1646,7 @@ class GsubWindow(Adw.ApplicationWindow):
             # Apply style property changes (ASS/SSA only)
             if self.batch_operations.has_style_props_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
                 editor = self.batch_operations.style_props
-                if apply_style_properties(doc, editor.get_checked_styles(), editor.get_checked_props()):
+                if apply_style_properties(doc, editor.get_target_styles(), editor.get_checked_props()):
                     changed = True
 
             if changed:

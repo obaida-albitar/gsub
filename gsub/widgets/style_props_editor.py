@@ -9,7 +9,7 @@ Batch Operations panel (across files). The group shows:
   prefix CheckButton — only ticked rows are applied,
 - a live preview of the first ticked style with the ticked properties.
 
-Hosts read the selection with :meth:`get_checked_styles` and
+Hosts read the selection with :meth:`get_target_styles` and
 :meth:`get_checked_props` (ASSStyle field name -> value) and listen to the
 ``changed`` signal to update their apply-button sensitivity.
 """
