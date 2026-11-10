@@ -678,6 +678,52 @@ class TestEntryStructureActions:
 
 
 @pytest.mark.integration
+class TestListHeaderAndSelectionActions:
+    """Entry actions live in the list header and follow the selection."""
+
+    def test_header_hidden_without_document(self, window):
+        window.document = None
+        window._update_status()
+
+        assert window.list_header.get_visible() is False
+
+    def test_header_count_tracks_document(self, window):
+        _new_document(window)
+
+        assert window.list_header.get_visible() is True
+        assert window.list_count_label.get_text() == "(0)"
+
+        window.activate_action("win.add-entry")
+        assert window.list_count_label.get_text() == "(1)"
+
+    def test_remove_and_duplicate_require_a_selection(self, window, tmp_path):
+        _open(window, tmp_path, "sel.srt", SRT_CONTENT)
+        window.subtitle_list.select_entry(-1)
+        _pump()
+
+        assert window.lookup_action("remove-entry").get_enabled() is False
+        assert window.lookup_action("duplicate-entry").get_enabled() is False
+
+        _select(window, 0)
+
+        assert window.lookup_action("remove-entry").get_enabled() is True
+        assert window.lookup_action("duplicate-entry").get_enabled() is True
+
+        window.subtitle_list.select_entry(-1)
+        _pump()
+
+        assert window.lookup_action("remove-entry").get_enabled() is False
+        assert window.lookup_action("duplicate-entry").get_enabled() is False
+
+    def test_selection_actions_disabled_without_document(self, window):
+        window.document = None
+        window._update_document_actions()
+
+        assert window.lookup_action("remove-entry").get_enabled() is False
+        assert window.lookup_action("duplicate-entry").get_enabled() is False
+
+
+@pytest.mark.integration
 class TestSaveDocument:
     def test_save_roundtrip(self, window, tmp_path):
         _open(window, tmp_path, "roundtrip.srt", SRT_CONTENT)

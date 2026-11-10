@@ -130,7 +130,6 @@ class GsubWindow(Adw.ApplicationWindow):
     bottom_bar = Gtk.Template.Child()
     file_label = Gtk.Template.Child()
     status_bar = Gtk.Template.Child()
-    action_box = Gtk.Template.Child()
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -308,10 +307,58 @@ class GsubWindow(Adw.ApplicationWindow):
         # instead of a blank, dead list.
         list_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         list_container.add_css_class("background")
+
+        # Header above the list: title/count plus the entry actions. Keeping
+        # them inside the list pane ties the buttons to the rows they act on;
+        # the window footer is left for document-level status.
+        self.list_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        self.list_header.set_margin_start(12)
+        self.list_header.set_margin_end(6)
+        self.list_header.set_margin_top(6)
+        self.list_header.set_margin_bottom(6)
+        self.list_header.set_visible(False)
+
+        list_title = Gtk.Label(label="Subtitles")
+        list_title.add_css_class("heading")
+        self.list_header.append(list_title)
+
+        self.list_count_label = Gtk.Label()
+        self.list_count_label.add_css_class("dim-label")
+        self.list_header.append(self.list_count_label)
+
+        list_spacer = Gtk.Box()
+        list_spacer.set_hexpand(True)
+        self.list_header.append(list_spacer)
+
+        list_actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        list_actions.add_css_class("linked")
+
+        add_button = Gtk.Button()
+        add_button.set_icon_name("list-add-symbolic")
+        add_button.set_tooltip_text("Add Subtitle (Ctrl+Shift+N)")
+        add_button.set_action_name("win.add-entry")
+        list_actions.append(add_button)
+
+        duplicate_button = Gtk.Button()
+        duplicate_button.set_icon_name("edit-copy-symbolic")
+        duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
+        duplicate_button.set_action_name("win.duplicate-entry")
+        list_actions.append(duplicate_button)
+
+        remove_button = Gtk.Button()
+        remove_button.set_icon_name("list-remove-symbolic")
+        remove_button.set_tooltip_text("Remove Subtitle (Delete)")
+        remove_button.set_action_name("win.remove-entry")
+        list_actions.append(remove_button)
+
+        self.list_header.append(list_actions)
+        list_container.append(self.list_header)
+
         self.list_stack = Gtk.Stack()
         self.subtitle_list = SubtitleListView()
         self.subtitle_list.connect('entry-selected', self._on_entry_selected)
         self.subtitle_list.connect('entry-activated', self._on_entry_activated)
+        self.subtitle_list.connect('selection-changed', self._on_subtitle_selection_changed)
         self.list_stack.add_named(self.subtitle_list, "list")
         self.list_stack.add_named(self._build_list_empty_page(), "empty")
         self.list_stack.set_visible_child_name("empty")
@@ -659,6 +706,14 @@ class GsubWindow(Adw.ApplicationWindow):
             self.status_bar.set_text(f"{count} subtitles • {format_name} format")
         else:
             self.status_bar.set_text("No file loaded")
+        self._update_list_header()
+
+    def _update_list_header(self):
+        """Show the list header and entry count only while a document is open."""
+        has_doc = self.document is not None
+        self.list_header.set_visible(has_doc)
+        if has_doc:
+            self.list_count_label.set_text(f"({len(self.document.entries)})")
 
     def _update_file_label(self):
         """Show the document name (and modified state) in the bottom bar."""
@@ -721,12 +776,26 @@ class GsubWindow(Adw.ApplicationWindow):
         has_doc = self.document is not None
         for name in ("save", "save-as", "convert-to-srt", "convert-to-ass",
                      "time-shift", "sort-by-time",
-                     "add-entry", "remove-entry", "duplicate-entry",
+                     "add-entry",
                      "move-up", "move-down", "insert-above", "insert-below",
                      "find"):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(has_doc)
+        # Selection-dependent actions are owned by the selection state; this
+        # also disables them when the document goes away.
+        self._update_selection_actions()
+
+    def _update_selection_actions(self):
+        """Enable entry actions that operate on a selected subtitle."""
+        has_selection = (
+            self.document is not None
+            and bool(self.subtitle_list.get_selected_positions())
+        )
+        for name in ("remove-entry", "duplicate-entry"):
+            action = self._actions.get(name)
+            if action is not None:
+                action.set_enabled(has_selection)
 
     # Window state lives in ~/.config/gsub/config.json. Releases before the
     # package rename stored it under ~/.config/subtitle-editor/; that legacy
@@ -910,31 +979,8 @@ class GsubWindow(Adw.ApplicationWindow):
         )
 
     def _update_bottom_bar(self):
-        """Update the bottom bar buttons based on current view."""
-        # Clear existing action buttons
-        while self.action_box.get_first_child():
-            self.action_box.remove(self.action_box.get_first_child())
-
+        """Update the bottom bar status based on current view."""
         if self.current_view == "editor":
-            # Editor action buttons
-            add_button = Gtk.Button()
-            add_button.set_icon_name("list-add-symbolic")
-            add_button.set_tooltip_text("Add Subtitle (Ctrl+Shift+N)")
-            add_button.set_action_name("win.add-entry")
-            self.action_box.append(add_button)
-
-            remove_button = Gtk.Button()
-            remove_button.set_icon_name("list-remove-symbolic")
-            remove_button.set_tooltip_text("Remove Subtitle (Delete)")
-            remove_button.set_action_name("win.remove-entry")
-            self.action_box.append(remove_button)
-
-            duplicate_button = Gtk.Button()
-            duplicate_button.set_icon_name("edit-copy-symbolic")
-            duplicate_button.set_tooltip_text("Duplicate Subtitle (Ctrl+D)")
-            duplicate_button.set_action_name("win.duplicate-entry")
-            self.action_box.append(duplicate_button)
-
             self._update_status()
         elif self.current_view == "batch":
             self._update_batch_status()
@@ -1911,7 +1957,11 @@ class GsubWindow(Adw.ApplicationWindow):
                 )
     
     # Widget signal handlers
-    
+
+    def _on_subtitle_selection_changed(self, widget):
+        """Keep selection-dependent entry actions in sync with the list."""
+        self._update_selection_actions()
+
     def _on_entry_selected(self, widget, position):
         """Handle subtitle entry selection."""
         if not self.document:
