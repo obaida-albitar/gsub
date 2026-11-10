@@ -23,7 +23,7 @@ Adw.init()
 
 # Register the compiled gresource bundle before importing the window, since the
 # window's Gtk.Template references resource paths that must exist at import time.
-from gsub.resources import register_resources, install_style_provider
+from gsub.resources import register_resources, install_icons, install_style_provider
 
 register_resources()
 
@@ -41,10 +41,11 @@ class GsubApplication(Adw.Application):
         self.window = None
 
     def do_startup(self):
-        """Load the application stylesheet once the display is available."""
+        """Load the application stylesheet and icons once the display is available."""
         Adw.Application.do_startup(self)
         # Style provider needs a default display, which exists by do_startup.
         install_style_provider()
+        install_icons()
 
     def do_activate(self):
         """Called when the application is activated."""

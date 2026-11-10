@@ -4,3 +4,4 @@ include data/io.github.obaidaalbitar.gsub.metainfo.xml
 include data/gsub.gresource.xml
 include data/style.css
 recursive-include data/blueprints *.blp
+recursive-include data/icons *.svg

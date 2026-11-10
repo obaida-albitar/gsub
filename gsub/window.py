@@ -226,11 +226,33 @@ class GsubWindow(Adw.ApplicationWindow):
         self.video_button.set_margin_start(6)
         editor_header.append(self.video_button)
 
-        self.compat_btn = Gtk.Button(label="Compatibility")
-        self.compat_btn.set_tooltip_text("Toggle Compatibility Checker")
+        self.compat_btn = Gtk.Button()
+        self.compat_btn.add_css_class("compat-button")
         self.compat_btn.set_margin_start(6)
         self.compat_btn.connect('clicked', self._on_compat_toggle)
+
+        # Mirror libadwaita's AdwIndicatorBin layout: a 24x24 box keeps the
+        # icon centred while the badge sits at its top-end, overlapping the
+        # icon's top-right corner. The box reserves the badge's space, which
+        # avoids the clipping that negative margins cause (GTK shrinks the
+        # label below its font height).
+        compat_overlay = Gtk.Overlay()
+        compat_box = Gtk.CenterBox()
+        compat_box.set_size_request(24, 24)
+        self.compat_icon = Gtk.Image.new_from_icon_name("dialog-warning-symbolic")
+        compat_box.set_center_widget(self.compat_icon)
+        compat_overlay.set_child(compat_box)
+
+        self.compat_badge = Gtk.Label()
+        self.compat_badge.add_css_class("compat-badge")
+        self.compat_badge.set_halign(Gtk.Align.END)
+        self.compat_badge.set_valign(Gtk.Align.START)
+        self.compat_badge.set_visible(False)
+        compat_overlay.add_overlay(self.compat_badge)
+
+        self.compat_btn.set_child(compat_overlay)
         editor_header.append(self.compat_btn)
+        self._update_compat_button()
 
         self.header_start_stack.add_named(editor_header, "editor")
 
@@ -405,7 +427,7 @@ class GsubWindow(Adw.ApplicationWindow):
         editor_page.set_icon_name("document-edit-symbolic")
         batch_page = self.view_stack.add_titled(
             batch_box, "batch", "Batch Operations")
-        batch_page.set_icon_name("folder-documents-symbolic")
+        batch_page.set_icon_name("gsub-documents-symbolic")
         self.view_stack.set_visible_child_name("editor")
         self.view_switcher.set_stack(self.view_stack)
         self.view_stack.connect("notify::visible-child", self._on_view_switched)
@@ -806,9 +828,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self.current_view = "editor"
         self.view_stack.set_visible_child_name("editor")
         self.content_stack.set_visible_child_name("main")
-        if getattr(self, 'compat_btn', None) is not None:
-            n = len(getattr(self, "compat_issues", []))
-            self.compat_btn.set_label(f"Compatibility ({n})")
+        self._update_compat_button()
         self._update_header_bar()
         self._update_bottom_bar()
         self._update_title()
@@ -838,15 +858,35 @@ class GsubWindow(Adw.ApplicationWindow):
         """Toggle between the editor and the Compatibility page."""
         if self.content_stack.get_visible_child_name() == "compatibility":
             self.content_stack.set_visible_child_name("main")
-            n = len(getattr(self, "compat_issues", []))
-            self.compat_btn.set_label(f"Compatibility ({n})")
         else:
             self.content_stack.set_visible_child_name("compatibility")
             # Recompute on entering the page so it can never show stale
             # results, whatever path changed the document.
             self._refresh_compat()
-            self.compat_btn.set_label("Editor")
+        self._update_compat_button()
         self._update_title_area()
+
+    def _update_compat_button(self):
+        """Sync the header's compatibility button with the current state.
+
+        Outside the Compatibility page it is an exclamation-mark icon with a
+        numeric badge for the issue count; on the page it turns into a back
+        button that returns to the editor.
+        """
+        if self.content_stack.get_visible_child_name() == "compatibility":
+            self.compat_icon.set_from_icon_name("go-previous-symbolic")
+            self.compat_badge.set_visible(False)
+            self.compat_btn.set_tooltip_text("Back to Editor")
+            self.compat_btn.set_sensitive(True)
+            return
+
+        n = len(getattr(self, "compat_issues", []))
+        self.compat_icon.set_from_icon_name("dialog-warning-symbolic")
+        self.compat_badge.set_label("9+" if n > 9 else str(n))
+        self.compat_badge.set_visible(n > 0)
+        self.compat_btn.set_sensitive(self.document is not None and n > 0)
+        self.compat_btn.set_tooltip_text(
+            f"Compatibility Checker ({n} issue{'s' if n != 1 else ''})")
 
     def _update_header_bar(self):
         """Update the header bar buttons and menu based on current view."""
@@ -1992,9 +2032,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Recompute compatibility issues and push them to the panel."""
         self.compat_issues = self._collect_compat_issues()
         self.compat_panel.set_issues(self.compat_issues)
-        if (getattr(self, "compat_btn", None) is not None
-                and self.content_stack.get_visible_child_name() != "compatibility"):
-            self.compat_btn.set_label(f"Compatibility ({len(self.compat_issues)})")
+        self._update_compat_button()
 
     def _apply_compat_fix(self, issue: CompatIssue):
         """Apply an automatic fix for a compatibility issue (undoable).

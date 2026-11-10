@@ -330,7 +330,11 @@ class TestNavigation:
         assert window.title_stack.get_visible_child() is window.view_switcher
         # No dialog, no crash: the list shows its empty placeholder.
         assert window.list_stack.get_visible_child_name() == "empty"
-        assert window.compat_btn.get_label() == "Compatibility (0)"
+        # The compatibility button is icon-only: the badge stays hidden while
+        # there are no issues and the tooltip carries the count.
+        assert window.compat_badge.get_visible() is False
+        assert window.compat_btn.get_tooltip_text() == "Compatibility Checker (0 issues)"
+        assert window.compat_btn.get_sensitive() is False
 
     def test_batch_navigation(self, window):
         window._navigate_to_batch()
@@ -1189,6 +1193,7 @@ class TestCompatibilityFixes:
     def test_srt_documents_have_no_compat_issues(self, window, tmp_path):
         _open(window, tmp_path, "plain.srt", SRT_CONTENT)
         assert window.compat_issues == []
+        assert window.compat_btn.get_sensitive() is False
 
     def test_style_edit_refreshes_compat(self, window, tmp_path):
         # Regression: fixing a style by hand (e.g. ScaleX in the styles
@@ -1251,11 +1256,41 @@ class TestCompatibilityFixes:
         assert any(i.code == "color.unknown_format"
                    for i in window.compat_issues)  # stale on purpose
 
+        # The header badge mirrors the issue count before the page opens.
+        assert window.compat_btn.get_sensitive() is True
+        assert window.compat_badge.get_visible() is True
+        assert window.compat_badge.get_text() == str(len(window.compat_issues))
+
         window._on_compat_toggle(window.compat_btn)
 
         assert window.content_stack.get_visible_child_name() == "compatibility"
         assert all(i.code != "color.unknown_format"
                    for i in window.compat_issues)
+        # On the page the button becomes a back button without a badge.
+        assert window.compat_btn.get_sensitive() is True
+        assert window.compat_badge.get_visible() is False
+        assert window.compat_btn.get_tooltip_text() == "Back to Editor"
+
+        # Leave the window on the editor page for the tests that follow.
+        window._on_compat_toggle(window.compat_btn)
+        assert window.content_stack.get_visible_child_name() == "main"
+
+    def test_badge_caps_at_9_plus(self, window):
+        original_issues = window.compat_issues
+        original_document = window.document
+        try:
+            window.content_stack.set_visible_child_name("main")
+            window.document = (original_document if original_document is not None
+                               else object())
+            window.compat_issues = [object()] * 10
+            window._update_compat_button()
+            assert window.compat_btn.get_sensitive() is True
+            assert window.compat_badge.get_visible() is True
+            assert window.compat_badge.get_text() == "9+"
+        finally:
+            window.compat_issues = original_issues
+            window.document = original_document
+            window._update_compat_button()
 
 
 @pytest.mark.integration

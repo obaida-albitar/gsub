@@ -44,3 +44,32 @@ row.active-playing {
 row:selected row.active-playing {
   background-color: transparent;
 }
+
+/* The compatibility button holds a 24x24 icon+badge box, so it needs less
+   horizontal padding than the default header button to keep its width in
+   line with the other header icon buttons. */
+.compat-button {
+  padding: 5px;
+}
+
+/* The icon is nested in the badge overlay, so the theme's direct-child
+   disabled styling does not reach it. Dim it explicitly. */
+.compat-button:disabled image {
+  opacity: 0.5;
+}
+
+/* Issue-count badge on the Compatibility header button, modelled on
+   libadwaita's AdwIndicatorBin badge (the private widget used by
+   AdwViewSwitcher). One digit stays circular; longer counts grow into a
+   pill. No fixed height cap, so the text can never be clipped. */
+.compat-badge {
+  font-size: 0.65rem;
+  font-weight: bold;
+  min-width: 8px;
+  min-height: 16px;
+  padding-left: 4px;
+  padding-right: 4px;
+  border-radius: 999px;
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}

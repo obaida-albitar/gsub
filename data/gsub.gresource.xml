@@ -35,5 +35,9 @@
 
     <!-- Application icon (referenced as io.github.obaidaalbitar.gsub) -->
     <file alias="icons/scalable/apps/io.github.obaidaalbitar.gsub.svg">io.github.obaidaalbitar.gsub.svg</file>
+
+    <!-- App-specific symbolic icons (registered as an icon theme resource
+         path by gsub.resources.install_icons) -->
+    <file alias="icons/scalable/actions/gsub-documents-symbolic.svg">icons/scalable/actions/gsub-documents-symbolic.svg</file>
   </gresource>
 </gresources>

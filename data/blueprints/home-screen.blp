@@ -91,6 +91,7 @@ template $GsubHomeScreen : Adw.Bin {
               Button open_button {
                 styles ["suggested-action"]
                 valign: center;
+                width-request: 130;
                 margin-end: 12;
                 margin-top: 14;
                 margin-bottom: 14;
@@ -110,7 +111,7 @@ template $GsubHomeScreen : Adw.Bin {
               margin-bottom: 6;
 
               Image batch_icon {
-                icon-name: "folder-documents-symbolic";
+                icon-name: "gsub-documents-symbolic";
                 pixel-size: 40;
                 margin-start: 12;
                 margin-top: 14;
@@ -140,7 +141,9 @@ template $GsubHomeScreen : Adw.Bin {
               }
 
               Button batch_button {
+                styles ["suggested-action"]
                 valign: center;
+                width-request: 130;
                 margin-end: 12;
                 margin-top: 14;
                 margin-bottom: 14;

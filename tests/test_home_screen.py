@@ -60,3 +60,20 @@ def test_start_button_does_not_emit_open_batch():
     view.open_button.emit("clicked")
 
     assert fired == []
+
+
+def test_start_buttons_share_style_and_size():
+    view = _make_view()
+
+    assert view.open_button.has_css_class("suggested-action")
+    assert view.batch_button.has_css_class("suggested-action")
+    assert view.open_button.get_size_request()[0] == 130
+    assert view.batch_button.get_size_request()[0] == 130
+
+
+def test_batch_icon_is_bundled():
+    from gsub.resources import install_icons
+
+    install_icons()
+    theme = Gtk.IconTheme.get_for_display(Gdk.Display.get_default())
+    assert theme.has_icon("gsub-documents-symbolic")

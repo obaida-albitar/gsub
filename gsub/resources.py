@@ -118,3 +118,16 @@ def install_style_provider(display=None) -> None:
         Gtk.StyleContext.add_provider_for_display(
             target, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
         )
+
+
+def install_icons(display=None) -> None:
+    """Expose the bundled icon theme directory on the given (or default) display.
+
+    The gresource stores app-specific icons under ``icons/<size>/<context>/``
+    (e.g. ``icons/scalable/actions/gsub-documents-symbolic.svg``), which is the
+    layout GtkIconTheme expects for an added resource path.
+    """
+    target = display or Gdk.Display.get_default()
+    if target is not None:
+        theme = Gtk.IconTheme.get_for_display(target)
+        theme.add_resource_path(f"{RESOURCE_BASE_PATH}/icons")
