@@ -80,6 +80,19 @@ class TestIncrementalUpdates:
         assert _store_texts(view) == ["one", "three"]
         assert view.list_store.get_item(1).entry_index == 2
 
+    def test_entries_removed_drops_stale_selection(self):
+        from gsub.commands.subtitle_commands import RemoveEntryCommand
+
+        view, doc = _make_view(["one", "two", "three"])
+        view.select_entry(1)
+        RemoveEntryCommand(doc, 1).execute()
+        view.entries_removed([1])
+
+        # The removed row's index must not remain cached as a selection:
+        # otherwise the entry now at that index is actionable without being
+        # highlighted.
+        assert view.get_selected_positions() == []
+
     def test_entry_moved_splices_and_renumbers(self):
         from gsub.commands.subtitle_commands import MoveEntryCommand
 

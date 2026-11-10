@@ -631,6 +631,45 @@ class TestEntryStructureActions:
         window._on_undo(None, None)
         assert len(window.document.entries) == 3
 
+    def test_remove_selects_next_entry_with_visible_highlight(
+            self, window, tmp_path):
+        _open(window, tmp_path, "rm-next.srt", SRT_CONTENT)
+        _select(window, 1)
+
+        window._on_remove_entry(None, None)
+        _pump()
+
+        # The row that moved into the removed slot stays selected, and the
+        # selection model agrees with the cached positions, so the highlight
+        # is actually visible.
+        assert window.subtitle_list.get_selected_positions() == [1]
+        bitset = window.subtitle_list.selection_model.get_selection()
+        assert [bitset.get_nth(i) for i in range(bitset.get_size())] == [1]
+        assert window.editor_panel.current_position == 1
+        assert window.lookup_action("remove-entry").get_enabled() is True
+
+    def test_remove_last_entry_selects_previous(self, window, tmp_path):
+        _open(window, tmp_path, "rm-last.srt", SRT_CONTENT)
+        _select(window, 2)
+
+        window._on_remove_entry(None, None)
+        _pump()
+
+        assert window.subtitle_list.get_selected_positions() == [1]
+        assert window.editor_panel.current_position == 1
+
+    def test_remove_only_entry_clears_selection(self, window):
+        _new_document(window)
+        window.activate_action("win.add-entry")
+        _pump()
+
+        window._on_remove_entry(None, None)
+        _pump()
+
+        assert window.subtitle_list.get_selected_positions() == []
+        assert window.lookup_action("remove-entry").get_enabled() is False
+        assert window.editor_panel.current_position == -1
+
     def test_duplicate_without_selection_is_noop(self, window, tmp_path):
         _open(window, tmp_path, "dup.srt", SRT_CONTENT)
         window.subtitle_list.select_entry(-1)

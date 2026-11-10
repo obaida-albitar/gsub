@@ -1369,7 +1369,18 @@ class GsubWindow(Adw.ApplicationWindow):
                 CompositeCommand(commands, "Remove subtitles"))
 
         self.subtitle_list.entries_removed(positions)
-        self.editor_panel.clear()
+
+        # Keep the row that moved into the first removed slot selected (or
+        # the previous one when the tail was removed) so the list highlight,
+        # editor and selection-dependent actions stay in sync.
+        remaining = len(self.document.entries)
+        if remaining:
+            self.subtitle_list.select_entry(min(min(positions), remaining - 1))
+        else:
+            self.subtitle_list.select_entry(-1)
+            self.editor_panel.clear()
+            self._update_selection_actions()
+
         self._update_title()
         self._update_status()
         self._document_mutated()

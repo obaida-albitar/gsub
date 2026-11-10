@@ -305,6 +305,10 @@ class SubtitleListView(Gtk.Box):
         if first is not None:
             self._renumber_from(first)
             self._after_structure_change()
+            # The selection model drops selections for removed items during
+            # the splice; resync the cached positions so callers never act on
+            # an index that is no longer highlighted.
+            self._sync_selection_from_model()
 
     def entry_moved(self, from_position: int, to_position: int):
         """Notify the view that an entry moved positions in the document."""
@@ -549,12 +553,7 @@ class SubtitleListView(Gtk.Box):
 
     def _on_selection_changed(self, selection_model, position, n_items):
         """Handle selection changes in the ListView."""
-        selected = []
-        bitset = selection_model.get_selection()
-        size = bitset.get_size()
-        for i in range(size):
-            selected.append(bitset.get_nth(i))
-        self._selected_positions = selected
+        self._sync_selection_from_model()
 
         # Emit signals
         if self._selected_positions:
@@ -563,6 +562,13 @@ class SubtitleListView(Gtk.Box):
             self.emit('entry-selected', -1)
 
         self.emit('selection-changed')
+
+    def _sync_selection_from_model(self):
+        """Refresh the cached positions from the selection model's bitset."""
+        bitset = self.selection_model.get_selection()
+        self._selected_positions = [
+            bitset.get_nth(i) for i in range(bitset.get_size())
+        ]
 
     # --- Empty state ---------------------------------------------------------
 
