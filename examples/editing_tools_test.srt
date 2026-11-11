@@ -1,0 +1,73 @@
+1
+00:00:00,200 --> 00:00:02,800
+The last train leaves at midnight.
+
+2
+00:00:03,000 --> 00:00:03,600
+Run!
+
+3
+00:00:04,000 --> 00:00:05,000
+We have thirty seconds to reach it.
+
+4
+00:00:05,500 --> 00:00:11,500
+I thought you said the station was around the corner, not across the city.
+
+5
+00:00:12,000 --> 00:00:15,000
+Take the stairs.
+Keep to the left.
+I'll meet you there.
+
+6
+00:00:15,500 --> 00:00:23,500
+Wait here.
+
+7
+00:00:24,000 --> 00:00:27,000
+I can hear the train.
+
+8
+00:00:26,500 --> 00:00:29,000
+Then we still have a chance.
+
+9
+00:00:29,050 --> 00:00:32,000
+There is the platform.
+
+10
+00:00:33,000 --> 00:00:36,000
+<i></i>
+
+11
+00:00:37,000 --> 00:00:37,000
+The clock has stopped.
+
+12
+00:00:38,000 --> 00:00:43,000
+<i>Meet me by the ticket office.</i>
+
+13
+00:00:43,300 --> 00:00:46,000
+<b>Keep the ticket.</b>
+
+14
+00:00:46,300 --> 00:00:49,000
+It is our way home.
+
+15
+00:00:50,000 --> 00:00:56,000
+When the doors open, let everyone get off before we try to squeeze inside.
+
+16
+00:00:57,000 --> 00:01:00,000
+Ticket, ticket, TICKET; tickets.
+
+17
+00:01:00,500 --> 00:01:03,500
+<i>tick</i>et inspectors are on board.
+
+18
+00:01:04,000 --> 00:01:08,000
+Straße, café, مرحبًا، and 中文.

@@ -217,6 +217,7 @@ class SubtitleListView(Gtk.Box):
         # Search bar wiring. Key capture is scoped to this widget so typing in
         # the editor panel is never hijacked while search is open.
         self.search_bar.set_key_capture_widget(self)
+        self.search_bar.connect('notify::search-mode-enabled', self._on_search_mode_changed)
         self.search_entry.connect('changed', self._on_search_changed)
         self.search_entry.connect('next-match', lambda *a: self._search_move(1))
         self.search_entry.connect('previous-match', lambda *a: self._search_move(-1))
@@ -252,6 +253,9 @@ class SubtitleListView(Gtk.Box):
         edit_section = Gio.Menu()
         edit_section.append("Duplicate", "win.duplicate-entry")
         edit_section.append("Remove", "win.remove-entry")
+        edit_section.append("Split at Cursor", "win.split-entry")
+        edit_section.append("Merge Selected Subtitles", "win.merge-entries")
+        edit_section.append("Rebalance Text", "win.rebalance-text")
         self.context_menu.append_section(None, edit_section)
 
         move_section = Gio.Menu()
@@ -587,12 +591,25 @@ class SubtitleListView(Gtk.Box):
 
     def set_search_visible(self, visible: bool):
         """Reveal/hide the search bar (clearing highlights when hidden)."""
-        self.search_bar.set_search_mode(visible)
+        if self.search_bar.get_search_mode() != visible:
+            self.search_bar.set_search_mode(visible)
         if visible:
             self.search_entry.grab_focus()
         elif self.search_entry.get_text():
             # Triggers 'changed' -> clears highlights and matches.
             self.search_entry.set_text('')
+
+    def _on_search_mode_changed(self, search_bar, _pspec):
+        """Keep native Close/Escape dismissal in sync with our search state."""
+        if not search_bar.get_search_mode():
+            self.set_search_visible(False)
+            root = self.list_view.get_root()
+            if root is not None:
+                # Assign focus to the list container itself. ListView's row
+                # focus delegation reaches our ActionRows, which require a
+                # ListBox parent; it also needlessly changes the focused cue.
+                # Root.set_focus avoids that delegation and keeps selection.
+                root.set_focus(self.list_view)
 
     def _on_search_changed(self, entry):
         term = entry.get_text().strip()

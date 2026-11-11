@@ -91,6 +91,10 @@ SHORTCUTS = (
     Shortcut("win.remove-entry", ("Delete",), "Remove Subtitle", SECTION_EDITING,
              window_key=True),
     Shortcut("win.duplicate-entry", ("<Ctrl>D",), "Duplicate Subtitle", SECTION_EDITING),
+    Shortcut("win.split-entry", ("<Ctrl><Shift>K",), "Split Subtitle at Cursor", SECTION_EDITING),
+    Shortcut("win.merge-entries", ("<Ctrl>M",), "Merge Selected Subtitles", SECTION_EDITING),
+    Shortcut("win.rebalance-text", ("<Ctrl><Shift>B",), "Rebalance Subtitle Text", SECTION_EDITING),
+    Shortcut("win.quality-check", ("<Ctrl><Shift>Q",), "Subtitle Quality Check", SECTION_EDITING),
     Shortcut("win.move-up", ("<Ctrl>Up",), "Move Up", SECTION_EDITING),
     Shortcut("win.move-down", ("<Ctrl>Down",), "Move Down", SECTION_EDITING),
     # Batch: handled by the batch file list's key controller, not action
@@ -144,6 +148,7 @@ SHORTCUTS = (
              SECTION_TIMELINE, "Ctrl + Click"),
     # Navigation
     Shortcut("win.find", ("<Ctrl>F",), "Find in Subtitles", SECTION_NAVIGATION),
+    Shortcut("win.replace", ("<Ctrl>H",), "Find and Replace", SECTION_NAVIGATION),
     # Handled by the search entry's key controller, not an action accel.
     Shortcut(None, ("Return", "<Shift>Return"),
              "Next / Previous Search Match", SECTION_NAVIGATION),

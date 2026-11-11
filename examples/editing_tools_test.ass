@@ -1,0 +1,43 @@
+[Script Info]
+; Real-file examples for quality checking and formatting-aware editing.
+; See examples/README.md for cue numbers and expected results.
+Title: The Last Train - Editing Tools Test
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: None
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,40,1
+Style: Sign,DejaVu Sans,36,&H0000FFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,8,40,40,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.20,0:00:02.80,Default,Mira,0,0,0,,The last train leaves at midnight.
+Dialogue: 0,0:00:03.00,0:00:03.60,Default,Jonas,0,0,0,,Run!
+Dialogue: 0,0:00:04.00,0:00:05.00,Default,Mira,0,0,0,,We have thirty seconds to reach it.
+Dialogue: 0,0:00:05.50,0:00:11.50,Default,Jonas,0,0,0,,I thought you said the station was around the corner, not across the city.
+Dialogue: 0,0:00:12.00,0:00:15.00,Default,Mira,0,0,0,,Take the stairs.\NKeep to the left.\NI'll meet you there.
+Dialogue: 0,0:00:15.50,0:00:23.50,Default,Mira,0,0,0,,Wait here.
+Dialogue: 0,0:00:24.00,0:00:27.00,Default,Jonas,0,0,0,,I can hear the train.
+Dialogue: 0,0:00:26.50,0:00:29.00,Default,Mira,0,0,0,,Then we still have a chance.
+Dialogue: 0,0:00:29.05,0:00:32.00,Default,Jonas,0,0,0,,There is the platform.
+Dialogue: 0,0:00:33.00,0:00:36.00,Default,Mira,0,0,0,,{\i1}
+Dialogue: 0,0:00:37.00,0:00:37.00,Default,Jonas,0,0,0,,The clock has stopped.
+Dialogue: 0,0:00:38.00,0:00:43.00,Default,Mira,0,0,0,,{\i1}Meet me by the ticket office.
+Dialogue: 0,0:00:43.30,0:00:46.00,Default,Mira,0,0,0,,{\b1}Keep the ticket.
+Dialogue: 0,0:00:46.30,0:00:49.00,Default,Mira,0,0,0,,It is our way home.
+Dialogue: 0,0:00:50.00,0:00:56.00,Default,Jonas,0,0,0,,When the doors open, let everyone get off before we try to squeeze inside.
+Dialogue: 0,0:00:57.00,0:01:00.00,Default,Mira,0,0,0,,Ticket, ticket, TICKET; tickets.
+Dialogue: 0,0:01:00.50,0:01:03.50,Default,Jonas,0,0,0,,tick{\i1}et{\i0} inspectors are on board.
+Dialogue: 0,0:01:04.00,0:01:08.00,Default,Mira,0,0,0,,Straße, café, مرحبًا، and 中文.
+Dialogue: 1,0:01:09.00,0:01:12.00,Sign,,0,0,0,,{\an8\pos(640,80)}PLATFORM 4
+Dialogue: 0,0:01:09.00,0:01:12.00,Default,Jonas,0,0,0,,We made it.
+Dialogue: 1,0:01:13.00,0:01:16.00,Sign,,0,0,0,,{\p1}m 0 0 l 40 0 l 40 40 l 0 40{\p0}
+Dialogue: 0,0:01:17.00,0:01:20.00,Default,Mira,0,0,0,,{\k30}Last {\k30}call.
+Dialogue: 0,0:01:21.00,0:01:24.00,Default,Jonas,0,0,0,,{\move(80,650,500,650)}The doors are closing.
+Dialogue: 1,0:01:25.00,0:01:28.00,Sign,,0,0,0,,Mind the gap.
+Dialogue: 0,0:01:28.30,0:01:31.00,Default,Mira,0,0,0,,Mind the gap.

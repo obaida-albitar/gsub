@@ -270,6 +270,42 @@ def _select(win, position):
 
 @pytest.mark.integration
 class TestWindowConstruction:
+    def test_editor_and_batch_headers_share_compact_file_and_history_groups(self, window):
+        editor = window.header_start_stack.get_child_by_name("editor")
+        batch = window.header_start_stack.get_child_by_name("batch")
+        assert editor.get_spacing() == batch.get_spacing() == 0
+
+        editor_files = editor.get_first_child()
+        batch_files = batch.get_first_child()
+        assert editor_files.has_css_class("linked")
+        assert batch_files.has_css_class("linked")
+        assert editor_files.get_spacing() == batch_files.get_spacing() == 0
+        assert window.batch_add_button.get_parent() is batch_files
+        assert window.batch_add_button.get_icon_name() == "list-add-symbolic"
+        assert not window.batch_add_button.get_label()
+        assert window.batch_add_button.get_tooltip_text() == "Add subtitle files to the batch"
+
+        for undo, redo, header in (
+            (window.undo_button, window.redo_button, editor),
+            (window.batch_undo_button, window.batch_redo_button, batch),
+        ):
+            group = undo.get_parent()
+            assert group.get_parent() is header
+            assert redo.get_parent() is group
+            assert group.has_css_class("linked")
+            assert group.get_spacing() == 0
+            assert group.get_margin_start() == 6
+            assert undo.get_icon_name() == "edit-undo-symbolic"
+            assert redo.get_icon_name() == "edit-redo-symbolic"
+            assert undo.get_action_name() == "win.undo"
+            assert redo.get_action_name() == "win.redo"
+
+    def test_batch_add_icon_keeps_its_add_files_behavior(self, window, monkeypatch):
+        invoked = []
+        monkeypatch.setattr(window, "_on_batch_add_files", lambda: invoked.append(True))
+        window.batch_add_button.emit("clicked")
+        assert invoked == [True]
+
     def test_key_actions_are_registered(self, window):
         for name in (
             "new", "open", "save", "save-as", "convert-to-srt",
@@ -278,6 +314,7 @@ class TestWindowConstruction:
             "insert-below", "time-shift", "sort-by-time", "open-video",
             "play-pause", "toggle-video", "select-tracks",
             "seek-to-selection", "batch", "find",
+            "replace", "quality-check", "split-entry", "merge-entries", "rebalance-text",
             "about", "show-help-overlay",
         ):
             assert window.lookup_action(name) is not None, name
@@ -1447,6 +1484,314 @@ class TestBatchConfirmDialog:
         other = self._make(window)
         other.on_cancel_clicked(None)
         assert other.is_confirmed() is False
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("extension", ["srt", "ass"])
+def test_real_editing_example_opens_checks_replaces_and_saves(window, tmp_path, extension):
+    from pathlib import Path
+
+    from gsub.quality import QualitySettings
+    from gsub.search import visible_text
+
+    path = Path(__file__).resolve().parent.parent / "examples" / f"editing_tools_test.{extension}"
+    original = path.read_text(encoding="utf-8")
+    config = window._load_config()
+    config["quality_settings"] = QualitySettings().to_dict()
+    window._save_config(config)
+    window.open_file(Gio.File.new_for_path(str(path)))
+    _pump()
+    window._on_quality_check(None, None)
+    quality = window._quality_dialog
+    try:
+        assert len(quality.issues) == 10
+    finally:
+        window._close_document_dialogs()
+
+    _select(window, 15)
+    window._on_replace(None, None)
+    dialog = window._replace_dialog
+    try:
+        dialog.search_entry.set_text("ticket")
+        assert len(dialog.matches) == 7
+        dialog.selection_only.set_active(True)
+        dialog.whole_words.set_active(True)
+        assert len(dialog.matches) == 3
+        dialog.replace_entry.set_text("pass")
+        dialog._replace_all()
+        assert visible_text(window.document.entries[15].text, window.document.format) == (
+            "pass, pass, pass; tickets.")
+        output = tmp_path / f"edited.{extension}"
+        window._save_document(str(output))
+        assert output.exists()
+        window._on_undo(None, None)
+        assert visible_text(window.document.entries[15].text, window.document.format) == (
+            "Ticket, ticket, TICKET; tickets.")
+        window._on_redo(None, None)
+        assert visible_text(window.document.entries[15].text, window.document.format) == (
+            "pass, pass, pass; tickets.")
+    finally:
+        window._close_document_dialogs()
+    assert path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.integration
+class TestEditingTools:
+    @pytest.mark.parametrize("action", ["insert-above", "remove-entry", "duplicate-entry",
+                                       "move-up", "move-down", "sort-by-time"])
+    def test_structural_actions_flush_pending_edits_to_original_cue(
+            self, window, tmp_path, action):
+        _open(window, tmp_path, "pending.srt", SRT_CONTENT)
+        _select(window, 1)
+        window.editor_panel.text_buffer.set_text("Pending edit")
+        window.editor_panel.start_milli.set_value(600)
+        window.lookup_action(action).activate(None)
+        if action == "remove-entry":
+            assert [e.text for e in window.document.entries] == ["First subtitle", "Third subtitle"]
+            window._on_undo(None, None)
+        edited = [entry for entry in window.document.entries if entry.text == "Pending edit"]
+        assert edited
+        if action == "duplicate-entry":
+            assert [entry.start_time.total_milliseconds for entry in edited] == [2600, 5100]
+            assert edited[1].duration_ms == 2400
+        else:
+            assert all(entry.start_time.total_milliseconds == 2600 for entry in edited)
+        assert window.document.entries[-1].text != "Pending edit" or action == "move-down"
+        _pump()
+        assert window.editor_panel._pending_timing_values is None
+
+    def test_multiselect_commits_current_draft_before_disabling_editor(self, window, tmp_path):
+        _open(window, tmp_path, "multiselect.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.editor_panel.text_buffer.set_text("Keep this edit")
+        window.editor_panel.start_milli.set_value(600)
+        window.subtitle_list.select_entry(1, clear_others=False)
+        _pump()
+        assert window.document.entries[0].text == "Keep this edit"
+        assert window.document.entries[0].start_time.total_milliseconds == 600
+        assert window.document.entries[1].text == "Second subtitle"
+        assert not window.editor_panel.get_sensitive()
+
+    def test_format_conversion_flushes_draft_and_discards_old_document_history(self, window, tmp_path):
+        _open(window, tmp_path, "convert.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.editor_panel.text_buffer.set_text("Converted draft")
+        window._on_convert_response("convert", SubtitleFormat.ASS)
+        assert window.document.entries[0].text == "Converted draft"
+        assert window.document.format == SubtitleFormat.ASS
+        assert not window.command_manager.can_undo()
+
+    def test_save_as_conversion_flushes_and_updates_preview_document(self, window, tmp_path):
+        from types import SimpleNamespace
+
+        _open(window, tmp_path, "before.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.editor_panel.text_buffer.set_text("Saved draft")
+        output = tmp_path / "after.ass"
+        chooser = SimpleNamespace(save_finish=lambda _result: Gio.File.new_for_path(str(output)))
+        window._on_save_as_response(chooser, None)
+        assert output.exists()
+        assert "Saved draft" in output.read_text()
+        assert window.video_player.document is window.document
+        assert not window.command_manager.can_undo()
+
+    def test_split_flushes_pending_text_and_roundtrips(self, window, tmp_path):
+        _open(window, tmp_path, "split.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.editor_panel.text_buffer.set_text("Hello world")
+        window.editor_panel.text_buffer.place_cursor(
+            window.editor_panel.text_buffer.get_iter_at_offset(5))
+        window._on_split_entry(None, None)
+        assert [e.text for e in window.document.entries[:2]] == ["Hello", "world"]
+        assert len(window.document.entries) == 4
+        window._on_undo(None, None)
+        assert len(window.document.entries) == 3
+        assert window.document.entries[0].text == "Hello world"
+        window._on_redo(None, None)
+        assert [e.text for e in window.document.entries[:2]] == ["Hello", "world"]
+
+    def test_split_uses_video_position_when_inside_cue(self, window, tmp_path):
+        _open(window, tmp_path, "playhead.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.current_video_file = "preview.mp4"
+        window.video_player.position = 1.2
+        try:
+            window.editor_panel.text_buffer.place_cursor(
+                window.editor_panel.text_buffer.get_iter_at_offset(5))
+            window._on_split_entry(None, None)
+            assert window.document.entries[0].end_time.total_milliseconds == 1200
+            assert window.document.entries[1].start_time.total_milliseconds == 1200
+        finally:
+            window.current_video_file = None
+
+    def test_merge_selection_and_undo(self, window, tmp_path):
+        _open(window, tmp_path, "merge.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.subtitle_list.select_entry(1, clear_others=False)
+        _pump()
+        assert window.lookup_action("merge-entries").get_enabled()
+        assert not window.lookup_action("split-entry").get_enabled()
+        window._on_merge_entries(None, None)
+        assert len(window.document.entries) == 2
+        assert window.document.entries[0].text == "First subtitle\nSecond subtitle"
+        assert window.document.entries[0].end_time.total_milliseconds == 5000
+        window._on_undo(None, None)
+        assert [e.text for e in window.document.entries] == [
+            "First subtitle", "Second subtitle", "Third subtitle"]
+
+    def test_rebalance_and_replace_are_independent_undo_steps(self, window, tmp_path):
+        from gsub.search import build_replace_command, find_matches
+
+        text = "This is a much longer subtitle that needs a balanced line break for comfortable reading"
+        _open(window, tmp_path, "rebalance.srt", SRT_CONTENT.replace("First subtitle", text))
+        _select(window, 0)
+        window._on_rebalance_text(None, None)
+        balanced = window.document.entries[0].text
+        assert len(balanced.splitlines()) == 2
+        command = build_replace_command(window.document, find_matches(window.document, "subtitle"), "caption")
+        window._execute_edit_command(command)
+        assert "caption" in window.document.entries[0].text
+        window._on_undo(None, None)
+        assert window.document.entries[0].text == balanced
+        window._on_undo(None, None)
+        assert window.document.entries[0].text == text
+
+    def test_quality_action_saves_limits_and_navigates(self, window, tmp_path):
+        _open(window, tmp_path, "quality.srt", SRT_CONTENT)
+        window._on_quality_check(None, None)
+        dialog = window._quality_dialog
+        assert dialog.document is window.document
+        dialog.max_cps_row.set_value(1)
+        assert window._load_config()["quality_settings"]["max_cps"] == 1
+        assert any(issue.code == "text.reading_speed" for issue in dialog.issues)
+        window.current_video_file = "preview.mp4"
+        try:
+            dialog._on_issue_activated(None, 1)
+            assert window.subtitle_list.get_selected_position() == 1
+            assert window.video_player.position == 2.5
+        finally:
+            window.current_video_file = None
+            window._close_document_dialogs()
+
+    def test_find_replace_action_flushes_and_preserves_selection_scope(self, window, tmp_path):
+        _open(window, tmp_path, "replace.srt", SRT_CONTENT)
+        _select(window, 0)
+        window.editor_panel.text_buffer.set_text("First First")
+        window._on_replace(None, None)
+        dialog = window._replace_dialog
+        try:
+            assert dialog.selected_positions == (0,)
+            dialog.search_entry.set_text("First")
+            dialog.replace_entry.set_text("Changed")
+            dialog.selection_only.set_active(True)
+            dialog._replace_all()
+            assert window.document.entries[0].text == "Changed Changed"
+            window._on_undo(None, None)
+            assert window.document.entries[0].text == "First First"
+            assert len(dialog.matches) == 2
+        finally:
+            window._close_document_dialogs()
+
+
+@pytest.mark.integration
+class TestBatchUndoRedo:
+    @staticmethod
+    def _prepare(window, tmp_path, content=SRT_CONTENT, suffix="srt"):
+        window.batch_file_list.clear()
+        window.batch_operations.reset()
+        paths = [_write(tmp_path, f"batch{i}.{suffix}", content) for i in range(2)]
+        window._add_batch_files([Gio.File.new_for_path(path) for path in paths])
+        window._navigate_to_batch()
+        return window.batch_file_list.get_all_files()
+
+    @staticmethod
+    def _apply(window, offset):
+        from types import SimpleNamespace
+
+        window.batch_operations.offset_row.set_value(offset)
+        window._on_batch_confirm_closed(SimpleNamespace(is_confirmed=lambda: True),
+                                        window.batch_file_list.get_selected_files())
+
+    def test_batch_roundtrip_is_separate_from_editor_history(self, window, tmp_path):
+        _open(window, tmp_path, "editor.srt", SRT_CONTENT)
+        _select(window, 0)
+        window._on_text_changed(None, 0, "Editor change")
+        items = self._prepare(window, tmp_path)
+        self._apply(window, -1000)
+        assert all(it.document.entries[0].start_time.total_milliseconds == 0 for it in items)
+        assert window.batch_undo_button.get_sensitive()
+        window._on_undo(None, None)
+        assert all(it.document.entries[0].start_time.total_milliseconds == 500 for it in items)
+        assert not any(it.modified or it.document.modified for it in items)
+        assert window.document.entries[0].text == "Editor change"
+        assert window.batch_redo_button.get_sensitive()
+        window._on_redo(None, None)
+        assert all(it.modified for it in items)
+        window._navigate_to_editor()
+        window._on_undo(None, None)
+        assert window.document.entries[0].text == "First subtitle"
+        assert all(it.modified for it in items)
+
+    def test_batch_undo_after_save_marks_modified_and_redo_returns_clean(self, window, tmp_path):
+        items = self._prepare(window, tmp_path)
+        self._apply(window, 1000)
+        window._on_batch_save_all()
+        assert not any(it.modified for it in items)
+        window._on_undo(None, None)
+        assert all(it.modified for it in items)
+        # Undo changes in-memory subtitles; explicit saves control disk writes.
+        assert all("00:00:01,500" in open(it.file_path).read() for it in items)
+        window._on_redo(None, None)
+        assert not any(it.modified for it in items)
+
+    def test_batch_selection_and_removal_history_boundary(self, window, tmp_path):
+        items = self._prepare(window, tmp_path)
+        items[1].selected = False
+        self._apply(window, 1000)
+        assert items[0].modified and not items[1].modified
+        window._on_undo(None, None)
+        self._apply(window, 2000)
+        assert not window.batch_command_manager.can_redo()
+        window.batch_file_list.remove_file(items[1])
+        assert not window.batch_command_manager.can_undo()
+        assert not window.lookup_action("undo").get_enabled()
+        window._navigate_to_editor()
+
+    def test_batch_modified_badge_tracks_undo(self, window, tmp_path):
+        from gsub.widgets.batch_file_list import BatchFileRow
+
+        items = self._prepare(window, tmp_path)
+        row = BatchFileRow()
+        row.bind(items[0], lambda _item: None)
+        assert not row.modified_icon.get_visible()
+        self._apply(window, 1000)
+        assert row.modified_icon.get_visible()
+        window._on_undo(None, None)
+        assert not row.modified_icon.get_visible()
+        row.unbind()
+        window._navigate_to_editor()
+
+    def test_ass_batch_undo_restores_style_resolution_and_timing(self, window, tmp_path):
+        import copy
+
+        items = self._prepare(window, tmp_path, ASS_CONTENT, "ass")
+        original = [copy.deepcopy(it.document) for it in items]
+        panel = window.batch_operations
+        panel.res_enable_switch.set_active(True)
+        panel.res_width_row.set_value(1920)
+        panel.res_height_row.set_value(1080)
+        panel.style_props.fontsize_check.set_active(True)
+        panel.style_props.fontsize_row.set_value(42)
+        self._apply(window, 1000)
+        for it in items:
+            assert it.document.metadata["PlayResX"] == "1920"
+            assert it.document.styles[0].fontsize == 42
+            assert it.document.entries[0].start_time.total_milliseconds == 2000
+        window._on_undo(None, None)
+        assert [it.document for it in items] == original
+        window._on_redo(None, None)
+        assert all(it.document.styles[0].fontsize == 42 for it in items)
+        window._navigate_to_editor()
 
 
 @pytest.mark.integration

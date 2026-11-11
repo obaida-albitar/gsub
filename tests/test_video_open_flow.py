@@ -410,6 +410,10 @@ class _RegionEditorPanel:
         self.entries = []
         self.cleared = 0
         self.sensitivity = []
+        self.flushed = 0
+
+    def flush_pending_changes(self):
+        self.flushed += 1
 
     def set_entry(self, entry, position):
         self.entries.append(position)
@@ -506,6 +510,7 @@ class TestRegionAdjusted:
         assert win.undo_buttons == 1
         assert win.video_player.redraws == 1
         assert win.video_player.region_refreshes == 1
+        assert win.editor_panel.flushed == 1
 
     def test_noop_when_times_unchanged(self):
         win = _RegionWindow(_region_document())
@@ -565,6 +570,7 @@ class TestEntrySelectedForwardsToTimeline:
 
         assert win.video_player.selected_positions == [1]
         assert win.editor_panel.entries == [1]
+        assert win.editor_panel.flushed == 1
 
     def test_lost_selection_clears_highlight(self):
         win = _RegionWindow(_region_document())

@@ -1,8 +1,8 @@
 # Test Suite for Gsub
 
 This directory contains comprehensive tests for the Gsub application:
-43 test files with roughly 990 test functions, covering pure logic (models,
-parsers, commands, batch operations) as well as real GTK/libadwaita widget
+The suite covers pure logic (models, parsers, commands, batch operations,
+quality checks, and text tools) as well as real GTK/libadwaita widget
 tests where a display is available.
 
 ## Test Structure
@@ -15,6 +15,7 @@ authoritative list. The main groups:
 | Models & core | `test_models.py`, `test_edge_cases.py` | `TimeCode`, `SubtitleEntry`, `SubtitleDocument`, boundary conditions |
 | Parsers | `test_parsers.py`, `test_parse_document.py`, `test_parser_coverage.py`, `test_sample_file_parser.py`, `test_encoding.py` | SRT/ASS parsing, serialization round-trips, encoding detection |
 | Commands | `test_commands.py`, `test_ass_commands.py`, `test_style_commands.py`, `test_bulk_style_commands.py`, `test_command_gaps.py` | Undo/redo command pattern |
+| Proofreading & text tools | `test_quality.py`, `test_quality_dialog.py`, `test_search.py`, `test_find_replace_dialog.py`, `test_text_operations.py`, `test_batch_commands.py` | Readability checks, formatting-aware edits, replacement, multi-file undo/redo |
 | ASS features | `test_ass_tags.py`, `test_ass_validator.py`, `test_style_sanitize.py`, `test_glyph_coverage.py`, `test_font_list.py` | Override tags, compatibility checks, styles |
 | Extraction & media | `test_extractors.py`, `test_ffmpeg_fallback.py`, `test_audio_peaks.py`, `test_video_player.py` | Track extraction, waveform peaks, mpv player |
 | UI (need a display) | `test_window.py`, `test_editor_panel.py`, `test_home_screen.py`, `test_subtitle_list_view.py`, `test_timeline_widget.py`, `test_tag_editor.py`, `test_track_selection_dialog.py`, `test_ass_styles_dialog.py`, `test_style_widgets.py`, `test_style_props_editor.py`, `test_compatibility_panel.py`, `test_batch_operations_panel.py`, `test_shortcuts.py`, `test_video_open_flow.py`, `test_timeline_model.py`, `test_subtitle_list_logic.py` | Real widgets from the gresource templates |
@@ -22,6 +23,10 @@ authoritative list. The main groups:
 
 Support files: `conftest.py` (shared fixtures), `sample_subtitle_file.ass`
 (120-entry sample document), `__init__.py`.
+
+`test_editing_examples.py` loads the SRT/ASS files in `examples/`, verifies
+their documented quality/search results, and exercises editing, saving,
+reopening, and batch undo/redo against those real files.
 
 ## Running Tests
 
@@ -76,10 +81,11 @@ xdg-open htmlcov/index.html
 
 Widget tests import GTK and require a display; they are skipped
 automatically when none is available. To run them on a headless machine,
-use Xvfb:
+use Xvfb with the basic GTK input method to isolate the tests from the
+desktop session's input-method service:
 
 ```bash
-xvfb-run -a pytest
+GTK_IM_MODULE=simple GDK_BACKEND=x11 xvfb-run -a python3 -m pytest
 ```
 
 ## Fixtures

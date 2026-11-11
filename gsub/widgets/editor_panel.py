@@ -16,6 +16,7 @@ from gi.repository import Adw, Gio, GLib, GObject, Gtk
 
 from gsub.models import SubtitleEntry, SubtitleFormat, TimeCode
 from gsub.parsers.ass_tags import split_override_blocks  # noqa: E402
+from gsub.quality import text_metrics
 from gsub.resources import template_resource_path
 from gsub.widgets.tag_editor import TagEditorRows  # noqa: E402
 
@@ -58,6 +59,7 @@ class EditorPanel(Gtk.Box):
     style_row = Gtk.Template.Child()
     text_expander = Gtk.Template.Child()
     text_view = Gtk.Template.Child()
+    readability_row = Gtk.Template.Child()
     formatting_expander = Gtk.Template.Child()
     add_tag_button = Gtk.Template.Child()
     start_expander = Gtk.Template.Child()
@@ -233,13 +235,7 @@ class EditorPanel(Gtk.Box):
 
     def set_entry(self, entry: SubtitleEntry, position: int):
         """Set the current entry to edit."""
-        # Flush any pending text changes before switching entries
-        if self._text_change_timeout_id is not None:
-            GLib.source_remove(self._text_change_timeout_id)
-            if self._pending_text is not None and self.current_position >= 0:
-                self.emit("text-changed", self.current_position, self._pending_text)
-            self._text_change_timeout_id = None
-            self._pending_text = None
+        self.flush_pending_changes()
 
         self.current_entry = entry
         self.current_position = position
@@ -294,11 +290,9 @@ class EditorPanel(Gtk.Box):
 
     def clear(self):
         """Clear the editor."""
-        # Cancel any pending text change
-        if self._text_change_timeout_id is not None:
-            GLib.source_remove(self._text_change_timeout_id)
-            self._text_change_timeout_id = None
-        self._pending_text = None
+        # A cleared editor can belong to a document that was just replaced.
+        # Cancel all old sources; callers flush before replacing a document.
+        self._cancel_pending_changes()
 
         self.current_entry = None
         self.current_position = -1
@@ -322,7 +316,43 @@ class EditorPanel(Gtk.Box):
             spin.set_value(0)
 
         self._updating = False
+        self.readability_row.set_subtitle(_("No subtitle selected"))
         self.set_sensitive(False)
+
+    def _cancel_pending_changes(self):
+        for timer_attr in ("_text_change_timeout_id", "_timing_changed_id",
+                           "_position_changed_id"):
+            source_id = getattr(self, timer_attr)
+            if source_id is not None:
+                GLib.source_remove(source_id)
+                setattr(self, timer_attr, None)
+        self._pending_text = None
+        self._pending_timing_values = None
+        self._pending_position_values = None
+
+    def flush_pending_changes(self):
+        """Commit debounced edits before a command, save, or entry switch.
+
+        Capture the original position and cancel sources before emitting: a
+        signal handler may change selection or refresh this editor.
+        """
+        position = self.current_position
+        text = self._pending_text
+        timing = self._pending_timing_values
+        margins = self._pending_position_values
+        self._cancel_pending_changes()
+        if position < 0:
+            return
+        if text is not None:
+            self.emit("text-changed", position, text)
+        if timing is not None:
+            self.emit("timing-changed", position, *timing)
+        if margins is not None:
+            self.emit("position-changed", position, *margins)
+
+    def get_split_offset(self) -> int:
+        """Text cursor offset (clean text for ASS/SSA, source text for SRT)."""
+        return self.text_buffer.get_iter_at_mark(self.text_buffer.get_insert()).get_offset()
 
     def focus_text(self):
         """Focus the text editor."""
@@ -368,6 +398,25 @@ class EditorPanel(Gtk.Box):
             self.end_expander.set_subtitle(end_time_str)
 
         self.duration_row.set_subtitle(f"{duration_sec:.3f} seconds")
+        self._update_readability()
+
+    def _update_readability(self):
+        if self.current_entry is None:
+            return
+        start_ms = (self.start_hour.get_value_as_int() * 3600000
+                    + self.start_minute.get_value_as_int() * 60000
+                    + self.start_second.get_value_as_int() * 1000
+                    + self.start_milli.get_value_as_int())
+        end_ms = (self.end_hour.get_value_as_int() * 3600000
+                  + self.end_minute.get_value_as_int() * 60000
+                  + self.end_second.get_value_as_int() * 1000
+                  + self.end_milli.get_value_as_int())
+        metrics = text_metrics(self._compose_text(), end_ms - start_ms, self._format)
+        speed = (_("%.1f characters/s") % metrics.cps if metrics.cps is not None
+                 else _("Reading speed unavailable"))
+        lengths = ", ".join(str(n) for n in metrics.line_lengths)
+        self.readability_row.set_subtitle(
+            _("%s · Characters per line: %s") % (speed, lengths))
 
     def _on_text_buffer_changed(self, text_buffer):
         """Handle text buffer changes with debouncing."""
@@ -511,6 +560,7 @@ class EditorPanel(Gtk.Box):
             return
 
         text = self._compose_text()
+        self._update_readability()
         if self.current_entry is not None and text == self.current_entry.text:
             # The buffer now matches the entry, so any scheduled emission is
             # obsolete (e.g. an added {} placeholder was dropped again) and

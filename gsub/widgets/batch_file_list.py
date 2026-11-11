@@ -25,6 +25,7 @@ class BatchFileItem(GObject.GObject):
     """Data model for a single file in the batch list."""
 
     __gtype_name__ = 'BatchFileItem'
+    modified = GObject.Property(type=bool, default=False)
 
     def __init__(self, document: SubtitleDocument, file_path: str):
         super().__init__()
@@ -286,9 +287,15 @@ class BatchFileRow(Adw.ActionRow):
         super().__init__()
         self._item = None
         self._callback = None
+        self._modified_handler = None
         self.check.connect('toggled', self._on_toggled)
 
+    def do_grab_focus(self):
+        """Focus the interactive checkbox without requiring a ListBox parent."""
+        return self.check.grab_focus()
+
     def bind(self, item: BatchFileItem, callback):
+        self.unbind()
         self._item = item
         self._callback = callback
         self.set_title(item.filename)
@@ -297,8 +304,13 @@ class BatchFileRow(Adw.ActionRow):
         self.format_label.set_text(item.format_name)
         self.count_label.set_text(f"{item.entry_count} entries")
         self.modified_icon.set_visible(item.modified)
+        self._modified_handler = item.connect(
+            "notify::modified", lambda obj, _pspec: self.modified_icon.set_visible(obj.modified))
 
     def unbind(self):
+        if self._item is not None and self._modified_handler is not None:
+            self._item.disconnect(self._modified_handler)
+        self._modified_handler = None
         self._item = None
         self._callback = None
 

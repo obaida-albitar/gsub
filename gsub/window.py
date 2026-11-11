@@ -20,8 +20,6 @@ import os
 import re
 
 from gsub.batch_logic import (
-    apply_resolution,
-    apply_style_properties,
     common_resolution,
     compute_shared_styles,
 )
@@ -38,6 +36,7 @@ from gsub.commands import (
     MoveEntryCommand,
 )
 from gsub.commands.ass_commands import ReplaceASSHeaderCommand
+from gsub.commands.batch_commands import BatchOperationsCommand
 from gsub.commands.subtitle_commands import EditTextCommand, build_new_entry
 from gsub.resources import template_resource_path
 from gsub.shortcuts import accels_for_action, window_key_entries
@@ -137,6 +136,10 @@ class GsubWindow(Adw.ApplicationWindow):
         # Application state
         self.document: SubtitleDocument = None
         self.command_manager = CommandManager()
+        self.batch_command_manager = CommandManager()
+        self._batch_saved_content = {}
+        self._quality_dialog = None
+        self._replace_dialog = None
         self.current_file = None
         self.current_video_file = None
         self.video_visible = False
@@ -170,6 +173,26 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_title()
         self._update_format_actions()
         self._update_document_actions()
+        self._update_undo_redo_buttons()
+
+    @staticmethod
+    def _build_history_group(undo_tooltip, redo_tooltip):
+        """Use the same compact linked controls in both editing modes."""
+        group = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        group.add_css_class("linked")
+        group.set_margin_start(6)
+        buttons = []
+        for icon, tooltip, action in (
+            ("edit-undo-symbolic", undo_tooltip, "win.undo"),
+            ("edit-redo-symbolic", redo_tooltip, "win.redo"),
+        ):
+            button = Gtk.Button(icon_name=icon)
+            button.set_tooltip_text(tooltip)
+            button.set_action_name(action)
+            button.set_sensitive(False)
+            group.append(button)
+            buttons.append(button)
+        return group, *buttons
 
     def _build_header_start_stack(self):
         """Build the three per-view header layouts and add them to the
@@ -199,23 +222,8 @@ class GsubWindow(Adw.ApplicationWindow):
 
         editor_header.append(file_box)
 
-        undo_redo_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
-        undo_redo_box.add_css_class("linked")
-        undo_redo_box.set_margin_start(6)
-
-        self.undo_button = Gtk.Button()
-        self.undo_button.set_icon_name("edit-undo-symbolic")
-        self.undo_button.set_tooltip_text("Undo (Ctrl+Z)")
-        self.undo_button.set_action_name("win.undo")
-        self.undo_button.set_sensitive(False)
-        undo_redo_box.append(self.undo_button)
-
-        self.redo_button = Gtk.Button()
-        self.redo_button.set_icon_name("edit-redo-symbolic")
-        self.redo_button.set_tooltip_text("Redo (Ctrl+Shift+Z)")
-        self.redo_button.set_sensitive(False)
-        undo_redo_box.append(self.redo_button)
-
+        undo_redo_box, self.undo_button, self.redo_button = self._build_history_group(
+            "Undo (Ctrl+Z)", "Redo (Ctrl+Shift+Z)")
         editor_header.append(undo_redo_box)
 
         self.video_button = Gtk.ToggleButton()
@@ -253,19 +261,28 @@ class GsubWindow(Adw.ApplicationWindow):
         editor_header.append(self.compat_btn)
         self._update_compat_button()
 
+        quality_button = Gtk.Button(icon_name="document-properties-symbolic")
+        quality_button.set_tooltip_text("Subtitle Quality Check (Ctrl+Shift+Q)")
+        quality_button.set_action_name("win.quality-check")
+        quality_button.set_margin_start(6)
+        editor_header.append(quality_button)
+
         self.header_start_stack.add_named(editor_header, "editor")
 
-        # Batch page: Add Files
-        batch_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
-
-        batch_add_btn = Gtk.Button()
-        add_content = Adw.ButtonContent()
-        add_content.set_label("Add Files")
-        add_content.set_icon_name("list-add-symbolic")
-        batch_add_btn.set_child(add_content)
-        batch_add_btn.set_tooltip_text("Add subtitle files to the batch")
-        batch_add_btn.connect('clicked', lambda b: self._on_batch_add_files())
-        batch_header.append(batch_add_btn)
+        # Batch page: the same icon-only file/history groups as the editor.
+        batch_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        batch_file_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=0)
+        batch_file_box.add_css_class("linked")
+        self.batch_add_button = Gtk.Button(icon_name="list-add-symbolic")
+        self.batch_add_button.set_tooltip_text("Add subtitle files to the batch")
+        self.batch_add_button.update_property(
+            [Gtk.AccessibleProperty.LABEL], ["Add Files"])
+        self.batch_add_button.connect('clicked', lambda b: self._on_batch_add_files())
+        batch_file_box.append(self.batch_add_button)
+        batch_header.append(batch_file_box)
+        batch_history, self.batch_undo_button, self.batch_redo_button = self._build_history_group(
+            "Undo Batch Operations (Ctrl+Z)", "Redo Batch Operations (Ctrl+Shift+Z)")
+        batch_header.append(batch_history)
         self.header_start_stack.add_named(batch_header, "batch")
 
     def _build_ui(self):
@@ -519,6 +536,10 @@ class GsubWindow(Adw.ApplicationWindow):
     def _create_batch_menu(self):
         """Create the primary menu for the batch view."""
         menu = Gio.Menu()
+        history = Gio.Menu()
+        history.append("Undo Batch Operations", "win.undo")
+        history.append("Redo Batch Operations", "win.redo")
+        menu.append_section(None, history)
         app_section = Gio.Menu()
         app_section.append("Keyboard Shortcuts", "win.show-help-overlay")
         app_section.append("About Gsub", "win.about")
@@ -563,6 +584,12 @@ class GsubWindow(Adw.ApplicationWindow):
         
         # Edit section
         edit_section = Gio.Menu()
+        edit_section.append("Find…", "win.find")
+        edit_section.append("Find and Replace…", "win.replace")
+        edit_section.append("Split Subtitle at Cursor", "win.split-entry")
+        edit_section.append("Merge Selected Subtitles", "win.merge-entries")
+        edit_section.append("Rebalance Text", "win.rebalance-text")
+        edit_section.append("Subtitle Quality Check…", "win.quality-check")
         edit_section.append("Time Shift…", "win.time-shift")
         edit_section.append("ASS/SSA Info…", "win.ass-info")
         edit_section.append("ASS/SSA Styles…", "win.ass-styles")
@@ -606,6 +633,8 @@ class GsubWindow(Adw.ApplicationWindow):
         # Navigation actions
         self._create_action("batch", self._on_batch)
         self._create_action("find", self._on_find)
+        self._create_action("replace", self._on_replace)
+        self._create_action("quality-check", self._on_quality_check)
 
         # Edit actions
         self._create_action("undo", self._on_undo)
@@ -613,6 +642,9 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("add-entry", self._on_add_entry)
         self._create_action("remove-entry", self._on_remove_entry)
         self._create_action("duplicate-entry", self._on_duplicate_entry)
+        self._create_action("split-entry", self._on_split_entry)
+        self._create_action("merge-entries", self._on_merge_entries)
+        self._create_action("rebalance-text", self._on_rebalance_text)
         self._create_action("move-up", self._on_move_up)
         self._create_action("move-down", self._on_move_down)
         self._create_action("insert-above", self._on_insert_above)
@@ -733,10 +765,13 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _update_undo_redo_buttons(self):
         """Update undo/redo button sensitivity."""
-        can_undo = self.command_manager.can_undo()
-        can_redo = self.command_manager.can_redo()
-        self.undo_button.set_sensitive(can_undo)
-        self.redo_button.set_sensitive(can_redo)
+        self.undo_button.set_sensitive(self.command_manager.can_undo())
+        self.redo_button.set_sensitive(self.command_manager.can_redo())
+        self.batch_undo_button.set_sensitive(self.batch_command_manager.can_undo())
+        self.batch_redo_button.set_sensitive(self.batch_command_manager.can_redo())
+        manager = (self.batch_command_manager if self.current_view == "batch"
+                   else self.command_manager)
+        can_undo, can_redo = manager.can_undo(), manager.can_redo()
         # The buttons are action-mapped, so their sensitivity follows the
         # action enabled state (which also greys out the menu items and
         # blocks the accels); keep the actions in sync too.
@@ -751,6 +786,10 @@ class GsubWindow(Adw.ApplicationWindow):
         the compatibility issues, so the panel never shows stale results."""
         self._update_undo_redo_buttons()
         self._refresh_compat()
+        if self._quality_dialog is not None:
+            self._quality_dialog.refresh()
+        if self._replace_dialog is not None:
+            self._replace_dialog.refresh(navigate=False)
 
     def _update_format_actions(self):
         """Enable/disable ASS-only actions based on current document format."""
@@ -778,7 +817,7 @@ class GsubWindow(Adw.ApplicationWindow):
                      "time-shift", "sort-by-time",
                      "add-entry",
                      "move-up", "move-down", "insert-above", "insert-below",
-                     "find"):
+                     "find", "replace", "quality-check"):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(has_doc)
@@ -796,6 +835,15 @@ class GsubWindow(Adw.ApplicationWindow):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(has_selection)
+        positions = self.subtitle_list.get_selected_positions() if has_selection else []
+        contiguous = (len(positions) >= 2
+                      and max(positions) - min(positions) + 1 == len(positions))
+        for name, enabled in (("split-entry", len(positions) == 1),
+                              ("merge-entries", contiguous),
+                              ("rebalance-text", has_selection)):
+            action = self._actions.get(name)
+            if action is not None:
+                action.set_enabled(enabled)
 
     # Window state lives in ~/.config/gsub/config.json. Releases before the
     # package rename stored it under ~/.config/subtitle-editor/; that legacy
@@ -925,6 +973,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_compat_toggle(self, _btn):
         """Toggle between the editor and the Compatibility page."""
+        self.editor_panel.flush_pending_changes()
         if self.content_stack.get_visible_child_name() == "compatibility":
             self.content_stack.set_visible_child_name("main")
         else:
@@ -967,6 +1016,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self.menu_button.set_menu_model(self._create_batch_menu())
         else:
             self.menu_button.set_menu_model(self._create_editor_menu())
+        self._update_undo_redo_buttons()
 
     def _update_title_area(self):
         """Show the view switcher while browsing views, the title otherwise."""
@@ -992,6 +1042,8 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def open_file(self, gfile: Gio.File):
         """Open a subtitle file."""
+        self.editor_panel.flush_pending_changes()
+        self._close_document_dialogs()
         try:
             success, contents, _ = gfile.load_contents(None)
             if not success:
@@ -1048,6 +1100,7 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _save_document(self, file_path: str):
         """Save the current document to a file."""
+        self.editor_panel.flush_pending_changes()
         try:
             if not self.document:
                 return
@@ -1084,6 +1137,7 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _on_new(self, action, param):
         """Create a new subtitle document."""
+        self.editor_panel.flush_pending_changes()
         if self.document and self.document.modified:
             dialog = Adw.MessageDialog.new(
                 self,
@@ -1115,6 +1169,8 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _create_new_document(self):
         """Actually create a new document (called after save prompt check)."""
+        self.editor_panel.flush_pending_changes()
+        self._close_document_dialogs()
         self.document = SubtitleDocument(format=SubtitleFormat.SRT)
         self.current_file = None
         self.command_manager.clear()
@@ -1256,12 +1312,19 @@ class GsubWindow(Adw.ApplicationWindow):
                 # Convert format if needed
                 if target_format and target_format != self.document.format:
                     from gsub.converters import FormatConverter
+                    self.editor_panel.flush_pending_changes()
+                    self._close_document_dialogs()
                     self.document = FormatConverter.convert(self.document, target_format)
+                    self.command_manager.clear()
+                    self.editor_panel.clear()
                     self.subtitle_list.set_document(self.document)
                     self._reset_playback_highlight()
                     style_names = [s.name for s in (self.document.styles or [])] if self.document else []
                     self.editor_panel.set_document_context(self.document.format, style_names)
                     self._update_format_actions()
+                    if self.video_player:
+                        self.video_player.set_document(self.document)
+                    self._document_mutated()
                     self._show_toast(f"Converted to {target_format.value.upper()}")
                 
                 self._save_document(file_path)
@@ -1270,6 +1333,13 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _on_undo(self, action, param):
         """Undo the last action."""
+        if self.current_view == "batch":
+            desc = self.batch_command_manager.get_undo_description()
+            if self.batch_command_manager.undo():
+                self._refresh_batch_after_change()
+                self._show_toast(f"Undo: {desc}")
+            return
+        self.editor_panel.flush_pending_changes()
         # Capture the description before undoing; afterwards it names the next one.
         desc = self.command_manager.get_undo_description()
         if self.command_manager.undo():
@@ -1283,6 +1353,13 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_redo(self, action, param):
         """Redo the last undone action."""
+        if self.current_view == "batch":
+            desc = self.batch_command_manager.get_redo_description()
+            if self.batch_command_manager.redo():
+                self._refresh_batch_after_change()
+                self._show_toast(f"Redo: {desc}")
+            return
+        self.editor_panel.flush_pending_changes()
         desc = self.command_manager.get_redo_description()
         if self.command_manager.redo():
             self.subtitle_list.refresh(preserve_selection=True)
@@ -1295,8 +1372,11 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _update_editor_after_change(self):
         """Update the editor panel after undo/redo or other changes."""
+        if len(self.subtitle_list.get_selected_positions()) > 1:
+            self.editor_panel.clear()
+            return
         selected_pos = self.subtitle_list.get_selected_position()
-        if selected_pos >= 0 and selected_pos < len(self.document.entries):
+        if self.document and 0 <= selected_pos < len(self.document.entries):
             entry = self.document.entries[selected_pos]
             self.editor_panel.set_entry(entry, selected_pos)
         else:
@@ -1333,6 +1413,7 @@ class GsubWindow(Adw.ApplicationWindow):
     def _insert_entry_at(self, position: int, toast: str):
         """Insert a new entry (timing derived from its neighbors) at
         ``position`` and update the list incrementally."""
+        self.editor_panel.flush_pending_changes()
         entry = build_new_entry(self.document, position)
         cmd = AddEntryCommand(self.document, entry, position)
         self.command_manager.execute(cmd)
@@ -1349,11 +1430,137 @@ class GsubWindow(Adw.ApplicationWindow):
         """Reveal the subtitle search bar."""
         self.subtitle_list.set_search_visible(True)
 
+    def _close_document_dialogs(self):
+        for attr in ("_quality_dialog", "_replace_dialog"):
+            dialog = getattr(self, attr, None)
+            if dialog is not None:
+                dialog.close()
+                setattr(self, attr, None)
+
+    def _select_issue_entry(self, position):
+        """Navigate to a quality issue or find result without starting playback."""
+        if self.document is None or not 0 <= position < len(self.document.entries):
+            return
+        self.subtitle_list.select_entry(position)
+        if self.video_player and self.current_video_file:
+            self.video_player.seek(
+                self.document.entries[position].start_time.total_milliseconds / 1000.0)
+
+    def _on_quality_check(self, action, param):
+        if self.document is None:
+            return
+        from gsub.quality import QualitySettings
+        from gsub.widgets.quality_dialog import QualityDialog
+
+        self.editor_panel.flush_pending_changes()
+        if self._quality_dialog is None:
+            settings = QualitySettings.from_dict(self._load_config().get("quality_settings", {}))
+
+            def save_settings(updated):
+                config = self._load_config()
+                config["quality_settings"] = updated.to_dict()
+                self._save_config(config)
+
+            self._quality_dialog = QualityDialog(
+                self, self.document, self._select_issue_entry,
+                settings=settings, on_settings_changed=save_settings)
+            self._quality_dialog.connect(
+                "closed", lambda dialog: setattr(self, "_quality_dialog", None)
+                if self._quality_dialog is dialog else None)
+        self._quality_dialog.present()
+
+    def _on_replace(self, action, param):
+        if self.document is None:
+            return
+        from gsub.widgets.find_replace_dialog import FindReplaceDialog
+
+        self.editor_panel.flush_pending_changes()
+        if self._replace_dialog is None:
+            self._replace_dialog = FindReplaceDialog(
+                self, self.document, self.subtitle_list.get_selected_positions(),
+                on_apply=self._execute_edit_command, on_select=self._select_issue_entry)
+            self._replace_dialog.connect(
+                "closed", lambda dialog: setattr(self, "_replace_dialog", None)
+                if self._replace_dialog is dialog else None)
+        self._replace_dialog.present()
+
+    def _execute_edit_command(self, command, selected_position=None):
+        """Refresh the editor after one undoable text operation."""
+        if command is None or not getattr(command, "changed", True):
+            return False
+        self.command_manager.execute(command)
+        self.subtitle_list.refresh(preserve_selection=True)
+        if selected_position is not None:
+            self.subtitle_list.select_entry(selected_position)
+        self._update_editor_after_change()
+        self._update_selection_actions()
+        self._update_title()
+        self._update_status()
+        self._document_mutated()
+        self._refresh_video_preview()
+        self._show_toast(command.description())
+        return True
+
+    def _on_split_entry(self, action, param):
+        from gsub.commands.text_commands import SplitEntryCommand
+
+        positions = self.subtitle_list.get_selected_positions()
+        if self.document is None or len(positions) != 1:
+            return
+        self.editor_panel.flush_pending_changes()
+        position = positions[0]
+        entry = self.document.entries[position]
+        split_ms = None
+        if self.video_player and self.current_video_file:
+            playhead = round(self.video_player.get_position() * 1000)
+            if entry.start_time.total_milliseconds < playhead < entry.end_time.total_milliseconds:
+                split_ms = playhead
+        try:
+            command = SplitEntryCommand(
+                self.document, position, self.editor_panel.get_split_offset(), split_ms)
+            self._execute_edit_command(command, position + 1)
+        except ValueError as exc:
+            self._show_toast(str(exc))
+
+    def _on_merge_entries(self, action, param):
+        from gsub.commands.text_commands import MergeEntriesCommand
+
+        if self.document is None:
+            return
+        self.editor_panel.flush_pending_changes()
+        positions = self.subtitle_list.get_selected_positions()
+        if len(positions) < 2:
+            return
+        try:
+            self._execute_edit_command(
+                MergeEntriesCommand(self.document, positions), min(positions))
+        except ValueError as exc:
+            self._show_toast(str(exc))
+
+    def _on_rebalance_text(self, action, param):
+        from gsub.commands.text_commands import RebalanceTextCommand
+        from gsub.quality import QualitySettings
+
+        if self.document is None:
+            return
+        self.editor_panel.flush_pending_changes()
+        positions = self.subtitle_list.get_selected_positions()
+        if not positions:
+            return
+        try:
+            limit = QualitySettings.from_dict(
+                self._load_config().get("quality_settings", {})).max_chars_per_line
+            command = RebalanceTextCommand(self.document, positions, max_line_length=limit)
+            if not self._execute_edit_command(command):
+                self._show_toast("Selected text is already balanced")
+        except ValueError as exc:
+            self._show_toast(str(exc))
+
     def _on_remove_entry(self, action, param):
         """Remove the selected subtitle entries."""
         if not self.document:
             return
-
+        self.editor_panel.flush_pending_changes()
         positions = self.subtitle_list.get_selected_positions()
         if not positions:
             return
@@ -1393,7 +1600,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Duplicate the selected subtitle entries."""
         if not self.document:
             return
-
+        self.editor_panel.flush_pending_changes()
         positions = self.subtitle_list.get_selected_positions()
         if not positions:
             return
@@ -1429,7 +1636,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Move the selected entry up."""
         if not self.document:
             return
-
+        self.editor_panel.flush_pending_changes()
         position = self.subtitle_list.get_selected_position()
         if position > 0:
             cmd = MoveEntryCommand(self.document, position, position - 1)
@@ -1445,7 +1652,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Move the selected entry down."""
         if not self.document:
             return
-
+        self.editor_panel.flush_pending_changes()
         position = self.subtitle_list.get_selected_position()
         if position >= 0 and position < len(self.document.entries) - 1:
             cmd = MoveEntryCommand(self.document, position, position + 1)
@@ -1461,7 +1668,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Show time shift dialog."""
         if not self.document or not self.document.entries:
             return
-        
+        self.editor_panel.flush_pending_changes()
         dialog = TimeShiftDialog(self)
         dialog.present()
 
@@ -1516,6 +1723,7 @@ class GsubWindow(Adw.ApplicationWindow):
     def _on_sort_by_time(self, action, param):
         """Sort subtitles by start time."""
         if self.document:
+            self.editor_panel.flush_pending_changes()
             from gsub.commands import SortByTimeCommand
             cmd = SortByTimeCommand(self.document)
             self.command_manager.execute(cmd)
@@ -1533,6 +1741,16 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_batch_files_changed(self, widget):
         """Handle batch file list changes."""
+        files = self.batch_file_list.get_all_files()
+        current = {id(item) for item in files}
+        # Commands may reference several files. Removing any file establishes
+        # a new history boundary so undo cannot mutate an invisible document.
+        if self._batch_saved_content.keys() - current:
+            self.batch_command_manager.clear()
+        self._batch_saved_content = {
+            id(item): self._batch_saved_content.get(id(item), self._batch_content(item.document))
+            for item in files
+        }
         if self.batch_file_list.file_count == 0:
             # An emptied batch is a fresh batch: drop the established format
             # so the next added file can be of any format again.
@@ -1540,6 +1758,25 @@ class GsubWindow(Adw.ApplicationWindow):
         self._refresh_batch_context()
         self._update_batch_action_buttons()
         self._update_batch_status()
+        self._update_undo_redo_buttons()
+
+    @staticmethod
+    def _batch_content(document):
+        parser = SRTParser if document.format == SubtitleFormat.SRT else ASSParser
+        return parser.serialize(document)
+
+    def _refresh_batch_after_change(self):
+        """Update file badges and dirty states relative to their last save."""
+        for item in self.batch_file_list.get_all_files():
+            item.modified = (self._batch_content(item.document)
+                             != self._batch_saved_content[id(item)])
+            item.document.modified = item.modified
+        self.batch_file_list.update_ui()
+        self._refresh_batch_context()
+        self._update_batch_action_buttons()
+        if self.current_view == "batch":
+            self._update_batch_status()
+        self._update_undo_redo_buttons()
 
     def _refresh_batch_context(self):
         """Update batch panel context from the currently loaded files.
@@ -1594,7 +1831,7 @@ class GsubWindow(Adw.ApplicationWindow):
         total = self.batch_file_list.file_count
         selected = len(self.batch_file_list.get_selected_files())
         if total == 0:
-            self.status_bar.set_text("No files loaded. Click 'Add Files…' to begin.")
+            self.status_bar.set_text("No files loaded.")
         else:
             fmt = self.batch_format.value.upper() if self.batch_format else ""
             self.status_bar.set_text(f"{total} files ({selected} selected) • {fmt} format")
@@ -1724,42 +1961,26 @@ class GsubWindow(Adw.ApplicationWindow):
         if not dialog.is_confirmed():
             return
 
-        modified_count = 0
-        for item in selected_files:
-            doc = item.document
-            changed = False
-
-            # Apply time shift
-            if self.batch_operations.has_time_shift():
-                offset = int(self.batch_operations.offset_row.get_value())
-                for entry in doc.entries:
-                    entry.shift_time(offset)
-                changed = True
-
-            # Apply resolution change (ASS/SSA only)
-            if self.batch_operations.has_resolution_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
-                new_w = int(self.batch_operations.res_width_row.get_value())
-                new_h = int(self.batch_operations.res_height_row.get_value())
-                if apply_resolution(doc, new_w, new_h):
-                    changed = True
-
-            # Apply style property changes (ASS/SSA only)
-            if self.batch_operations.has_style_props_change() and doc.format in (SubtitleFormat.ASS, SubtitleFormat.SSA):
-                editor = self.batch_operations.style_props
-                if apply_style_properties(doc, editor.get_target_styles(), editor.get_checked_props()):
-                    changed = True
-
-            if changed:
-                doc.modified = True
-                item.modified = True
-                modified_count += 1
-
-        self.batch_file_list.update_ui()
-        self._update_batch_status()
-
-        if modified_count > 0:
-            self._show_toast(f"Applied changes to {modified_count} file{'s' if modified_count != 1 else ''}")
-            self._update_batch_action_buttons()
+        current_ids = {id(item) for item in self.batch_file_list.get_all_files()}
+        items = [item for item in selected_files if id(item) in current_ids]
+        operations = self.batch_operations
+        offset = int(operations.offset_row.get_value()) if operations.has_time_shift() else None
+        resolution = ((int(operations.res_width_row.get_value()),
+                       int(operations.res_height_row.get_value()))
+                      if operations.has_resolution_change() else None)
+        style_editor = operations.style_props
+        has_styles = operations.has_style_props_change()
+        command = BatchOperationsCommand(
+            items, offset_ms=offset, resolution=resolution,
+            target_styles=style_editor.get_target_styles() if has_styles else (),
+            style_properties=style_editor.get_checked_props() if has_styles else None)
+        if not command.changed:
+            self._show_toast("No batch files changed")
+            return
+        self.batch_command_manager.execute(command)
+        self._refresh_batch_after_change()
+        count = command.changed_count
+        self._show_toast(f"Applied changes to {count} file{'s' if count != 1 else ''}")
 
     def _on_batch_save_all(self):
         """Save all selected batch files in-place."""
@@ -1781,6 +2002,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
                 item.document.modified = False
                 item.modified = False
+                self._batch_saved_content[id(item)] = content
                 saved += 1
             except Exception as e:
                 self._show_toast(f"Error saving {item.filename}: {str(e)}")
@@ -1840,6 +2062,7 @@ class GsubWindow(Adw.ApplicationWindow):
 
                         item.document.modified = False
                         item.modified = False
+                        self._batch_saved_content[id(item)] = content
                         saved += 1
                     except Exception as e:
                         self._show_toast(f"Error saving {item.filename}: {str(e)}")
@@ -1939,8 +2162,12 @@ class GsubWindow(Adw.ApplicationWindow):
         if response == "convert":
             from gsub.converters import FormatConverter
 
+            self.editor_panel.flush_pending_changes()
+            self._close_document_dialogs()
             old_format = self.document.format.value.upper()
             self.document = FormatConverter.convert(self.document, target_format)
+            self.command_manager.clear()
+            self.editor_panel.clear()
 
             # Update UI
             self.subtitle_list.set_document(self.document)
@@ -1955,7 +2182,7 @@ class GsubWindow(Adw.ApplicationWindow):
             if self.video_player:
                 self.video_player.set_document(self.document)
 
-            self._refresh_compat()
+            self._document_mutated()
 
             self._show_toast(f"Converted from {old_format} to {target_format.value.upper()}")
             
@@ -1977,6 +2204,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """Handle subtitle entry selection."""
         if not self.document:
             return
+        self.editor_panel.flush_pending_changes()
         if len(self.subtitle_list.get_selected_positions()) > 1:
             self.editor_panel.clear()
             self.editor_panel.set_sensitive(False)
@@ -2451,6 +2679,7 @@ class GsubWindow(Adw.ApplicationWindow):
         """
         if not self.document or not (0 <= position < len(self.document.entries)):
             return
+        self.editor_panel.flush_pending_changes()
         entry = self.document.entries[position]
         if (entry.start_time.total_milliseconds == start_ms
                 and entry.end_time.total_milliseconds == end_ms):

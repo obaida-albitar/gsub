@@ -36,6 +36,17 @@ subtitles rendered over the video by libmpv, and the editing panel below:
   metadata.
 - **Undo/redo with feedback** — every edit goes through a command stack; a
   toast names what was undone or redone.
+- **Subtitle quality checks** — review reading speed, line length/count,
+  empty cues, duration, overlaps, and small gaps for both SRT and ASS/SSA.
+  Limits are configurable and remembered; selecting an issue jumps to its
+  subtitle and seeks the loaded video. The editor shows live characters per
+  second and characters per line.
+- **Split, merge, and rebalance** — split at the text cursor, merge adjacent
+  selected cues, or balance text over two lines while preserving formatting.
+  Each operation is one undo step.
+- **Find and replace** — preview literal text replacements, match case or
+  whole words, and restrict changes to selected cues. Replace one or all
+  matches without changing formatting tags; Replace All is one undo step.
 - **Visual ASS override-tag editor** — the subtitle list and text editor show
   clean text while `{…}` blocks are edited through proper widgets: font, size,
   bold/italic/underline/strikeout, all five colour tags, `\pos`, blur, border
@@ -44,7 +55,8 @@ subtitles rendered over the video by libmpv, and the editing panel below:
   and Encoding as named dropdowns (with a custom-value fallback), in both the
   styles dialog and the batch editor.
 - **Batch operations** — shift timings, resize fonts per style, and bulk-apply
-  styles across one or many files at once.
+  styles across one or many files at once. Multi-file Apply Operations has its
+  own undo/redo history, with one step covering all affected files.
 - **Subtitle extraction & conversion** — pull subtitle tracks out of video
   files (via PyAV, with an ffprobe/ffmpeg fallback) and convert between
   formats.
@@ -161,6 +173,34 @@ You can also open files directly: `gsub path/to/subtitle.srt` or
    timeline, and optionally extract embedded subtitle tracks for editing.
 4. Use the batch operations panel for bulk changes across styles or files.
 5. Save your work — every change is undoable/redoable.
+
+Try the [editing test files and guided exercises](examples/README.md) to test
+quality checks, split/merge/rebalance, replacement, and multi-file undo/redo.
+
+### Proofreading and text editing
+
+- **Ctrl+Shift+Q** opens Subtitle Quality Check. Expand **Quality Limits** to
+  change the thresholds or disable overlap warnings for intentional overlaps.
+  ASS overlap/gap checks compare events within the same style and layer;
+  drawing-only events are excluded from readability checks.
+- **Ctrl+H** opens Find and Replace. **Selection only** uses the cues selected
+  when the dialog opens. Search matches literal text, including across inline
+  formatting; replacements use the formatting at the start of the match.
+  ASS replacement text supports `\N`/`\n` line breaks and `\h` nonbreaking spaces.
+- **Ctrl+Shift+K** splits a cue at the text cursor. A video playhead inside the
+  cue supplies the split time; otherwise timing is divided in proportion to
+  the text. Place the cursor between nonempty halves.
+- **Ctrl+M** merges adjacent selected cues. ASS cues must share their style,
+  speaker, layer, margins, effect, and positioning to preserve their appearance.
+- **Ctrl+Shift+B** rebalances selected text using the configured maximum
+  characters per line. Words remain intact, so unusually long text can still
+  exceed the preferred limit. Split/merge reject ASS drawing, karaoke, and
+  timed effects that would need manual retiming.
+
+In the batch view, **Ctrl+Z** and **Ctrl+Shift+Z** use the batch history; in
+the editor, they use the editor history. Undo/redo changes documents in memory;
+use **Save All** to write the result. Adding files preserves batch history;
+removing files clears it so history cannot change files no longer in the list.
 
 ## Development
 

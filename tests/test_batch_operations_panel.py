@@ -253,3 +253,47 @@ def test_row_get_item_tracks_binding():
 
     row.unbind()
     assert row.get_item() is None
+
+
+def test_mapped_batch_row_focuses_checkbox_and_keeps_it_interactive(capfd):
+    from gi.repository import GLib
+    from gsub.widgets.batch_file_list import BatchFileRow
+
+    file_list = _make_file_list(1)
+    window = Gtk.Window()
+    window.set_child(file_list)
+    context = GLib.MainContext.default()
+
+    def pump():
+        for _ in range(20):
+            context.iteration(False)
+
+    def descendants(widget):
+        child = widget.get_first_child()
+        while child is not None:
+            yield child
+            yield from descendants(child)
+            child = child.get_next_sibling()
+
+    capfd.readouterr()
+    try:
+        window.present()
+        pump()
+        assert window.get_mapped()
+        row = next(widget for widget in descendants(file_list.list_view)
+                   if isinstance(widget, BatchFileRow))
+        assert row.grab_focus()
+        pump()
+        assert window.get_focus() is row.check
+        assert row.check.get_can_focus()
+        assert file_list.get_selected_files() == file_list.get_all_files()
+
+        # CheckButton's activation is the same action used by Space when it
+        # has keyboard focus; row focus must not disable this interaction.
+        assert row.check.activate()
+        pump()
+        assert file_list.get_selected_files() == []
+    finally:
+        window.destroy()
+        pump()
+    assert "gtk_list_box_row_grab_focus" not in capfd.readouterr().err

@@ -306,21 +306,28 @@ class TimeShiftCommand(Command):
         self.document = document
         self.offset_ms = offset_ms
         self.positions = positions if positions else list(range(len(document.entries)))
+        self._original_times = {
+            position: (document.entries[position].start_time.total_milliseconds,
+                       document.entries[position].end_time.total_milliseconds)
+            for position in self.positions if 0 <= position < len(document.entries)
+        }
     
     def execute(self):
         """Shift the timing of selected entries."""
-        for position in self.positions:
+        for position, (start, end) in self._original_times.items():
             if 0 <= position < len(self.document.entries):
                 entry = self.document.entries[position]
-                entry.shift_time(self.offset_ms)
+                entry.start_time = TimeCode.from_milliseconds(max(0, start + self.offset_ms))
+                entry.end_time = TimeCode.from_milliseconds(max(0, end + self.offset_ms))
         self.document.modified = True
     
     def undo(self):
-        """Shift back the timing."""
-        for position in self.positions:
+        """Restore exact timings, including values clamped to zero on execute."""
+        for position, (start, end) in self._original_times.items():
             if 0 <= position < len(self.document.entries):
                 entry = self.document.entries[position]
-                entry.shift_time(-self.offset_ms)
+                entry.start_time = TimeCode.from_milliseconds(start)
+                entry.end_time = TimeCode.from_milliseconds(end)
         self.document.modified = True
     
     def description(self) -> str:

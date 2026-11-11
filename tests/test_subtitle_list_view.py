@@ -157,6 +157,102 @@ class TestIncrementalUpdates:
 
 
 class TestSearch:
+    @staticmethod
+    def _native_close_button(search_bar):
+        """Find GTK's own close control rather than adding a second one."""
+        def descendants(widget):
+            child = widget.get_first_child()
+            while child is not None:
+                yield child
+                yield from descendants(child)
+                child = child.get_next_sibling()
+
+        return next(widget for widget in descendants(search_bar)
+                    if isinstance(widget, Gtk.Button)
+                    and widget.get_icon_name() == "window-close-symbolic")
+
+    def test_native_close_clears_search_and_preserves_current_match_selection(self):
+        view, _doc = _make_view(["hello first", "other", "hello last"])
+        view.set_search_visible(True)
+        view.search_entry.set_text("hello")
+        view._search_move(1)
+        assert view.get_selected_positions() == [2]
+        assert view.search_bar.get_show_close_button()
+
+        self._native_close_button(view.search_bar).emit("clicked")
+
+        assert not view.search_bar.get_search_mode()
+        assert view.search_entry.get_text() == ""
+        assert view._search_matches == []
+        assert view._highlighted_positions == set()
+        assert view.match_label.get_text() == ""
+        assert view.get_selected_positions() == [2]
+        assert all(view.list_store.get_item(i).search_term == "" for i in range(3))
+        assert not view.search_next_button.get_sensitive()
+
+    def test_native_close_preserves_multi_selection_without_query(self):
+        view, _doc = _make_view(["one", "two", "three"])
+        view.select_entry(1)
+        view.select_entry(2, clear_others=False)
+        view.set_search_visible(True)
+
+        self._native_close_button(view.search_bar).emit("clicked")
+
+        assert not view.search_bar.get_search_mode()
+        assert view.get_selected_positions() == [1, 2]
+
+    @pytest.mark.parametrize("with_query", [False, True])
+    def test_mapped_search_close_focuses_list_container_without_row_focus_errors(
+            self, with_query, capfd):
+        from gi.repository import GLib
+
+        view, _doc = _make_view(["hello first", "other", "hello last"])
+        window = view.get_root()
+        context = GLib.MainContext.default()
+
+        def pump():
+            for _ in range(20):
+                context.iteration(False)
+
+        try:
+            window.present()
+            pump()
+            assert window.get_mapped()
+            view.set_search_visible(True)
+            if with_query:
+                view.search_entry.set_text("hello")
+                view._search_move(1)
+                expected = [2]
+            else:
+                view.select_entry(1)
+                view.select_entry(2, clear_others=False)
+                expected = [1, 2]
+            pump()
+            capfd.readouterr()  # Ignore existing ActionRow parent warnings.
+
+            self._native_close_button(view.search_bar).emit("clicked")
+            pump()
+
+            assert window.get_focus() is view.list_view
+            assert view.get_selected_positions() == expected
+            assert not view.search_bar.get_search_mode()
+        finally:
+            window.destroy()
+            pump()
+        assert "gtk_list_box_row_grab_focus" not in capfd.readouterr().err
+
+    def test_escape_still_dismisses_search_and_clears_matches(self):
+        view, _doc = _make_view(["hello"])
+        view.set_search_visible(True)
+        view.search_entry.set_text("hello")
+
+        view.search_entry.emit("stop-search")
+
+        assert not view.search_bar.get_search_mode()
+        assert view.search_entry.get_text() == ""
+        assert view._search_matches == []
+        assert view.get_selected_positions() == [0]
+
     def test_term_finds_matches_and_updates_counter(self):
         view, _doc = _make_view(["alpha hello", "beta", "hello again", "gamma"])
         view.search_entry.set_text("hello")

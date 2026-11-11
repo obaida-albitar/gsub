@@ -1,0 +1,19 @@
+[Script Info]
+Title: The Last Train - Batch Undo Partner
+ScriptType: v4.00+
+PlayResX: 1280
+PlayResY: 720
+WrapStyle: 2
+ScaledBorderAndShadow: yes
+YCbCr Matrix: None
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Default,DejaVu Sans,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,2,40,40,40,1
+Style: Sign,DejaVu Sans,36,&H0000FFFF,&H000000FF,&H00000000,&H80000000,0,0,0,0,100,100,0,0,1,2,0,8,40,40,60,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+Dialogue: 0,0:00:00.10,0:00:01.20,Default,Mira,0,0,0,,The train is waiting.
+Dialogue: 0,0:00:01.50,0:00:04.50,Default,Jonas,0,0,0,,Keep your ticket ready.
+Dialogue: 0,0:00:04.80,0:00:07.80,Default,Mira,0,0,0,,Next stop: home.

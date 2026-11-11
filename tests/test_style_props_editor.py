@@ -473,9 +473,9 @@ def test_wire_preview_text_saves_debounced(monkeypatch):
     # blocks until the timer is due, so the loop exits as soon as the
     # write happened rather than starving on a quiet loop).
     ctx = GLib.MainContext.default()
-    deadline = 10
-    while not writes and deadline > 0:
+    import time
+    deadline = time.monotonic() + 2
+    while not writes and time.monotonic() < deadline:
         ctx.iteration(True)
-        deadline -= 1
 
     assert writes and writes[-1][spe.PREVIEW_TEXT_PREFERENCES_KEY] == "my sample"

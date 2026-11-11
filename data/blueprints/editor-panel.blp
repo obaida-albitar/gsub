@@ -76,6 +76,11 @@ template $GsubEditorPanel : Gtk.Box {
             }
           }
 
+          Adw.ActionRow readability_row {
+            title: _("Readability");
+            subtitle: _("No subtitle selected");
+          }
+
           // Visual editor for the leading ASS override block. Hidden for SRT
           // documents and populated from code (widgets/tag_editor.py).
           Adw.ExpanderRow formatting_expander {

@@ -9,6 +9,9 @@ using Adw 1;
 // prevents scrollbar-drag jitter.
 template $GsubSubtitleListRow : Adw.ActionRow {
   activatable: false;
+  // GtkListView's item wrapper owns keyboard focus. An ActionRow's native
+  // focus implementation assumes a GtkListBox parent, which it lacks here.
+  can-focus: false;
   title-lines: 1;
   subtitle-lines: 1;
 
