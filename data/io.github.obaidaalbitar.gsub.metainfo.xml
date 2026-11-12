@@ -46,6 +46,19 @@
     </screenshot>
   </screenshots>
   <releases>
+    <release version="0.8" date="2026-11-12">
+      <description>
+        <p>Safer saving, continuous subtitle review, and precise video navigation.</p>
+        <ul>
+          <li>Save/Discard/Cancel protection, atomic saves, and recovery of unsaved editor and batch documents</li>
+          <li>Persistent Subtitle Quality Check with filters, ignored warnings, and previewed undoable text fixes</li>
+          <li>Playhead timing shortcuts, cue playback and looping, adjustable playback speed and context</li>
+          <li>Go to Timestamp via the current-time readout or Ctrl+G, with validated input</li>
+          <li>Reliable seek feedback, rapid nudges, paused frame navigation, and stale-callback protection</li>
+          <li>Formatting-aware find and replace, split/merge/rebalance, and multi-file batch undo</li>
+        </ul>
+      </description>
+    </release>
     <release version="0.7" date="2026-08-23">
       <description>
         <p>Visual tag editing, a compatibility checker that stays up to

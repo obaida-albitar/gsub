@@ -142,7 +142,7 @@ Download the latest `gsub-v*.x86_64.flatpak` bundle from the
 it with:
 
 ```bash
-flatpak install --user gsub-v0.7.x86_64.flatpak
+flatpak install --user gsub-v0.8.x86_64.flatpak
 ```
 
 Launch **Gsub** from the app grid, or run `flatpak run io.github.obaidaalbitar.gsub`.

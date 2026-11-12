@@ -32,6 +32,7 @@ jobs:
             libegl1 \
             libgl1-mesa-dri \
             libmpv2 \
+            ffmpeg \
             xvfb \
             xauth
 
@@ -77,14 +78,15 @@ jobs:
 
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
-          bundle: gsub-${{ github.ref_name }}.x86_64.flatpak
+          bundle: gsub-${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || github.sha }}.x86_64.flatpak
+          artifact-name: gsub-flatpak-${{ github.sha }}-x86_64
           manifest-path: io.github.obaidaalbitar.gsub.yml
           cache-key: flatpak-builder-v1
 
   release:
     name: Attach Flatpak bundle to release
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: flatpak
+    needs: [test, flatpak]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -95,9 +97,21 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: gsub-*
+          path: release-assets
+          merge-multiple: true
 
       - name: Upload bundle to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "$GITHUB_REF_NAME" gsub-*.flatpak --clobber
+        run: |
+          shopt -s nullglob
+          bundles=(release-assets/*.flatpak)
+          if [ "${#bundles[@]}" -eq 0 ]; then
+            echo "No Flatpak bundle was downloaded" >&2
+            exit 1
+          fi
+          if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --verify-tag --draft --generate-notes
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${bundles[@]}" --clobber
