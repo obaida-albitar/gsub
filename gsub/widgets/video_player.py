@@ -14,6 +14,7 @@ debounce.
 
 import gi
 import locale
+import math
 import os
 import tempfile
 import threading
@@ -54,6 +55,8 @@ from gsub.widgets.timeline import TimelineWidget
 
 _DEBOUNCE_MS = 120
 _WAVEFORM_POLL_MS = 100
+_SEEK_POLL_MS = 20
+_SEEK_TIMEOUT_US = 2_000_000
 
 
 # Map mpv-reported subtitle codec names to our internal family. mpv uses the
@@ -188,6 +191,7 @@ class VideoPlayerWidget(Gtk.Box):
     video_area = Gtk.Template.Child()
     controls_box = Gtk.Template.Child()
     play_button = Gtk.Template.Child()
+    time_button = Gtk.Template.Child()
     time_label = Gtk.Template.Child()
     timeline_slot = Gtk.Template.Child()
     duration_label = Gtk.Template.Child()
@@ -203,6 +207,13 @@ class VideoPlayerWidget(Gtk.Box):
         self.document: Optional[SubtitleDocument] = None
         self._video_path: Optional[str] = None
         self._is_seeking = False
+        self._timeline_scrubbing = False
+        self._seek_generation = 0
+        self._media_generation = 0
+        self._seek_poll_id = None
+        self._pending_seek = None
+        self._position_event_serial = 0
+        self._position_event_floor = 0
         self._duration = 0.0
         self._selected_position = -1
         self._cue_playback = None
@@ -275,6 +286,7 @@ class VideoPlayerWidget(Gtk.Box):
         self._mpv.observe_property("eof-reached", self._on_mpv_eof)
         self._mpv.observe_property("track-list", self._on_mpv_track_list)
         self._mpv.observe_property("sid", self._on_mpv_sid)
+        self._mpv.observe_property("seeking", self._on_mpv_seeking)
 
         self.video_area.set_auto_render(False)
         self.video_area.connect("realize", self._on_glarea_realize)
@@ -383,9 +395,22 @@ class VideoPlayerWidget(Gtk.Box):
         if self._mpv is None:
             return
 
+        VideoPlayerWidget._cancel_pending_seek(self)
+        self._media_generation = getattr(self, "_media_generation", 0) + 1
+        navigation = getattr(self, "timestamp_popover", None)
+        if navigation is not None:
+            navigation.popdown()
+            self.time_button.set_sensitive(False)
         if getattr(self, "_cue_playback", None) is not None:
             self.clear_cue_playback(pause=True)
         self._duration = 0.0
+        self._seek_hold_end = False
+        timeline = getattr(self, "_timeline", None)
+        if timeline is not None:
+            timeline.set_duration(0.0)
+        self._timeline_scrubbing = False
+        self._is_seeking = False
+        VideoPlayerWidget._publish_position(self, 0.0)
         self._video_path = file_path
         self._editor_sub_id = None
         self._audio_tracks = []
@@ -454,16 +479,123 @@ class VideoPlayerWidget(Gtk.Box):
             self._mpv.pause = not self._mpv.pause
 
     def seek(self, position_sec: float):
-        """Seek to a specific position in seconds (accurate)."""
-        if self._mpv is None:
-            return
+        """Queue an exact seek and reconcile its marker to the decoded frame.
+
+        Return whether mpv accepted the request. The requested position is
+        shown immediately; the completion poll replaces it with mpv's actual
+        position, including when playback is paused.
+        """
+        if (self._mpv is None or getattr(self, "_disposed", False)
+                or not getattr(self, "_video_path", None)
+                or getattr(self, "_pending_load_path", None) is not None):
+            return False
+        try:
+            target = float(position_sec)
+        except (TypeError, ValueError):
+            return False
+        if isinstance(position_sec, bool) or not math.isfinite(target):
+            return False
+        target = max(0.0, target)
+        duration = getattr(self, "_duration", 0.0)
+        if duration > 0:
+            target = min(target, duration)
         if getattr(self, "_cue_playback", None) is not None:
             self.clear_cue_playback()
+        previous = VideoPlayerWidget._read_actual_position(self)
+        if previous is None:
+            previous = getattr(self, "_last_actual_position", 0.0)
+        VideoPlayerWidget._cancel_pending_seek(self)
+        self._seek_hold_end = duration > 0 and target >= duration
+        generation = self._seek_generation
+        self._pending_seek = {"target": target, "previous": previous,
+                              "started_at": GLib.get_monotonic_time(),
+                              "saw_seeking": False}
+        self._is_seeking = True
         try:
-            self._mpv.seek(position_sec, reference="absolute", precision="exact")
+            self._mpv.seek(target, reference="absolute", precision="exact")
         except Exception as exc:
             logger.error(f"mpv seek failed: {exc}")
-        GLib.idle_add(self.video_area.queue_render)
+            VideoPlayerWidget._finish_seek(self, generation, previous)
+            return False
+        VideoPlayerWidget._publish_position(self, target)
+        self._seek_poll_id = GLib.timeout_add(
+            _SEEK_POLL_MS, VideoPlayerWidget._poll_seek_completion, self, generation)
+        area = getattr(self, "video_area", None)
+        if area is not None:
+            GLib.idle_add(area.queue_render)
+        return True
+
+    def _cancel_pending_seek(self):
+        """Invalidate queued callbacks and keep at most one completion poll."""
+        self._seek_generation = getattr(self, "_seek_generation", 0) + 1
+        source = getattr(self, "_seek_poll_id", None)
+        self._seek_poll_id = None
+        if source is not None:
+            GLib.source_remove(source)
+        self._pending_seek = None
+        self._is_seeking = bool(getattr(self, "_timeline_scrubbing", False))
+        self._position_event_floor = getattr(self, "_position_event_serial", 0)
+
+    def _read_actual_position(self):
+        try:
+            value = self._mpv.time_pos
+            value = float(value) if value is not None else None
+            return value if value is not None and math.isfinite(value) else None
+        except Exception:
+            return None
+
+    def _publish_position(self, position):
+        if position is None or getattr(self, "_disposed", False):
+            return
+        label = getattr(self, "time_label", None)
+        if label is not None:
+            label.set_text(VideoPlayerWidget._format_time(position))
+        timeline = getattr(self, "_timeline", None)
+        if timeline is not None and not getattr(self, "_timeline_scrubbing", False):
+            timeline.set_position(position)
+        emit = getattr(self, "emit", None)
+        if emit is not None:
+            emit("position-changed", position)
+
+    def _finish_seek(self, generation, actual):
+        if generation != getattr(self, "_seek_generation", 0):
+            return
+        source = getattr(self, "_seek_poll_id", None)
+        self._seek_poll_id = None
+        if source is not None:
+            GLib.source_remove(source)
+        self._pending_seek = None
+        self._is_seeking = bool(getattr(self, "_timeline_scrubbing", False))
+        # Events already queued by mpv may predate the decoded frame queried
+        # above; they must not rewind a just-completed paused seek.
+        self._position_event_floor = getattr(self, "_position_event_serial", 0)
+        if actual is not None:
+            self._last_actual_position = actual
+        VideoPlayerWidget._publish_position(self, actual)
+
+    def _poll_seek_completion(self, generation):
+        if (getattr(self, "_disposed", False)
+                or generation != getattr(self, "_seek_generation", 0)):
+            return False
+        request = getattr(self, "_pending_seek", None)
+        if request is None:
+            return False
+        actual = VideoPlayerWidget._read_actual_position(self)
+        elapsed = GLib.get_monotonic_time() - request["started_at"]
+        try:
+            seeking = bool(self._mpv.seeking)
+        except Exception:
+            seeking = False
+        request["saw_seeking"] |= seeking
+        # Exact seeking resolves to an available decoded frame, whose PTS can
+        # differ slightly from the requested millisecond timestamp.
+        completed = (not seeking and actual is not None and
+                     (request["saw_seeking"] or abs(actual - request["target"]) <= 0.1))
+        if completed or elapsed >= _SEEK_TIMEOUT_US:
+            VideoPlayerWidget._finish_seek(
+                self, generation, actual if actual is not None else request["previous"])
+            return False
+        return True
 
     def skip(self, offset_ms: int):
         """Skip forward or backward by offset in milliseconds."""
@@ -475,6 +607,8 @@ class VideoPlayerWidget(Gtk.Box):
         """Advance one frame (or go back one frame with ``back=True``)."""
         if self._mpv is None:
             return
+        VideoPlayerWidget._cancel_pending_seek(self)
+        self._seek_hold_end = False
         if getattr(self, "_cue_playback", None) is not None:
             self.clear_cue_playback(pause=True)
         try:
@@ -484,7 +618,14 @@ class VideoPlayerWidget(Gtk.Box):
         GLib.idle_add(self.video_area.queue_render)
 
     def get_position(self) -> float:
-        """Get current playback position in seconds."""
+        """Current position, or the accepted target of a pending seek.
+
+        Using the accepted target lets rapid relative nudges accumulate
+        while mpv is still decoding the preceding request.
+        """
+        pending = getattr(self, "_pending_seek", None)
+        if pending is not None:
+            return pending["target"]
         if self._mpv is None:
             return 0.0
         try:
@@ -516,6 +657,8 @@ class VideoPlayerWidget(Gtk.Box):
             return False
         if not self.clear_cue_playback(pause=True):
             return False
+        VideoPlayerWidget._cancel_pending_seek(self)
+        self._seek_hold_end = False
         try:
             self._mpv.pause = True
             self._mpv.speed = self._playback_settings.speed
@@ -640,26 +783,51 @@ class VideoPlayerWidget(Gtk.Box):
     def _on_mpv_time_pos(self, _name, value):
         if value is None or self._disposed:
             return
-        GLib.idle_add(self._update_position_ui, float(value))
+        value = float(value)
+        if not math.isfinite(value):
+            return
+        self._position_event_serial = getattr(self, "_position_event_serial", 0) + 1
+        GLib.idle_add(self._update_position_ui, value,
+                      getattr(self, "_seek_generation", 0), self._position_event_serial,
+                      priority=GLib.PRIORITY_DEFAULT)
+
+    def _on_mpv_seeking(self, _name, value):
+        if getattr(self, "_disposed", False):
+            return
+        GLib.idle_add(self._on_seek_state_ui, bool(value),
+                      getattr(self, "_seek_generation", 0), priority=GLib.PRIORITY_DEFAULT)
+
+    def _on_seek_state_ui(self, seeking, generation):
+        if (getattr(self, "_disposed", False)
+                or generation != getattr(self, "_seek_generation", 0)
+                or getattr(self, "_pending_seek", None) is None):
+            return
+        if seeking:
+            self._pending_seek["saw_seeking"] = True
+        else:
+            VideoPlayerWidget._poll_seek_completion(self, generation)
 
     def _on_mpv_duration(self, _name, value):
         if value is None or self._disposed:
             return
-        GLib.idle_add(self._set_duration, float(value))
+        GLib.idle_add(self._set_duration, float(value),
+                      getattr(self, "_media_generation", 0), priority=GLib.PRIORITY_DEFAULT)
 
     def _on_mpv_pause(self, _name, value):
         if self._disposed:
             return
-        GLib.idle_add(self._set_pause_ui, bool(value))
+        GLib.idle_add(self._set_pause_ui, bool(value),
+                      getattr(self, "_media_generation", 0), priority=GLib.PRIORITY_DEFAULT)
 
     def _on_mpv_eof(self, _name, value):
         if value and not self._disposed:
-            GLib.idle_add(self._on_eof_ui)
+            GLib.idle_add(self._on_eof_ui, getattr(self, "_seek_generation", 0),
+                          priority=GLib.PRIORITY_DEFAULT)
 
     def _on_mpv_track_list(self, _name, value):
         if self._disposed:
             return
-        GLib.idle_add(self._update_tracks, value or [])
+        GLib.idle_add(self._update_tracks, value or [], priority=GLib.PRIORITY_DEFAULT)
 
     def _on_mpv_sid(self, _name, value):
         if self._disposed:
@@ -683,35 +851,53 @@ class VideoPlayerWidget(Gtk.Box):
             except Exception:
                 pass
 
-    def _update_position_ui(self, pos):
-        if self._disposed:
+    def _update_position_ui(self, pos, generation=None, serial=None):
+        if (self._disposed
+                or (generation is not None and generation != getattr(self, "_seek_generation", 0))
+                or (serial is not None and serial <= getattr(self, "_position_event_floor", 0))):
+            return
+        if getattr(self, "_pending_seek", None) is not None:
             return
         if getattr(self, "_cue_playback", None) is not None:
             self._check_cue_position(pos)
-        self.time_label.set_text(self._format_time(pos))
-        if not self._is_seeking:
-            self._timeline.set_position(pos)
-        self.emit("position-changed", pos)
+        self._last_actual_position = pos
+        VideoPlayerWidget._publish_position(self, pos)
 
-    def _set_duration(self, duration):
-        if self._disposed:
+    def _set_duration(self, duration, media_generation=None):
+        if (self._disposed or (media_generation is not None
+                and media_generation != getattr(self, "_media_generation", 0))):
             return
         self._duration = duration
+        time_button = getattr(self, "time_button", None)
+        if time_button is not None:
+            time_button.set_sensitive(duration > 0 and bool(self._video_path)
+                                      and self._pending_load_path is None)
+        # Reserve the complete precision before the first seek so the
+        # timeline does not shrink when '0:00' becomes '0:03.167'.
+        self.time_label.set_width_chars(len(self._format_time(duration)))
+        self.time_label.set_text(self._format_time(self.get_position()))
         if getattr(self, "_cue_playback", None) is not None:
             self._refresh_cue_bounds()
         self._timeline.set_duration(duration)
         self.duration_label.set_text(self._format_time(duration))
         self.emit("duration-changed", duration)
 
-    def _set_pause_ui(self, paused):
-        if self._disposed:
+    def _set_pause_ui(self, paused, media_generation=None):
+        if (self._disposed or (media_generation is not None
+                and media_generation != getattr(self, "_media_generation", 0))):
             return
         icon = "media-playback-start-symbolic" if paused else "media-playback-pause-symbolic"
         self.play_button.set_icon_name(icon)
         self.emit("state-changed", not paused)
 
-    def _on_eof_ui(self):
-        if self._disposed:
+    def _on_eof_ui(self, generation=None):
+        if (self._disposed
+                or (generation is not None and generation != getattr(self, "_seek_generation", 0))):
+            return
+        if getattr(self, "_seek_hold_end", False):
+            self.pause()
+            if getattr(self, "_pending_seek", None) is None:
+                VideoPlayerWidget._publish_position(self, VideoPlayerWidget._read_actual_position(self))
             return
         if getattr(self, "_cue_playback", None) is not None:
             preview = self._cue_playback
@@ -1246,6 +1432,13 @@ class VideoPlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------ #
     def _wire_controls(self):
         self._wire_cue_controls()
+        from gsub.widgets.timestamp_popover import TimestampPopover
+
+        self.timestamp_popover = TimestampPopover(
+            on_seek=self.seek, get_position=self.get_position,
+            get_duration=lambda: self._duration if self._duration > 0 else None,
+            on_before_open=self._timestamp_navigation_ready)
+        self.time_button.set_popover(self.timestamp_popover)
         # Custom timeline (blueprints cannot reference custom widget types,
         # so it is created here and packed into the template's slot).
         self._timeline = TimelineWidget()
@@ -1356,30 +1549,27 @@ class VideoPlayerWidget(Gtk.Box):
         self.toggle_play_pause()
 
     def _on_timeline_seek_requested(self, _timeline, seconds):
-        # Intermediate seeks (throttled scrub, scroll wheel): briefly mute the
-        # player's own position updates so the playhead does not fight them.
-        self._suppress_position_updates()
+        # The timeline already throttles drag updates; completion tracking
+        # cancels the preceding poll rather than queuing suppression timers.
         self.seek(seconds)
 
     def _on_timeline_position_picked(self, _timeline, seconds):
-        # Definitive pick (click / drag release): one exact seek, with a
-        # slightly longer suppression while mpv chases the target position.
-        self._suppress_position_updates(ms=150)
+        # The requested marker is visible immediately, then reconciled with
+        # the decoded frame even when mpv remains paused.
         self.seek(seconds)
 
     def _on_timeline_scrub_started(self, _timeline):
+        self._timeline_scrubbing = True
         self._is_seeking = True
 
     def _on_timeline_scrub_ended(self, _timeline):
-        self._suppress_position_updates(ms=150)
-
-    def _suppress_position_updates(self, ms: int = 50):
-        self._is_seeking = True
-        GLib.timeout_add(ms, self._release_seek_suppression)
-
-    def _release_seek_suppression(self):
-        self._is_seeking = False
-        return False
+        self._timeline_scrubbing = False
+        pending = getattr(self, "_pending_seek", None)
+        self._is_seeking = pending is not None
+        if pending is not None:
+            VideoPlayerWidget._publish_position(self, pending["target"])
+        else:
+            VideoPlayerWidget._publish_position(self, VideoPlayerWidget._read_actual_position(self))
 
     # ------------------------------------------------------------------ #
     # Timeline subtitle regions
@@ -1421,6 +1611,17 @@ class VideoPlayerWidget(Gtk.Box):
             self._selected_position = position
         if self._timeline is not None:
             self._timeline.set_selected_position(position)
+
+    def _timestamp_navigation_ready(self):
+        return (not self._disposed and self._mpv is not None
+                and bool(self._video_path) and self._pending_load_path is None
+                and self._duration > 0)
+
+    def show_timestamp_navigation(self):
+        """Open the editable target from the readout or the window shortcut."""
+        if not self._timestamp_navigation_ready():
+            return False
+        return self.timestamp_popover.open()
 
     def _wire_cue_controls(self):
         """Keep timing actions and preview settings in one compact popover."""
@@ -1735,6 +1936,7 @@ class VideoPlayerWidget(Gtk.Box):
         # libmpv aborts (a live render context still references the core). The
         # GLArea child's "unrealize" handler frees it later, so we free it here
         # first to guarantee correct ordering regardless of signal order.
+        VideoPlayerWidget._cancel_pending_seek(self)
         self.clear_cue_playback(pause=True)
         self._disposed = True
         if self._redraw_source is not None:

@@ -60,7 +60,7 @@ class QualityPanel(Gtk.Box):
 
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6,
                          margin_start=12, margin_end=6, margin_top=6, margin_bottom=6)
-        title = Gtk.Label(label=_("Subtitle Quality"), xalign=0, hexpand=True)
+        title = Gtk.Label(label=_("Subtitle Quality Check"), xalign=0, hexpand=True)
         title.add_css_class("heading")
         header.append(title)
         close = Gtk.Button(icon_name="window-close-symbolic",

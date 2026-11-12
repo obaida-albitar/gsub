@@ -51,12 +51,19 @@ template $GsubVideoPlayer : Gtk.Box {
       }
     }
 
-    Label time_label {
-      styles ["numeric"]
+    MenuButton time_button {
       valign: center;
-      width-chars: 5;
       margin-start: 6;
-      label: "0:00";
+      direction: none;
+      has-frame: false;
+      sensitive: false;
+      tooltip-text: _("Go to Timestamp (Ctrl+G)");
+
+      child: Label time_label {
+        styles ["numeric"]
+        width-chars: 9;
+        label: "0:00.000";
+      };
     }
 
     // Custom timeline (created in code: blueprint cannot reference the

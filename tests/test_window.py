@@ -276,6 +276,21 @@ def _select(win, position):
 
 @pytest.mark.integration
 class TestWindowConstruction:
+    def test_quality_check_has_one_toolbar_button_with_a_consistent_name(self, window):
+        def buttons(widget):
+            child = widget.get_first_child()
+            while child is not None:
+                if isinstance(child, Gtk.Button) and child.get_action_name() == "win.quality-check":
+                    yield child
+                yield from buttons(child)
+                child = child.get_next_sibling()
+
+        editor_header = window.header_start_stack.get_child_by_name("editor")
+        quality_buttons = list(buttons(editor_header))
+        assert len(quality_buttons) == 1
+        assert quality_buttons[0].get_tooltip_text() == "Subtitle Quality Check (Ctrl+Shift+Q)"
+        assert list(buttons(window.list_header)) == []
+
     def test_editor_and_batch_headers_share_compact_file_and_history_groups(self, window):
         editor = window.header_start_stack.get_child_by_name("editor")
         batch = window.header_start_stack.get_child_by_name("batch")

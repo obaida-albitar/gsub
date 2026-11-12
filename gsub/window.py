@@ -372,11 +372,6 @@ class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
         remove_button.set_action_name("win.remove-entry")
         list_actions.append(remove_button)
 
-        quality_button = Gtk.Button(icon_name="tools-check-spelling-symbolic")
-        quality_button.set_tooltip_text("Proofread Subtitles (Ctrl+Shift+Q)")
-        quality_button.set_action_name("win.quality-check")
-        list_actions.append(quality_button)
-
         self.list_header.append(list_actions)
         list_container.append(self.list_header)
 
@@ -595,6 +590,7 @@ class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
         # Video section
         video_section = Gio.Menu()
         video_section.append("Open Video…", "win.open-video")
+        video_section.append("Go to Timestamp…", "win.go-to-time")
         video_section.append("Toggle Video Player", "win.toggle-video")
         video_section.append("Select Audio/Subtitle Tracks…", "win.select-tracks")
         video_section.append("Set Subtitle Start Here", "win.set-start-here")
@@ -638,6 +634,7 @@ class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
 
         # Video actions
         self._create_action("open-video", self._on_open_video)
+        self._create_action("go-to-time", self._on_go_to_time)
         self._create_action("play-pause", self._on_play_pause)
         self._create_action("toggle-video", self._on_toggle_video)
         self._create_action("select-tracks", self._on_select_tracks)
@@ -876,6 +873,9 @@ class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
             action = self._actions.get(name)
             if action is not None:
                 action.set_enabled(can_time_cue)
+        action = self._actions.get("go-to-time")
+        if action is not None:
+            action.set_enabled(bool(self.current_video_file))
 
     # Window state lives in ~/.config/gsub/config.json. Releases before the
     # package rename stored it under ~/.config/subtitle-editor/; that legacy
@@ -2632,6 +2632,17 @@ class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
         """Toggle video playback (Space)."""
         if self.current_video_file:
             self.video_player.toggle_play_pause()
+
+    def _on_go_to_time(self, action, param):
+        """Edit the playback position without changing subtitle timing."""
+        if not self.current_video_file:
+            self._show_toast("Open a video first")
+            return
+        self._navigate_to_editor()
+        if not self.video_visible:
+            self.video_button.set_active(True)
+        if not self.video_player.show_timestamp_navigation():
+            self._show_toast("Wait for the video player to finish loading")
 
     # Precise navigation on the timeline (all guarded on a loaded video).
 

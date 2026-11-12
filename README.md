@@ -77,9 +77,15 @@ subtitles rendered over the video by libmpv, and the editing panel below:
 ### Video & timing
 - **Video preview** — a libmpv-powered player renders your subtitles over the
   video so you can check timing and appearance live.
-- **Precise timeline** — click or drag to seek exactly; arrow keys nudge by
+- **Precise timeline** — click or drag to seek; arrow keys nudge by
   0.1 s / 5 s; `,` and `.` step one frame; Ctrl+J seeks to the selected
-  line; Ctrl+scroll zooms down to milliseconds.
+  line. Ctrl+scroll zooms around the pointer for finer placement. The
+  playhead follows the decoded video frame after seeking.
+- **Go to Timestamp** — click the current-time readout or press Ctrl+G to
+  enter a position as hours/minutes/seconds, minutes/seconds, or decimal
+  seconds. Invalid or out-of-range values leave playback unchanged. Seeking
+  preserves whether playback is running or paused; the readout shows the
+  actual frame position, which may differ slightly from the requested time.
 - **Optional waveform** — toggle an audio wave under the timeline (off by
   default); peaks are decoded from the selected audio track in the background
   and cached for instant reopening.
@@ -194,7 +200,7 @@ quality checks, split/merge/rebalance, replacement, and multi-file undo/redo.
 
 ### Proofreading and text editing
 
-- **Ctrl+Shift+Q** opens the proofreading panel in the subtitle-list pane,
+- **Ctrl+Shift+Q** opens **Subtitle Quality Check** in the subtitle-list pane,
   keeping the editor and video available. Close the panel to return to the
   list; reopening it preserves ignored issues for the same document.
   Expand **Quality Limits** to

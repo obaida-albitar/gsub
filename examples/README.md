@@ -128,6 +128,15 @@ no additional subtitle fixture is needed.
 4. Open the player's cue menu. Set lead-in/out to **500 ms** and playback speed
    to **0.75**. **Ctrl+Alt+P** plays once and pauses; **Ctrl+Alt+L** loops the
    cue and toggles the loop off. Selecting another cue should stop the loop.
+5. Click the current-time readout or press **Ctrl+G**. Enter `00:00:01.250`,
+   `0:01.250`, or `1.250` and press Enter or **Go**. The three forms request
+   the same position. Try invalid text and a time beyond the video: an inline
+   error should appear without moving the playhead. Repeat while paused and
+   while playing to confirm that navigation preserves the playback state.
+6. Pause, zoom into the timeline with **Ctrl+scroll**, and seek repeatedly.
+   The marker should follow the latest request and settle on the decoded
+   frame. Use **,** and **.** for frame steps. A 24 fps video has frames about
+   41.7 ms apart, so a typed timestamp may display a nearby frame timestamp.
 
 For save protection, work on scratch copies: make a pending text edit, then
 try opening another file, creating a document, removing a modified batch file,
