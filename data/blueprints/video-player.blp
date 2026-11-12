@@ -96,6 +96,12 @@ template $GsubVideoPlayer : Gtk.Box {
     }
 
     // Waveform strip toggle (state persists via preferences.conf).
+    MenuButton cue_controls_button {
+      valign: center;
+      icon-name: "media-playlist-repeat-symbolic";
+      tooltip-text: _("Cue timing and playback");
+    }
+
     ToggleButton waveform_toggle {
       valign: center;
       icon-name: "audio-x-generic-symbolic";

@@ -109,3 +109,30 @@ undo/redo remains separate from batch undo/redo.
 
 The automated real-file checks live in
 [tests/test_editing_examples.py](../tests/test_editing_examples.py).
+
+## Continuous proofreading and playhead timing
+
+The same `editing_tools_test.srt` and `.ass` files cover the newer workflows;
+no additional subtitle fixture is needed.
+
+1. Press **Ctrl+Shift+Q**. The issue list stays beside the text editor. Filter
+   to **Line length**, select cue 4 or 15, and use **Preview Rebalance Fix**.
+   Confirm the before/after text, apply it, then undo and redo. The issues
+   should update without closing the panel.
+2. Filter to **Short duration**, select cue 2 and choose **Ignore Issue**.
+   Close and reopen the panel: the warning should remain ignored. Change the
+   cue's text to make the warning eligible again, or use **Reset Ignored**.
+3. Load a video and select a cue inside its duration. Seek within that cue;
+   use **Ctrl+Alt+S** and **Ctrl+Alt+E** to set its start and end. Each change
+   is one undo step. An end before the start should be rejected.
+4. Open the player's cue menu. Set lead-in/out to **500 ms** and playback speed
+   to **0.75**. **Ctrl+Alt+P** plays once and pauses; **Ctrl+Alt+L** loops the
+   cue and toggles the loop off. Selecting another cue should stop the loop.
+
+For save protection, work on scratch copies: make a pending text edit, then
+try opening another file, creating a document, removing a modified batch file,
+and closing the app. Cancel should retain the edit; Save should finish before
+the requested action proceeds. Cancelling Save As for an untitled document
+must also cancel that action. Automated recovery tests simulate interruption,
+restore SRT/ASS and unchecked batch documents, and verify that failed writes
+preserve the original files.

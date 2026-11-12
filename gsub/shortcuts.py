@@ -130,6 +130,10 @@ SHORTCUTS = (
     Shortcut("win.frame-back-step", ("comma",), "Step One Frame Back", SECTION_TIMELINE,
              window_key=True),
     Shortcut("win.seek-to-selection", ("<Ctrl>J",), "Play from Selected Subtitle", SECTION_TIMELINE),
+    Shortcut("win.set-start-here", ("<Ctrl><Alt>S",), "Set Subtitle Start at Playhead", SECTION_TIMELINE),
+    Shortcut("win.set-end-here", ("<Ctrl><Alt>E",), "Set Subtitle End at Playhead", SECTION_TIMELINE),
+    Shortcut("win.play-cue", ("<Ctrl><Alt>P",), "Play Selected Subtitle with Context", SECTION_VIDEO),
+    Shortcut("win.loop-cue", ("<Ctrl><Alt>L",), "Loop / Stop Selected Subtitle", SECTION_VIDEO),
     # Mouse gestures on the timeline widget, documented in the dialog only
     # (see the module docstring about their accel approximations).
     Shortcut(None, ("ScrollUp", "ScrollDown"), "Seek 1 s", SECTION_TIMELINE,

@@ -36,11 +36,19 @@ subtitles rendered over the video by libmpv, and the editing panel below:
   metadata.
 - **Undo/redo with feedback** — every edit goes through a command stack; a
   toast names what was undone or redone.
+- **Save protection & recovery** — Save/Discard/Cancel protects unsaved work
+  when opening or creating a document, extracting a track, closing the app,
+  or removing batch files. Background recovery copies can restore unsaved
+  editor and batch documents after an unexpected exit. Subtitle saves use
+  atomic replacement to protect the previous file if a write fails.
 - **Subtitle quality checks** — review reading speed, line length/count,
   empty cues, duration, overlaps, and small gaps for both SRT and ASS/SSA.
+  A persistent proofreading panel stays beside the editor, with issue-type
+  filters, next/previous navigation, and session-local ignored warnings.
   Limits are configurable and remembered; selecting an issue jumps to its
-  subtitle and seeks the loaded video. The editor shows live characters per
-  second and characters per line.
+  subtitle and seeks the loaded video. Preview and apply an undoable text
+  rebalance fix for line-length/count issues. The editor shows live characters
+  per second and characters per line.
 - **Split, merge, and rebalance** — split at the text cursor, merge adjacent
   selected cues, or balance text over two lines while preserving formatting.
   Each operation is one undo step.
@@ -70,7 +78,7 @@ subtitles rendered over the video by libmpv, and the editing panel below:
 - **Video preview** — a libmpv-powered player renders your subtitles over the
   video so you can check timing and appearance live.
 - **Precise timeline** — click or drag to seek exactly; arrow keys nudge by
-  0.1 s / 5 s; `,` and `.` step one frame; Ctrl+J plays from the selected
+  0.1 s / 5 s; `,` and `.` step one frame; Ctrl+J seeks to the selected
   line; Ctrl+scroll zooms down to milliseconds.
 - **Optional waveform** — toggle an audio wave under the timeline (off by
   default); peaks are decoded from the selected audio track in the background
@@ -78,6 +86,13 @@ subtitles rendered over the video by libmpv, and the editing panel below:
 - **Retiming on the timeline** — drag a subtitle's region to move it, or grab
   its edge handles to change its start/end; every drag is one undoable
   command.
+- **Time from the playhead** — Ctrl+Alt+S sets the selected cue's start and
+  Ctrl+Alt+E sets its end, each as one undo step. Invalid durations are rejected
+  and ASS/SSA changes respect centisecond precision.
+- **Cue playback & looping** — Ctrl+Alt+P plays the selected cue once and
+  pauses at its end; Ctrl+Alt+L loops it or stops the loop. The player's cue
+  menu provides adjustable lead-in/out and playback speed, remembered across
+  sessions. Changing the selected cue or document ends the preview.
 - **Playback sync** — while the video plays, the subtitle list highlights and
   scrolls to the current line without stealing your selection.
 
@@ -179,10 +194,20 @@ quality checks, split/merge/rebalance, replacement, and multi-file undo/redo.
 
 ### Proofreading and text editing
 
-- **Ctrl+Shift+Q** opens Subtitle Quality Check. Expand **Quality Limits** to
+- **Ctrl+Shift+Q** opens the proofreading panel in the subtitle-list pane,
+  keeping the editor and video available. Close the panel to return to the
+  list; reopening it preserves ignored issues for the same document.
+  Expand **Quality Limits** to
   change the thresholds or disable overlap warnings for intentional overlaps.
   ASS overlap/gap checks compare events within the same style and layer;
   drawing-only events are excluded from readability checks.
+- Filter by issue type and use the arrow buttons to move through issues.
+  **Ignore Issue** dismisses that exact warning for this review session;
+  editing the cue or changing the relevant limit makes it eligible again.
+  **Reset Ignored** restores ignored warnings. For line-length/count problems,
+  **Preview Rebalance Fix** shows before/after text before **Apply Rebalance**;
+  Ctrl+Z undoes the fix. Very long text may still need manual shortening or
+  splitting, and timed ASS effects are left for manual editing.
 - **Ctrl+H** opens Find and Replace. **Selection only** uses the cues selected
   when the dialog opens. Search matches literal text, including across inline
   formatting; replacements use the formatting at the start of the match.
@@ -201,6 +226,23 @@ In the batch view, **Ctrl+Z** and **Ctrl+Shift+Z** use the batch history; in
 the editor, they use the editor history. Undo/redo changes documents in memory;
 use **Save All** to write the result. Adding files preserves batch history;
 removing files clears it so history cannot change files no longer in the list.
+
+### Saving and recovery
+
+Save prompts wait for a successful save before continuing. Cancelling Save As
+or encountering a write error keeps the document open. When closing the app,
+**Save All** includes every unsaved batch file, including unchecked files.
+Tracks extracted for editing start as unsaved documents, so saving asks for a
+permanent output location.
+
+Recovery copies are separate from the original subtitle files. Changes are
+saved to recovery after a short idle delay, with a periodic check every ten
+seconds. On the next launch, choose **Restore** to bring unsaved documents back
+into the editor/batch view, **Discard Recovery Copies** to remove them, or
+**Later** to keep them for another launch. Current work continues to receive
+its own recovery copies when an older session is deferred. Recovery restores
+document content; undo history starts fresh. Use Save or Save As to write the
+restored work to a subtitle file.
 
 ## Development
 

@@ -70,6 +70,9 @@ class BatchFileList(Adw.Bin):
     def __init__(self):
         super().__init__()
         self._files: list[BatchFileItem] = []
+        # The application supplies Save/Discard/Cancel; standalone widgets
+        # retain their existing clear-all confirmation.
+        self.confirm_removal = None
 
         self._list_store = Gio.ListStore.new(BatchFileItem)
         self._selection = Gtk.SingleSelection.new(self._list_store)
@@ -219,10 +222,16 @@ class BatchFileList(Adw.Bin):
         """Remove the file selected in the list view (context menu / Delete)."""
         item = self.get_selected_item()
         if item is not None:
-            self.remove_file(item)
+            if self.confirm_removal is not None:
+                self.confirm_removal([item], lambda: self.remove_file(item))
+            else:
+                self.remove_file(item)
 
     def _request_clear_all(self):
         """Clear the list, confirming first when unsaved changes exist."""
+        if self.confirm_removal is not None:
+            self.confirm_removal(self.get_all_files(), self.clear)
+            return
         if any(f.modified for f in self._files):
             dialog = Adw.AlertDialog.new(
                 _('Remove All Files?'),

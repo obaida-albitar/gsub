@@ -61,6 +61,9 @@ from gsub.parsers.ass_validator import (
 )
 from gsub.font_coverage import collect_glyph_coverage_issues
 from gsub.widgets.compatibility_panel import CompatibilityPanel
+from gsub.recovery import atomic_write_text
+from gsub.save_workflow import SaveWorkflowMixin
+from gsub.timing_actions import TimingActionsMixin
 
 
 def should_show_track_dialog(n_audio: int, n_subs: int) -> bool:
@@ -110,7 +113,7 @@ _HIGHLIGHT_INTERVAL_US = 300_000
 
 
 @Gtk.Template(resource_path=template_resource_path('window'))
-class GsubWindow(Adw.ApplicationWindow):
+class GsubWindow(SaveWorkflowMixin, TimingActionsMixin, Adw.ApplicationWindow):
     """Main application window."""
 
     __gtype_name__ = 'GsubWindow'
@@ -174,6 +177,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_format_actions()
         self._update_document_actions()
         self._update_undo_redo_buttons()
+        self._init_save_workflow()
 
     @staticmethod
     def _build_history_group(undo_tooltip, redo_tooltip):
@@ -368,6 +372,11 @@ class GsubWindow(Adw.ApplicationWindow):
         remove_button.set_action_name("win.remove-entry")
         list_actions.append(remove_button)
 
+        quality_button = Gtk.Button(icon_name="tools-check-spelling-symbolic")
+        quality_button.set_tooltip_text("Proofread Subtitles (Ctrl+Shift+Q)")
+        quality_button.set_action_name("win.quality-check")
+        list_actions.append(quality_button)
+
         self.list_header.append(list_actions)
         list_container.append(self.list_header)
 
@@ -380,7 +389,15 @@ class GsubWindow(Adw.ApplicationWindow):
         self.list_stack.add_named(self._build_list_empty_page(), "empty")
         self.list_stack.set_visible_child_name("empty")
         list_container.append(self.list_stack)
-        self.paned.set_start_child(list_container)
+        # Proofreading shares the list pane so the text editor and video stay
+        # available while reviewing, without squeezing a third column in.
+        self.review_stack = Gtk.Stack(hhomogeneous=False, vhomogeneous=False)
+        self.review_stack.set_vexpand(True)
+        self.review_stack.add_named(list_container, "subtitles")
+        self.quality_container = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.review_stack.add_named(self.quality_container, "quality")
+        self.review_stack.set_visible_child_name("subtitles")
+        self.paned.set_start_child(self.review_stack)
 
         # Right side: Video player at top, editor panel below - use vertical paned for resizing
         self.right_paned = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
@@ -580,6 +597,10 @@ class GsubWindow(Adw.ApplicationWindow):
         video_section.append("Open Video…", "win.open-video")
         video_section.append("Toggle Video Player", "win.toggle-video")
         video_section.append("Select Audio/Subtitle Tracks…", "win.select-tracks")
+        video_section.append("Set Subtitle Start Here", "win.set-start-here")
+        video_section.append("Set Subtitle End Here", "win.set-end-here")
+        video_section.append("Play Selected Cue", "win.play-cue")
+        video_section.append("Loop Selected Cue / Stop Loop", "win.loop-cue")
         menu.append_section(None, video_section)
         
         # Edit section
@@ -620,6 +641,10 @@ class GsubWindow(Adw.ApplicationWindow):
         self._create_action("play-pause", self._on_play_pause)
         self._create_action("toggle-video", self._on_toggle_video)
         self._create_action("select-tracks", self._on_select_tracks)
+        self._create_action("set-start-here", self._on_set_start_here)
+        self._create_action("set-end-here", self._on_set_end_here)
+        self._create_action("play-cue", self._on_play_cue)
+        self._create_action("loop-cue", self._on_loop_cue)
 
         # Precise video navigation (see the shortcuts table for accels).
         self._create_action("seek-nudge-back", self._on_seek_nudge_back)
@@ -790,6 +815,7 @@ class GsubWindow(Adw.ApplicationWindow):
             self._quality_dialog.refresh()
         if self._replace_dialog is not None:
             self._replace_dialog.refresh(navigate=False)
+        self._queue_recovery()
 
     def _update_format_actions(self):
         """Enable/disable ASS-only actions based on current document format."""
@@ -845,6 +871,12 @@ class GsubWindow(Adw.ApplicationWindow):
             if action is not None:
                 action.set_enabled(enabled)
 
+        can_time_cue = bool(self.current_video_file) and len(positions) == 1
+        for name in ("set-start-here", "set-end-here", "play-cue", "loop-cue"):
+            action = self._actions.get(name)
+            if action is not None:
+                action.set_enabled(can_time_cue)
+
     # Window state lives in ~/.config/gsub/config.json. Releases before the
     # package rename stored it under ~/.config/subtitle-editor/; that legacy
     # directory remains as a read-only fallback so existing state migrates
@@ -896,7 +928,7 @@ class GsubWindow(Adw.ApplicationWindow):
         config["last_directory"] = directory
         self._save_config(config)
 
-    def _on_close_request(self, window):
+    def _save_window_state(self):
         """Save window state before closing."""
         config = self._load_config()
         config["last_directory"] = self.last_directory
@@ -907,7 +939,6 @@ class GsubWindow(Adw.ApplicationWindow):
         if getattr(self, "paned", None) is not None:
             config["list_pane_position"] = self.paned.get_position()
         self._save_config(config)
-        return False  # allow close
 
     def _show_toast(self, message: str):
         """Show a toast notification."""
@@ -1041,14 +1072,17 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_file_label()
 
     def open_file(self, gfile: Gio.File):
-        """Open a subtitle file."""
+        """Open a subtitle after protecting the current document's edits."""
+        return self._request_document_replacement(lambda: self._open_file_now(gfile))
+
+    def _open_file_now(self, gfile: Gio.File):
+        """Load a file after its unsaved-changes decision has completed."""
         self.editor_panel.flush_pending_changes()
-        self._close_document_dialogs()
         try:
             success, contents, _ = gfile.load_contents(None)
             if not success:
                 self._show_error("Failed to load file")
-                return
+                return False
             
             content = decode_subtitle_text(contents)
             file_path = gfile.get_path()
@@ -1056,10 +1090,13 @@ class GsubWindow(Adw.ApplicationWindow):
             # Detect format by extension
             ext = os.path.splitext(file_path)[1].lower()
             
-            self.document, parse_warnings = parse_subtitle_document(content, ext)
-            if self.document is None:
+            document, parse_warnings = parse_subtitle_document(content, ext)
+            if document is None:
                 self._show_error("Unsupported file format")
-                return
+                return False
+
+            self._close_document_dialogs()
+            self.document = document
             
             self.document.file_path = file_path
             self.current_file = file_path
@@ -1094,26 +1131,44 @@ class GsubWindow(Adw.ApplicationWindow):
             if self.compat_issues:
                 self._show_toast(
                     f"{len(self.compat_issues)} compatibility issue(s) found — see Compatibility view")
+            self._snapshot_recovery()
+            return True
 
         except Exception as e:
             self._show_error(f"Error opening file: {str(e)}")
+            return False
     
-    def _save_document(self, file_path: str):
-        """Save the current document to a file."""
+    def _save_document(self, file_path: str, document=None):
+        """Atomically save, updating the active document only after success."""
         self.editor_panel.flush_pending_changes()
         try:
-            if not self.document:
-                return
+            document = document if document is not None else self.document
+            if document is None:
+                return False
             
             # Serialize based on format
-            if self.document.format == SubtitleFormat.SRT:
-                content = SRTParser.serialize(self.document)
+            if document.format == SubtitleFormat.SRT:
+                content = SRTParser.serialize(document)
             else:  # ASS or SSA
-                content = ASSParser.serialize(self.document)
+                content = ASSParser.serialize(document)
             
             # Write to file
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
+            atomic_write_text(file_path, content)
+
+            if document is not self.document:
+                self._close_document_dialogs()
+                self.document = document
+                self.command_manager.clear()
+                self.editor_panel.clear()
+                self.subtitle_list.set_document(document)
+                self._reset_playback_highlight()
+                self.editor_panel.set_document_context(document.format,
+                                                       [s.name for s in document.styles])
+                self._update_format_actions()
+                self._update_status()
+                if self.video_player:
+                    self.video_player.set_document(document)
+                self._document_mutated()
             
             self.document.modified = False
             self.document.file_path = file_path
@@ -1122,9 +1177,12 @@ class GsubWindow(Adw.ApplicationWindow):
             self._update_title()
             self._save_last_directory(os.path.dirname(file_path))
             self._show_toast(f"Saved {os.path.basename(file_path)}")
+            self._snapshot_recovery()
+            return True
             
         except Exception as e:
             self._show_error(f"Error saving file: {str(e)}")
+            return False
     
     def _show_error(self, message: str):
         """Show an error dialog."""
@@ -1137,35 +1195,11 @@ class GsubWindow(Adw.ApplicationWindow):
     
     def _on_new(self, action, param):
         """Create a new subtitle document."""
-        self.editor_panel.flush_pending_changes()
-        if self.document and self.document.modified:
-            dialog = Adw.MessageDialog.new(
-                self,
-                "Unsaved Changes",
-                "The current document has unsaved changes. Save before creating a new document?"
-            )
-            dialog.add_response("save", "Save")
-            dialog.add_response("discard", "Discard")
-            dialog.add_response("cancel", "Cancel")
-            dialog.set_response_appearance("save", Adw.ResponseAppearance.SUGGESTED)
-            dialog.set_default_response("save")
-            dialog.set_close_response("cancel")
-            dialog.connect("response", self._on_new_response)
-            dialog.present()
-            return
-        
-        self._create_new_document()
+        self._request_document_replacement(self._create_new_document)
     
     def _on_new_response(self, dialog, response):
         """Handle response to new document save prompt."""
-        if response == "save":
-            if self.current_file:
-                self._save_document(self.current_file)
-            else:
-                self._on_save_as(None, None)
-            self._create_new_document()
-        elif response == "discard":
-            self._create_new_document()
+        self._resolve_unsaved_response(response, self._create_new_document)
     
     def _create_new_document(self):
         """Actually create a new document (called after save prompt check)."""
@@ -1190,6 +1224,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._hide_banner()
         self._navigate_to_editor()
         self._refresh_compat()
+        self._snapshot_recovery()
 
     def _on_open(self, action, param):
         """Show file open dialog."""
@@ -1244,10 +1279,16 @@ class GsubWindow(Adw.ApplicationWindow):
         else:
             self._on_save_as(action, param)
     
-    def _on_save_as(self, action, param):
+    def _on_save_as(self, action, param, on_complete=None):
         """Show save as dialog with format selection."""
-        if not self.document:
+        if not self.document or self._save_dialog_pending:
+            if on_complete is not None:
+                on_complete(False)
             return
+
+        self.editor_panel.flush_pending_changes()
+        source_document = self.document
+        self._save_dialog_pending = True
         
         dialog = Gtk.FileDialog()
         dialog.set_title("Save Subtitle File")
@@ -1289,14 +1330,22 @@ class GsubWindow(Adw.ApplicationWindow):
         
         if self.last_directory:
             dialog.set_initial_folder(Gio.File.new_for_path(self.last_directory))
-        dialog.save(self, None, self._on_save_as_response)
+        dialog.save(self, None, lambda chooser, result:
+                    self._on_save_as_response(chooser, result, on_complete, source_document))
     
-    def _on_save_as_response(self, dialog, result):
+    def _on_save_as_response(self, dialog, result, on_complete=None, source_document=None):
         """Handle save as dialog response."""
+        saved = False
         try:
             file = dialog.save_finish(result)
             if file:
                 file_path = file.get_path()
+                if not file_path:
+                    self._show_error("Cannot save subtitles: no local file path")
+                    return
+                if source_document is not None and source_document is not self.document:
+                    self._show_error("The document changed while the save dialog was open. Try Save As again.")
+                    return
                 
                 # Check if format conversion is needed based on extension
                 ext = os.path.splitext(file_path)[1].lower()
@@ -1310,26 +1359,22 @@ class GsubWindow(Adw.ApplicationWindow):
                     target_format = SubtitleFormat.SSA
                 
                 # Convert format if needed
-                if target_format and target_format != self.document.format:
+                document = self.document
+                if target_format and target_format != document.format:
                     from gsub.converters import FormatConverter
                     self.editor_panel.flush_pending_changes()
-                    self._close_document_dialogs()
-                    self.document = FormatConverter.convert(self.document, target_format)
-                    self.command_manager.clear()
-                    self.editor_panel.clear()
-                    self.subtitle_list.set_document(self.document)
-                    self._reset_playback_highlight()
-                    style_names = [s.name for s in (self.document.styles or [])] if self.document else []
-                    self.editor_panel.set_document_context(self.document.format, style_names)
-                    self._update_format_actions()
-                    if self.video_player:
-                        self.video_player.set_document(self.document)
-                    self._document_mutated()
-                    self._show_toast(f"Converted to {target_format.value.upper()}")
-                
-                self._save_document(file_path)
-        except Exception:
-            pass  # User cancelled
+                    document = FormatConverter.convert(document, target_format)
+                saved = self._save_document(file_path, document)
+        except GLib.Error as error:
+            # Gtk.DialogError.DISMISSED is the ordinary Cancel path.
+            if not error.matches(Gtk.DialogError.quark(), Gtk.DialogError.DISMISSED):
+                self._show_error(f"Error saving file: {error.message}")
+        except Exception as error:
+            self._show_error(f"Error saving file: {error}")
+        finally:
+            self._save_dialog_pending = False
+            if on_complete is not None:
+                on_complete(saved)
     
     def _on_undo(self, action, param):
         """Undo the last action."""
@@ -1428,14 +1473,21 @@ class GsubWindow(Adw.ApplicationWindow):
 
     def _on_find(self, action, param):
         """Reveal the subtitle search bar."""
+        self._show_subtitle_list()
         self.subtitle_list.set_search_visible(True)
+
+    def _show_subtitle_list(self):
+        self.review_stack.set_visible_child_name("subtitles")
 
     def _close_document_dialogs(self):
         for attr in ("_quality_dialog", "_replace_dialog"):
             dialog = getattr(self, attr, None)
             if dialog is not None:
                 dialog.close()
+                if attr == "_quality_dialog" and dialog.get_parent() is self.quality_container:
+                    self.quality_container.remove(dialog)
                 setattr(self, attr, None)
+        self._show_subtitle_list()
 
     def _select_issue_entry(self, position):
         """Navigate to a quality issue or find result without starting playback."""
@@ -1450,7 +1502,7 @@ class GsubWindow(Adw.ApplicationWindow):
         if self.document is None:
             return
         from gsub.quality import QualitySettings
-        from gsub.widgets.quality_dialog import QualityDialog
+        from gsub.widgets.quality_panel import QualityPanel
 
         self.editor_panel.flush_pending_changes()
         if self._quality_dialog is None:
@@ -1461,12 +1513,14 @@ class GsubWindow(Adw.ApplicationWindow):
                 config["quality_settings"] = updated.to_dict()
                 self._save_config(config)
 
-            self._quality_dialog = QualityDialog(
+            self._quality_dialog = QualityPanel(
                 self, self.document, self._select_issue_entry,
-                settings=settings, on_settings_changed=save_settings)
-            self._quality_dialog.connect(
-                "closed", lambda dialog: setattr(self, "_quality_dialog", None)
-                if self._quality_dialog is dialog else None)
+                settings=settings, on_settings_changed=save_settings,
+                on_apply=self._execute_edit_command,
+                on_close=self._show_subtitle_list,
+                on_before_action=self.editor_panel.flush_pending_changes)
+            self.quality_container.append(self._quality_dialog)
+        self.review_stack.set_visible_child_name("quality")
         self._quality_dialog.present()
 
     def _on_replace(self, action, param):
@@ -1759,6 +1813,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._update_batch_action_buttons()
         self._update_batch_status()
         self._update_undo_redo_buttons()
+        self._snapshot_recovery()
 
     @staticmethod
     def _batch_content(document):
@@ -1777,6 +1832,7 @@ class GsubWindow(Adw.ApplicationWindow):
         if self.current_view == "batch":
             self._update_batch_status()
         self._update_undo_redo_buttons()
+        self._queue_recovery()
 
     def _refresh_batch_context(self):
         """Update batch panel context from the currently loaded files.
@@ -1985,32 +2041,8 @@ class GsubWindow(Adw.ApplicationWindow):
     def _on_batch_save_all(self):
         """Save all selected batch files in-place."""
         selected = self.batch_file_list.get_selected_files()
-        if not selected:
-            return
-
-        saved = 0
-        skipped = 0
-        for item in selected:
-            try:
-                if item.document.format == SubtitleFormat.SRT:
-                    content = SRTParser.serialize(item.document)
-                else:
-                    content = ASSParser.serialize(item.document)
-
-                with open(item.file_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-
-                item.document.modified = False
-                item.modified = False
-                self._batch_saved_content[id(item)] = content
-                saved += 1
-            except Exception as e:
-                self._show_toast(f"Error saving {item.filename}: {str(e)}")
-                skipped += 1
-
-        if saved > 0:
-            self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''}")
-        self._update_batch_status()
+        if selected:
+            self._save_batch_items(selected)
 
     def _on_batch_save_all_as(self):
         """Save all selected batch files to a chosen directory."""
@@ -2057,11 +2089,12 @@ class GsubWindow(Adw.ApplicationWindow):
                         else:
                             content = ASSParser.serialize(item.document)
 
-                        with open(dest_path, 'w', encoding='utf-8') as f:
-                            f.write(content)
+                        atomic_write_text(dest_path, content)
 
                         item.document.modified = False
                         item.modified = False
+                        item.file_path = dest_path
+                        item.document.file_path = dest_path
                         self._batch_saved_content[id(item)] = content
                         saved += 1
                     except Exception as e:
@@ -2070,6 +2103,7 @@ class GsubWindow(Adw.ApplicationWindow):
                 if saved > 0:
                     self._show_toast(f"Saved {saved} file{'s' if saved != 1 else ''} to {output_dir}")
                 self._update_batch_status()
+                self._snapshot_recovery()
 
             rename.connect('closed', on_rename_closed)
             rename.present(self)
@@ -2549,6 +2583,7 @@ class GsubWindow(Adw.ApplicationWindow):
         self._navigate_to_editor()
         self.current_video_file = file_path
         self.video_player.load_video(file_path)
+        self._update_selection_actions()
 
         # Show video player if hidden
         if not self.video_visible:
@@ -2774,6 +2809,11 @@ class GsubWindow(Adw.ApplicationWindow):
             self._show_toast("Using external subtitles")
     
     def _extract_and_load_subtitle(self, track_index):
+        """Protect edits before replacing them with an extracted track."""
+        self._request_document_replacement(
+            lambda: self._extract_and_load_subtitle_now(track_index))
+
+    def _extract_and_load_subtitle_now(self, track_index):
         """Extract a subtitle track and load it for editing.
 
         *track_index* is the mpv subtitle track id returned by the selection
@@ -2820,26 +2860,25 @@ class GsubWindow(Adw.ApplicationWindow):
                     except Exception as e:
                         logger.info(f"Warning: Failed to clean HTML: {e}")
 
-                # IMPORTANT: Disable embedded subtitle track before loading external file
-                # This prevents double subtitles (embedded + external)
-                self.video_player.set_subtitle_track(-1)
-
-                # Load the extracted subtitle file
-                try:
-                    gfile = Gio.File.new_for_path(temp_path)
-                    self.open_file(gfile)
-                    # Escape ampersands for markup
-                    safe_track_name = track_name.replace('&', '&amp;')
-                    self._show_toast(f"Loaded extracted subtitles: {safe_track_name}")
-
-                    # Optionally clean up temp file after loading
-                    # (for now, keep it as it becomes the working file)
-                except Exception as e:
-                    self._show_toast(f"Error loading extracted subtitles: {e}")
+                def load_extracted():
+                    if not self._open_file_now(Gio.File.new_for_path(temp_path)):
+                        return False
+                    self.video_player.set_subtitle_track(-1)
+                    # Extraction is a new unsaved document, not a saved file
+                    # in /tmp. Save must ask for a durable destination.
+                    self.current_file = self.document.file_path = None
+                    self.document.modified = True
+                    self._update_title()
+                    self._snapshot_recovery()
+                    self._show_toast(f"Loaded extracted subtitles: {track_name}")
                     try:
                         os.remove(temp_path)
                     except OSError:
                         pass
+                    return True
+
+                # Extraction is asynchronous; protect edits made while it ran.
+                self._request_document_replacement(load_extracted)
             else:
                 self._show_toast(f"Extraction failed: {error_msg}")
                 try:

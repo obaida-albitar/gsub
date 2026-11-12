@@ -49,6 +49,7 @@ from gsub.models import SubtitleDocument, SubtitleFormat
 from gsub.parsers.ass_parser import ASSParser
 from gsub.parsers.srt_parser import SRTParser
 from gsub.resources import template_resource_path
+from gsub.timing import PlaybackSettings, cue_playback_bounds
 from gsub.widgets.timeline import TimelineWidget
 
 _DEBOUNCE_MS = 120
@@ -194,6 +195,7 @@ class VideoPlayerWidget(Gtk.Box):
     volume_scale = Gtk.Template.Child()
     waveform_toggle = Gtk.Template.Child()
     subtitle_size_button = Gtk.Template.Child()
+    cue_controls_button = Gtk.Template.Child()
 
     def __init__(self):
         super().__init__()
@@ -202,6 +204,11 @@ class VideoPlayerWidget(Gtk.Box):
         self._video_path: Optional[str] = None
         self._is_seeking = False
         self._duration = 0.0
+        self._selected_position = -1
+        self._cue_playback = None
+        self._cue_poll_id = None
+        self._cue_reset_failed = False
+        self._playback_settings = self._load_playback_settings()
 
         # Track management
         self._audio_tracks = []
@@ -350,6 +357,9 @@ class VideoPlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------ #
     def set_document(self, document: Optional[SubtitleDocument]):
         """Set the subtitle document to preview."""
+        if getattr(self, "_cue_playback", None) is not None:
+            self.clear_cue_playback(pause=True)
+        self._selected_position = -1
         self.document = document
         # Drop any previously-added editor track (and its temp file) so a fresh
         # one is created on the next sync. This also clears the preview when an
@@ -373,6 +383,9 @@ class VideoPlayerWidget(Gtk.Box):
         if self._mpv is None:
             return
 
+        if getattr(self, "_cue_playback", None) is not None:
+            self.clear_cue_playback(pause=True)
+        self._duration = 0.0
         self._video_path = file_path
         self._editor_sub_id = None
         self._audio_tracks = []
@@ -422,6 +435,9 @@ class VideoPlayerWidget(Gtk.Box):
     def play(self):
         """Start playback."""
         if self._mpv is not None:
+            if (getattr(self, "_cue_reset_failed", False)
+                    and not self.clear_cue_playback(pause=True)):
+                return
             self._mpv.pause = False
 
     def pause(self):
@@ -432,12 +448,17 @@ class VideoPlayerWidget(Gtk.Box):
     def toggle_play_pause(self):
         """Toggle between play and pause."""
         if self._mpv is not None:
+            if (getattr(self, "_cue_reset_failed", False)
+                    and not self.clear_cue_playback(pause=True)):
+                return
             self._mpv.pause = not self._mpv.pause
 
     def seek(self, position_sec: float):
         """Seek to a specific position in seconds (accurate)."""
         if self._mpv is None:
             return
+        if getattr(self, "_cue_playback", None) is not None:
+            self.clear_cue_playback()
         try:
             self._mpv.seek(position_sec, reference="absolute", precision="exact")
         except Exception as exc:
@@ -454,6 +475,8 @@ class VideoPlayerWidget(Gtk.Box):
         """Advance one frame (or go back one frame with ``back=True``)."""
         if self._mpv is None:
             return
+        if getattr(self, "_cue_playback", None) is not None:
+            self.clear_cue_playback(pause=True)
         try:
             self._mpv.command("frame-back-step" if back else "frame-step")
         except Exception as exc:
@@ -469,6 +492,147 @@ class VideoPlayerWidget(Gtk.Box):
             return float(value) if value is not None else 0.0
         except Exception:
             return 0.0
+
+    @property
+    def cue_looping(self):
+        return bool(self._cue_playback and self._cue_playback["loop"])
+
+    def play_selected_cue(self, loop=False):
+        """Play the selected cue with context; pause at its end or loop it.
+
+        The seek is performed while paused. Playback starts only once mpv
+        reports the target position, so stale pre-seek observer events cannot
+        immediately stop a short cue or play audio from the old position.
+        """
+        if (self._mpv is None or self._disposed or not self._video_path
+                or self._pending_load_path is not None or not self.document
+                or not 0 <= self._selected_position < len(self.document.entries)):
+            return False
+        entry = self.document.entries[self._selected_position]
+        try:
+            bounds = self._cue_bounds(entry)
+        except ValueError:
+            self.clear_cue_playback(pause=True)
+            return False
+        if not self.clear_cue_playback(pause=True):
+            return False
+        try:
+            self._mpv.pause = True
+            self._mpv.speed = self._playback_settings.speed
+            self._mpv.ab_loop_count = "inf"
+            if loop:
+                self._mpv.ab_loop_a, self._mpv.ab_loop_b = bounds
+            self._cue_playback = {
+                "entry": entry, "bounds": bounds, "loop": bool(loop),
+                "armed": False, "requested_at": GLib.get_monotonic_time(),
+            }
+            self._mpv.seek(bounds[0], reference="absolute", precision="exact")
+            self._cue_poll_id = GLib.timeout_add(20, self._poll_cue_playback)
+            self._update_cue_loop_ui()
+            return True
+        except Exception as error:
+            logger.warning("Could not play selected subtitle: %s", error)
+            self.clear_cue_playback(pause=True)
+            return False
+
+    def _cue_bounds(self, entry):
+        settings = self._playback_settings
+        return cue_playback_bounds(
+            entry.start_time.total_milliseconds, entry.end_time.total_milliseconds,
+            settings.pre_roll_ms, settings.post_roll_ms, self._duration)
+
+    def clear_cue_playback(self, pause=False):
+        """Leave cue preview mode, clearing native mpv loop properties.
+
+        If a broken player rejects both loop resets, leave it paused and
+        prevent ordinary Play from resuming an invisible native loop.
+        """
+        had_preview = getattr(self, "_cue_playback", None) is not None
+        self._cue_playback = None
+        if getattr(self, "_cue_poll_id", None) is not None:
+            GLib.source_remove(self._cue_poll_id)
+            self._cue_poll_id = None
+        failures = 0
+        if self._mpv is not None:
+            for property_name in ("ab_loop_a", "ab_loop_b"):
+                try:
+                    setattr(self._mpv, property_name, "no")
+                except Exception as error:
+                    logger.debug("Could not clear %s: %s", property_name, error)
+                    try:
+                        self._mpv.command("set", property_name.replace("_", "-"), "no")
+                    except Exception:
+                        failures += 1
+            self._cue_reset_failed = failures == 2
+            if (pause and had_preview) or self._cue_reset_failed:
+                try:
+                    self._mpv.pause = True
+                except Exception:
+                    pass
+        self._update_cue_loop_ui()
+        return not getattr(self, "_cue_reset_failed", False)
+
+    def _poll_cue_playback(self):
+        if self._disposed or self._cue_playback is None:
+            self._cue_poll_id = None
+            return False
+        self._check_cue_position(self.get_position())
+        return self._cue_playback is not None
+
+    def _check_cue_position(self, position):
+        preview = self._cue_playback
+        if preview is None:
+            return
+        first, last = preview["bounds"]
+        try:
+            if not preview["armed"]:
+                if abs(position - first) <= 0.05 and not self._mpv.seeking:
+                    preview["armed"] = True
+                    self._mpv.pause = False
+                elif GLib.get_monotonic_time() - preview["requested_at"] > 5_000_000:
+                    self.clear_cue_playback(pause=True)
+                return
+            if not preview["loop"] and position >= last:
+                self.clear_cue_playback(pause=True)
+                self._mpv.seek(last, reference="absolute", precision="exact")
+        except Exception as error:
+            logger.warning("Could not update cue playback: %s", error)
+            self.clear_cue_playback(pause=True)
+
+    def _refresh_cue_bounds(self):
+        preview = self._cue_playback
+        if preview is None:
+            return
+        position = self._selected_position
+        if (not self.document or not 0 <= position < len(self.document.entries)
+                or self.document.entries[position] is not preview["entry"]):
+            self.clear_cue_playback(pause=True)
+            return
+        try:
+            bounds = self._cue_bounds(preview["entry"])
+            if bounds != preview["bounds"]:
+                preview["bounds"] = bounds
+                if preview["loop"]:
+                    # Disable both endpoints while changing them to avoid
+                    # briefly creating an inverted loop during a timing edit.
+                    self._mpv.ab_loop_a = "no"
+                    self._mpv.ab_loop_b = bounds[1]
+                    self._mpv.ab_loop_a = bounds[0]
+                if not bounds[0] <= self.get_position() < bounds[1]:
+                    self.play_selected_cue(loop=preview["loop"])
+        except Exception as error:
+            logger.debug("Cue preview no longer playable: %s", error)
+            self.clear_cue_playback(pause=True)
+
+    def _update_cue_loop_ui(self):
+        button = getattr(self, "_loop_cue_button", None)
+        if button is not None:
+            looping = self.cue_looping
+            button.set_label("Stop Loop" if looping else "Loop Cue")
+            if looping:
+                button.add_css_class("suggested-action")
+            else:
+                button.remove_css_class("suggested-action")
 
     # ------------------------------------------------------------------ #
     # mpv property observers
@@ -522,6 +686,8 @@ class VideoPlayerWidget(Gtk.Box):
     def _update_position_ui(self, pos):
         if self._disposed:
             return
+        if getattr(self, "_cue_playback", None) is not None:
+            self._check_cue_position(pos)
         self.time_label.set_text(self._format_time(pos))
         if not self._is_seeking:
             self._timeline.set_position(pos)
@@ -531,6 +697,8 @@ class VideoPlayerWidget(Gtk.Box):
         if self._disposed:
             return
         self._duration = duration
+        if getattr(self, "_cue_playback", None) is not None:
+            self._refresh_cue_bounds()
         self._timeline.set_duration(duration)
         self.duration_label.set_text(self._format_time(duration))
         self.emit("duration-changed", duration)
@@ -544,6 +712,18 @@ class VideoPlayerWidget(Gtk.Box):
 
     def _on_eof_ui(self):
         if self._disposed:
+            return
+        if getattr(self, "_cue_playback", None) is not None:
+            preview = self._cue_playback
+            if preview["loop"]:
+                self.play_selected_cue(loop=True)
+            else:
+                end = preview["bounds"][1]
+                self.clear_cue_playback(pause=True)
+                try:
+                    self._mpv.seek(end, reference="absolute", precision="exact")
+                except Exception:
+                    pass
             return
         try:
             self.seek(0)
@@ -1065,6 +1245,7 @@ class VideoPlayerWidget(Gtk.Box):
     # Controls
     # ------------------------------------------------------------------ #
     def _wire_controls(self):
+        self._wire_cue_controls()
         # Custom timeline (blueprints cannot reference custom widget types,
         # so it is created here and packed into the template's slot).
         self._timeline = TimelineWidget()
@@ -1229,11 +1410,118 @@ class VideoPlayerWidget(Gtk.Box):
         if self._disposed or self._timeline is None:
             return
         self._timeline.set_subtitle_regions(self._regions_from_document(self.document))
+        if getattr(self, "_cue_playback", None) is not None:
+            self._refresh_cue_bounds()
 
     def set_selected_position(self, position: int):
         """Highlight the timeline region of the selected entry (-1 clears)."""
+        if position != getattr(self, "_selected_position", -1):
+            if getattr(self, "_cue_playback", None) is not None:
+                self.clear_cue_playback(pause=True)
+            self._selected_position = position
         if self._timeline is not None:
             self._timeline.set_selected_position(position)
+
+    def _wire_cue_controls(self):
+        """Keep timing actions and preview settings in one compact popover."""
+        popover = Gtk.Popover()
+        content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12,
+                          margin_top=12, margin_bottom=12,
+                          margin_start=12, margin_end=12)
+        popover.set_child(content)
+        title = Gtk.Label(label="Cue Timing and Playback", xalign=0)
+        title.add_css_class("heading")
+        content.append(title)
+        timing = Gtk.Box(spacing=6, homogeneous=True)
+        for label, action, tooltip in (
+                ("Set Start Here", "set-start-here", "Set start at playhead (Ctrl+Alt+S)"),
+                ("Set End Here", "set-end-here", "Set end at playhead (Ctrl+Alt+E)")):
+            timing.append(Gtk.Button(label=label, action_name=f"win.{action}",
+                                     tooltip_text=tooltip))
+        content.append(timing)
+        playback = Gtk.Box(spacing=6, homogeneous=True)
+        playback.append(Gtk.Button(label="Play Cue", action_name="win.play-cue",
+                                    tooltip_text="Play once with context (Ctrl+Alt+P)"))
+        self._loop_cue_button = Gtk.Button(label="Loop Cue", action_name="win.loop-cue",
+                                           tooltip_text="Loop / stop cue (Ctrl+Alt+L)")
+        playback.append(self._loop_cue_button)
+        content.append(playback)
+        group = Adw.PreferencesGroup()
+        self.playback_speed_row = Adw.SpinRow(title="Playback Speed", digits=2,
+            subtitle="1.00 is normal speed",
+            adjustment=Gtk.Adjustment(value=self._playback_settings.speed,
+                lower=0.25, upper=2.0, step_increment=0.25, page_increment=0.25))
+        self.cue_pre_roll_row = Adw.SpinRow(title="Lead-in (ms)",
+            adjustment=Gtk.Adjustment(value=self._playback_settings.pre_roll_ms,
+                lower=0, upper=10_000, step_increment=100, page_increment=500))
+        self.cue_post_roll_row = Adw.SpinRow(title="Lead-out (ms)",
+            adjustment=Gtk.Adjustment(value=self._playback_settings.post_roll_ms,
+                lower=0, upper=10_000, step_increment=100, page_increment=500))
+        for row in (self.playback_speed_row, self.cue_pre_roll_row, self.cue_post_roll_row):
+            group.add(row)
+        content.append(group)
+        self.cue_controls_button.set_popover(popover)
+        self._updating_playback_settings = False
+        for row in (self.playback_speed_row, self.cue_pre_roll_row, self.cue_post_roll_row):
+            row.connect("notify::value", self._on_playback_settings_changed)
+        if self._mpv is not None:
+            try:
+                self._mpv.speed = self._playback_settings.speed
+            except Exception as error:
+                logger.warning("Could not restore playback speed: %s", error)
+
+    @staticmethod
+    def _load_playback_settings():
+        try:
+            return PlaybackSettings.from_preferences(read_preferences())
+        except Exception as error:
+            logger.warning("Could not load cue playback settings: %s", error)
+            return PlaybackSettings()
+
+    def _on_playback_settings_changed(self, *_args):
+        if self._updating_playback_settings:
+            return
+        settings = PlaybackSettings(
+            speed=self.playback_speed_row.get_value(),
+            pre_roll_ms=int(self.cue_pre_roll_row.get_value()),
+            post_roll_ms=int(self.cue_post_roll_row.get_value()))
+        if not self.set_playback_settings(settings):
+            self._updating_playback_settings = True
+            self.playback_speed_row.set_value(self._playback_settings.speed)
+            self.cue_pre_roll_row.set_value(self._playback_settings.pre_roll_ms)
+            self.cue_post_roll_row.set_value(self._playback_settings.post_roll_ms)
+            self._updating_playback_settings = False
+
+    def set_playback_settings(self, settings):
+        if not isinstance(settings, PlaybackSettings):
+            raise TypeError("Expected playback settings")
+        if self._mpv is not None:
+            try:
+                self._mpv.speed = settings.speed
+            except Exception as error:
+                logger.warning("Could not set playback speed: %s", error)
+                return False
+        self._playback_settings = settings
+        updating = getattr(self, "_updating_playback_settings", False)
+        self._updating_playback_settings = True
+        try:
+            for name, value in (("playback_speed_row", settings.speed),
+                                ("cue_pre_roll_row", settings.pre_roll_ms),
+                                ("cue_post_roll_row", settings.post_roll_ms)):
+                row = getattr(self, name, None)
+                if row is not None:
+                    row.set_value(value)
+        finally:
+            self._updating_playback_settings = updating
+        if self._cue_playback is not None:
+            self._refresh_cue_bounds()
+        try:
+            prefs = read_preferences()
+            prefs.update(settings.to_preferences())
+            write_preferences(prefs)
+        except Exception as error:
+            logger.warning("Could not save cue playback settings: %s", error)
+        return True
 
     # ------------------------------------------------------------------ #
     # Waveform
@@ -1447,6 +1735,7 @@ class VideoPlayerWidget(Gtk.Box):
         # libmpv aborts (a live render context still references the core). The
         # GLArea child's "unrealize" handler frees it later, so we free it here
         # first to guarantee correct ordering regardless of signal order.
+        self.clear_cue_playback(pause=True)
         self._disposed = True
         if self._redraw_source is not None:
             GLib.source_remove(self._redraw_source)

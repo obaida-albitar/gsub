@@ -252,7 +252,13 @@ def _open(win, tmp_path, name, content):
     path = _write(tmp_path, name, content)
     win.toasts.clear()
     win.errors.clear()
-    win.open_file(Gio.File.new_for_path(path))
+    # This module shares one window; starting a scenario intentionally
+    # discards the previous scenario's state. Public save guards are tested
+    # separately in test_save_protection.py.
+    win.editor_panel.flush_pending_changes()
+    if win.document is not None:
+        win.document.modified = False
+    win._open_file_now(Gio.File.new_for_path(path))
     _pump()
     return path
 
@@ -510,9 +516,10 @@ class TestOpenFile:
         assert any("compatibility issue" in t for t in window.toasts)
 
     def test_open_unsupported_extension_shows_error(self, window, tmp_path):
+        previous = window.document
         _open(window, tmp_path, "old.doc", SRT_CONTENT.replace("\n", " "))
 
-        assert window.document is None
+        assert window.document is previous
         assert any("Unsupported file format" in e for e in window.errors)
 
 
@@ -1499,7 +1506,7 @@ def test_real_editing_example_opens_checks_replaces_and_saves(window, tmp_path, 
     config = window._load_config()
     config["quality_settings"] = QualitySettings().to_dict()
     window._save_config(config)
-    window.open_file(Gio.File.new_for_path(str(path)))
+    window._open_file_now(Gio.File.new_for_path(str(path)))
     _pump()
     window._on_quality_check(None, None)
     quality = window._quality_dialog
@@ -1666,9 +1673,11 @@ class TestEditingTools:
         assert any(issue.code == "text.reading_speed" for issue in dialog.issues)
         window.current_video_file = "preview.mp4"
         try:
-            dialog._on_issue_activated(None, 1)
+            window._select_issue_entry(1)
             assert window.subtitle_list.get_selected_position() == 1
             assert window.video_player.position == 2.5
+            assert window._quality_dialog is dialog
+            assert window.review_stack.get_visible_child_name() == "quality"
         finally:
             window.current_video_file = None
             window._close_document_dialogs()

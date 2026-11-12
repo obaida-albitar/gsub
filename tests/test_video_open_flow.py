@@ -112,6 +112,10 @@ class _FakeWindow:
         self.right_paned = _FakeWidget()
         self.toasts = []
         self.errors = []
+        self.selection_actions_refreshed = False
+
+    def _update_selection_actions(self):
+        self.selection_actions_refreshed = True
 
     def _navigate_to_editor(self):
         self.order.append(("navigate_to_editor",))
@@ -142,6 +146,7 @@ class TestLoadVideoPath:
 
         assert win.current_video_file == "/movies/example.mkv"
         assert win.video_player.loaded == "/movies/example.mkv"
+        assert win.selection_actions_refreshed
         assert win.video_visible is True
         assert win.video_container.called("set_visible") == [True]
         assert win.video_button.called("set_active") == [True]
